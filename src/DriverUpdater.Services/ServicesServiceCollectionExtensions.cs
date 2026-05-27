@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Services.Scanning;
+using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DriverUpdater.Services;
@@ -10,6 +11,7 @@ public static class ServicesServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IDriverScanService, DriverScanService>();
+        services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         return services;
     }
 }

@@ -19,7 +19,7 @@ public class MainViewModelTests
         vm.Drivers.Should().HaveCount(2);
         vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo(["A", "B"]);
         vm.IsScanning.Should().BeFalse();
-        vm.StatusText.Should().StartWith("Scan complete.");
+        vm.StatusText.Should().StartWith("Done.");
     }
 
     [WpfFact]
@@ -76,7 +76,7 @@ public class MainViewModelTests
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>
-        new(new FakeScanService(drivers), NullLogger<MainViewModel>.Instance);
+        new(new FakeScanService(drivers), Array.Empty<IUpdateSource>(), NullLogger<MainViewModel>.Instance);
 
     private static DriverInfo NewDriver(string name, DriverCategory category) => new(
         DeviceId: $"ID\\{name}",

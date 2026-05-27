@@ -108,28 +108,34 @@
                   EnableRowVirtualization="True"
                   ItemsSource="{Binding DriversView}">
             <DataGrid.Columns>
+                <DataGridTextColumn Header="Status"
+                                    Binding="{Binding Status}"
+                                    Width="90" />
                 <DataGridTextColumn Header="Device"
                                     Binding="{Binding DeviceName}"
                                     Width="*"
-                                    MinWidth="220" />
+                                    MinWidth="200" />
                 <DataGridTextColumn Header="Category"
                                     Binding="{Binding Category}"
-                                    Width="120" />
-                <DataGridTextColumn Header="Class"
-                                    Binding="{Binding DeviceClass}"
-                                    Width="120" />
+                                    Width="110" />
                 <DataGridTextColumn Header="Version"
                                     Binding="{Binding CurrentVersionText}"
-                                    Width="130" />
+                                    Width="120" />
                 <DataGridTextColumn Header="Date"
                                     Binding="{Binding CurrentDateText}"
+                                    Width="100" />
+                <DataGridTextColumn Header="Available"
+                                    Binding="{Binding AvailableVersionText}"
+                                    Width="120" />
+                <DataGridTextColumn Header="Available date"
+                                    Binding="{Binding AvailableDateText}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Source"
+                                    Binding="{Binding SourceText}"
                                     Width="110" />
                 <DataGridTextColumn Header="Provider"
                                     Binding="{Binding Provider}"
-                                    Width="170" />
-                <DataGridCheckBoxColumn Header="Signed"
-                                        Binding="{Binding IsSigned}"
-                                        Width="70" />
+                                    Width="160" />
             </DataGrid.Columns>
         </DataGrid>
 

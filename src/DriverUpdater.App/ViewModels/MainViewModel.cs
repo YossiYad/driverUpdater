@@ -13,6 +13,7 @@ namespace DriverUpdater.App.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly IDriverScanService _scanService;
+    private readonly IReadOnlyList<IUpdateSource> _updateSources;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -35,6 +36,10 @@ public partial class MainViewModel : ObservableObject
     private int _scannedCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    private int _updatesFoundCount;
+
+    [ObservableProperty]
     private DriverCategory? _categoryFilter;
 
     [ObservableProperty]
@@ -43,14 +48,19 @@ public partial class MainViewModel : ObservableObject
     public string ProgressText => IsScanning
         ? $"Scanning... {ScannedCount} drivers found"
         : ScannedCount > 0
-            ? $"{ScannedCount} drivers"
+            ? $"{ScannedCount} drivers ({UpdatesFoundCount} updates available)"
             : string.Empty;
 
-    public MainViewModel(IDriverScanService scanService, ILogger<MainViewModel> logger)
+    public MainViewModel(
+        IDriverScanService scanService,
+        IEnumerable<IUpdateSource> updateSources,
+        ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(scanService);
+        ArgumentNullException.ThrowIfNull(updateSources);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
+        _updateSources = updateSources.ToArray();
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -66,6 +76,7 @@ public partial class MainViewModel : ObservableObject
         IsScanning = true;
         Drivers.Clear();
         ScannedCount = 0;
+        UpdatesFoundCount = 0;
         StatusText = "Scanning drivers via WMI...";
         var stopwatch = Stopwatch.StartNew();
 
@@ -77,9 +88,13 @@ public partial class MainViewModel : ObservableObject
                 ScannedCount = Drivers.Count;
             }
 
-            stopwatch.Stop();
-            StatusText = $"Scan complete. {Drivers.Count} drivers in {stopwatch.Elapsed.TotalSeconds:F1}s.";
-            _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, stopwatch.Elapsed);
+            var elapsed = stopwatch.Elapsed;
+            StatusText = $"Scan complete. {Drivers.Count} drivers in {elapsed.TotalSeconds:F1}s. Querying update sources...";
+            _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, elapsed);
+
+            await QueryUpdateSourcesAsync(cancellationToken);
+
+            StatusText = $"Done. {Drivers.Count} drivers, {UpdatesFoundCount} updates available.";
         }
         catch (OperationCanceledException)
         {
@@ -97,6 +112,81 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
+    {
+        if (_updateSources.Count == 0 || Drivers.Count == 0)
+        {
+            return;
+        }
+
+        var index = BuildHardwareIdIndex();
+        var driverSnapshots = Drivers.Select(d => d.Driver).ToArray();
+
+        foreach (var source in _updateSources)
+        {
+            try
+            {
+                StatusText = $"Querying {source.DisplayName}...";
+                _logger.LogInformation("Querying {Source}", source.DisplayName);
+
+                await foreach (var candidate in source.SearchAsync(driverSnapshots, cancellationToken))
+                {
+                    if (TryFindRow(index, candidate.ForHardwareId, out var row) && candidate.IsNewerThan(row.Driver))
+                    {
+                        row.AvailableUpdate = candidate;
+                        row.Status = DriverStatus.Outdated;
+                        UpdatesFoundCount = CountOutdated();
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Source {Source} failed", source.DisplayName);
+                StatusText = $"{source.DisplayName} failed: {ex.Message}";
+            }
+        }
+    }
+
+    private Dictionary<string, List<DriverRowViewModel>> BuildHardwareIdIndex()
+    {
+        var dict = new Dictionary<string, List<DriverRowViewModel>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            var key = row.HardwareId;
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+            if (!dict.TryGetValue(key, out var bucket))
+            {
+                bucket = new List<DriverRowViewModel>();
+                dict[key] = bucket;
+            }
+            bucket.Add(row);
+        }
+        return dict;
+    }
+
+    private static bool TryFindRow(
+        Dictionary<string, List<DriverRowViewModel>> index,
+        string hardwareId,
+        out DriverRowViewModel row)
+    {
+        if (!string.IsNullOrWhiteSpace(hardwareId) && index.TryGetValue(hardwareId, out var bucket) && bucket.Count > 0)
+        {
+            row = bucket[0];
+            return true;
+        }
+        row = null!;
+        return false;
+    }
+
+    private int CountOutdated() => Drivers.Count(d => d.Status == DriverStatus.Outdated);
+
     private bool CanScan() => !IsScanning;
 
     [RelayCommand]
@@ -104,6 +194,7 @@ public partial class MainViewModel : ObservableObject
     {
         Drivers.Clear();
         ScannedCount = 0;
+        UpdatesFoundCount = 0;
         StatusText = "Cleared.";
     }
 

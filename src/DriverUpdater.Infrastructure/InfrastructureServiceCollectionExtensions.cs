@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Infrastructure.Wmi;
+using DriverUpdater.Infrastructure.WuApi;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DriverUpdater.Infrastructure;
@@ -10,6 +11,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IWmiQueryRunner, WmiQueryRunner>();
+        services.AddSingleton<IWuApiClient, WuApiClient>();
         return services;
     }
 }
