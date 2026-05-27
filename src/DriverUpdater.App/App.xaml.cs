@@ -2,8 +2,10 @@ using System.IO;
 using System.Windows;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
+using DriverUpdater.Core.Options;
 using DriverUpdater.Infrastructure;
 using DriverUpdater.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -35,10 +37,20 @@ public partial class App : Application
             .Enrich.FromLogContext()
             .CreateLogger();
 
+        var settingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DriverUpdater",
+            "settings.json");
+
         _host = Host.CreateDefaultBuilder()
             .UseSerilog()
-            .ConfigureServices((_, services) =>
+            .ConfigureAppConfiguration(builder =>
             {
+                builder.AddJsonFile(settingsPath, optional: true, reloadOnChange: true);
+            })
+            .ConfigureServices((context, services) =>
+            {
+                services.Configure<CatalogSettings>(context.Configuration.GetSection(CatalogSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<MainViewModel>();
