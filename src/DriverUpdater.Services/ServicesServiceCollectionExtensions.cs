@@ -1,4 +1,5 @@
 using DriverUpdater.Core.Abstractions;
+using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Scanning;
 using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,8 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IOemDetectionService, OemDetectionService>();
+        services.AddSingleton<IBackupService, BackupService>();
+        services.AddSingleton<IRestorePointService, RestorePointService>();
         return services;
     }
 }
