@@ -86,41 +86,44 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="0"
-                        Content="Scan now"
-                        Padding="14,6"
-                        Command="{Binding ScanCommand}"
-                        Style="{DynamicResource AccentButtonStyle}" />
-                <Button Grid.Column="1"
-                        Margin="8,0,0,0"
-                        Padding="14,6"
-                        Content="Cancel"
-                        Command="{Binding ScanCancelCommand}"
-                        IsEnabled="{Binding IsScanning}" />
-                <Button Grid.Column="2"
-                        Margin="8,0,0,0"
-                        Padding="14,6"
-                        Content="Clear"
-                        Command="{Binding ClearCommand}" />
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button Content="Scan now"
+                            Padding="14,6"
+                            Command="{Binding ScanCommand}"
+                            Style="{DynamicResource AccentButtonStyle}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="Cancel"
+                            Command="{Binding ScanCancelCommand}"
+                            IsEnabled="{Binding IsScanning}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="Clear"
+                            Command="{Binding ClearCommand}" />
+                    <Button Margin="24,0,0,0"
+                            Padding="14,6"
+                            Content="Update outdated"
+                            Command="{Binding UpdateOutdatedCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="Dry run"
+                            Command="{Binding DryRunOutdatedCommand}" />
+                </StackPanel>
 
-                <TextBox Grid.Column="4"
-                         Width="240"
-                         Margin="0,0,8,0"
-                         ui:ControlHelper.PlaceholderText="Search device, provider, hardware ID..."
-                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" />
-
-                <ComboBox Grid.Column="5"
-                          Width="180"
-                          ui:ControlHelper.PlaceholderText="All categories"
-                          ItemsSource="{Binding AvailableCategories}"
-                          SelectedItem="{Binding CategoryFilter}" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBox Width="240"
+                             Margin="0,0,8,0"
+                             ui:ControlHelper.PlaceholderText="Search device, provider, hardware ID..."
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" />
+                    <ComboBox Width="180"
+                              ui:ControlHelper.PlaceholderText="All categories"
+                              ItemsSource="{Binding AvailableCategories}"
+                              SelectedItem="{Binding CategoryFilter}" />
+                </StackPanel>
             </Grid>
         </Border>
 

@@ -15,6 +15,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IDriverScanService _scanService;
     private readonly IReadOnlyList<IUpdateSource> _updateSources;
     private readonly IOemDetectionService _oemDetectionService;
+    private readonly IInstallPipeline _installPipeline;
+    private readonly IInstallConfirmation _installConfirmation;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -63,15 +65,21 @@ public partial class MainViewModel : ObservableObject
         IDriverScanService scanService,
         IEnumerable<IUpdateSource> updateSources,
         IOemDetectionService oemDetectionService,
+        IInstallPipeline installPipeline,
+        IInstallConfirmation installConfirmation,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
         ArgumentNullException.ThrowIfNull(oemDetectionService);
+        ArgumentNullException.ThrowIfNull(installPipeline);
+        ArgumentNullException.ThrowIfNull(installConfirmation);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
         _oemDetectionService = oemDetectionService;
+        _installPipeline = installPipeline;
+        _installConfirmation = installConfirmation;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -220,6 +228,76 @@ public partial class MainViewModel : ObservableObject
         UpdatesFoundCount = 0;
         StatusText = "Cleared.";
     }
+
+    [RelayCommand]
+    private async Task UpdateOutdatedAsync(CancellationToken cancellationToken)
+    {
+        await RunUpdatesAsync(dryRun: false, cancellationToken).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task DryRunOutdatedAsync(CancellationToken cancellationToken)
+    {
+        await RunUpdatesAsync(dryRun: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task RunUpdatesAsync(bool dryRun, CancellationToken cancellationToken)
+    {
+        var targets = Drivers
+            .Where(r => r.Status == DriverStatus.Outdated && r.AvailableUpdate is not null)
+            .ToArray();
+
+        if (targets.Length == 0)
+        {
+            StatusText = "No outdated drivers to update.";
+            return;
+        }
+
+        var firstTarget = targets[0];
+        var sampleOperation = UpdateOperation.NewPending(firstTarget.AvailableUpdate!, firstTarget.Driver);
+        var confirmResult = _installConfirmation.Confirm(sampleOperation, dryRun);
+        if (confirmResult is null)
+        {
+            StatusText = "Update cancelled.";
+            return;
+        }
+        var options = confirmResult;
+
+        foreach (var row in targets)
+        {
+            if (row.AvailableUpdate is null)
+            {
+                continue;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
+            StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
+
+            var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
+            {
+                row.Status = MapOperationStatus(report.Status);
+                StatusText = $"{report.Status}: {row.DeviceName}";
+            }), cancellationToken).ConfigureAwait(true);
+
+            row.Status = MapOperationStatus(finished.Status);
+            row.LastOperation = finished;
+            _logger.LogInformation("Operation {Id} finished with {Status}", finished.OperationId, finished.Status);
+        }
+
+        StatusText = dryRun
+            ? $"Dry run completed for {targets.Length} drivers."
+            : $"Install completed for {targets.Length} drivers.";
+    }
+
+    private static DriverStatus MapOperationStatus(UpdateStatus status) => status switch
+    {
+        UpdateStatus.Succeeded => DriverStatus.UpToDate,
+        UpdateStatus.Failed => DriverStatus.Error,
+        UpdateStatus.RolledBack => DriverStatus.Outdated,
+        UpdateStatus.Cancelled or UpdateStatus.Skipped => DriverStatus.Outdated,
+        _ => DriverStatus.Outdated
+    };
 
     [RelayCommand(CanExecute = nameof(CanOpenOemTool))]
     private void OpenOemTool()

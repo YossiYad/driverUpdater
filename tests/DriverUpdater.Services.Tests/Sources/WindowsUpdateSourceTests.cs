@@ -155,5 +155,10 @@ public class WindowsUpdateSourceTests
                 yield return record;
             }
         }
+
+        public Task<DriverUpdater.Core.Results.Result<WuInstallResult>> DownloadAndInstallAsync(
+            string updateId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

@@ -16,6 +16,9 @@ public partial class DriverRowViewModel : ObservableObject
     [ObservableProperty]
     private UpdateCandidate? _availableUpdate;
 
+    [ObservableProperty]
+    private UpdateOperation? _lastOperation;
+
     public DriverRowViewModel(DriverInfo driver)
     {
         ArgumentNullException.ThrowIfNull(driver);

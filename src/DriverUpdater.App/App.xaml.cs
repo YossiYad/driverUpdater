@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
 using DriverUpdater.Core.Options;
@@ -54,6 +55,7 @@ public partial class App : Application
                 services.Configure<BackupSettings>(context.Configuration.GetSection(BackupSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
+                services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
                 services.AddSingleton<MainViewModel>();
                 services.AddSingleton<MainWindow>();
             })

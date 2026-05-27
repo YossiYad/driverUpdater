@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Results;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Infrastructure.WuApi;
@@ -30,6 +31,115 @@ public sealed class WuApiClient : IWuApiClient
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return record;
+        }
+    }
+
+    public async Task<Result<WuInstallResult>> DownloadAndInstallAsync(
+        string updateId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(updateId);
+
+        return await Task.Run(() => DownloadAndInstall(updateId, cancellationToken), cancellationToken).ConfigureAwait(false);
+    }
+
+    private Result<WuInstallResult> DownloadAndInstall(string updateId, CancellationToken cancellationToken)
+    {
+        var sessionType = Type.GetTypeFromProgID(SessionProgId)
+            ?? throw new InvalidOperationException($"COM type '{SessionProgId}' is not registered.");
+
+        var collectionType = Type.GetTypeFromProgID("Microsoft.Update.UpdateColl")
+            ?? throw new InvalidOperationException("COM type 'Microsoft.Update.UpdateColl' is not registered.");
+
+        var tracked = new Stack<object>();
+        try
+        {
+            dynamic? session = Activator.CreateInstance(sessionType);
+            if (session is null)
+            {
+                return ResultError.From("WU_SESSION_FAILED", "Could not create Microsoft.Update.Session.");
+            }
+            Track(tracked, session);
+            session.ClientApplicationID = "DriverUpdater";
+
+            dynamic searcher = session.CreateUpdateSearcher();
+            Track(tracked, searcher);
+            searcher.ServerSelection = ServerSelectionWindowsUpdate;
+
+            var criteria = $"UpdateID='{updateId.Replace("'", "''", StringComparison.Ordinal)}' AND Type='Driver'";
+            _logger.LogInformation("Locating WU driver update {UpdateId}", updateId);
+            dynamic searchResult = searcher.Search(criteria);
+            Track(tracked, searchResult);
+
+            dynamic foundUpdates = searchResult.Updates;
+            Track(tracked, foundUpdates);
+            int foundCount = (int)foundUpdates.Count;
+            if (foundCount == 0)
+            {
+                return ResultError.From("WU_NOT_FOUND", $"WU update {updateId} not found or already installed.");
+            }
+
+            dynamic update = foundUpdates.Item(0);
+            Track(tracked, update);
+            string title = (string)update.Title;
+
+            dynamic? collection = Activator.CreateInstance(collectionType);
+            if (collection is null)
+            {
+                return ResultError.From("WU_COLLECTION_FAILED", "Could not create UpdateColl.");
+            }
+            Track(tracked, collection);
+            collection.Add(update);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            dynamic downloader = session.CreateUpdateDownloader();
+            Track(tracked, downloader);
+            downloader.Updates = collection;
+            _logger.LogInformation("Downloading WU update '{Title}'", title);
+            dynamic dlResult = downloader.Download();
+            Track(tracked, dlResult);
+
+            int dlResultCode = (int)dlResult.ResultCode;
+            if (dlResultCode != 2 && dlResultCode != 3)
+            {
+                return ResultError.From("WU_DOWNLOAD_FAILED", $"Download result code {dlResultCode} for '{title}'.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            dynamic installer = session.CreateUpdateInstaller();
+            Track(tracked, installer);
+            installer.Updates = collection;
+            _logger.LogInformation("Installing WU update '{Title}'", title);
+            dynamic instResult = installer.Install();
+            Track(tracked, instResult);
+
+            int instResultCode = (int)instResult.ResultCode;
+            int hResult = (int)instResult.HResult;
+            bool rebootRequired = (bool)instResult.RebootRequired;
+
+            if (instResultCode != 2 && instResultCode != 3)
+            {
+                return ResultError.From("WU_INSTALL_FAILED",
+                    $"Install result code {instResultCode}, HRESULT 0x{hResult:X8} for '{title}'.");
+            }
+
+            return new WuInstallResult(hResult, rebootRequired, title);
+        }
+        finally
+        {
+            while (tracked.Count > 0)
+            {
+                var obj = tracked.Pop();
+                try
+                {
+                    Marshal.FinalReleaseComObject(obj);
+                }
+                catch
+                {
+                }
+            }
         }
     }
 

@@ -1,0 +1,120 @@
+<Window x:Class="DriverUpdater.App.Views.Dialogs.ConfirmUpdateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:ConfirmUpdateDialogViewModel}"
+        Title="Confirm driver update"
+        Width="640"
+        Height="540"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ui:WindowHelper.UseModernWindowStyle="True">
+
+    <Grid Margin="24,16,24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Confirm driver update"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,4" />
+
+        <TextBlock Grid.Row="1"
+                   Text="{Binding Operation.TargetSnapshot.DeviceName}"
+                   FontSize="14"
+                   Opacity="0.7"
+                   Margin="0,0,0,16" />
+
+        <Border Grid.Row="2"
+                Padding="14,10"
+                CornerRadius="6"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Current" FontWeight="SemiBold" Opacity="0.8" />
+                    <TextBlock Margin="0,4,0,0" Text="{Binding Operation.TargetSnapshot.CurrentVersion, FallbackValue=Unknown}" />
+                    <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.TargetSnapshot.CurrentDate, FallbackValue=Unknown}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Available" FontWeight="SemiBold" Opacity="0.8" />
+                    <TextBlock Margin="0,4,0,0" Text="{Binding Operation.Candidate.NewVersion}" />
+                    <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.Candidate.NewDate}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3"
+                Margin="0,12,0,0"
+                Padding="14,10"
+                CornerRadius="6"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel>
+                <TextBlock Text="Source" FontWeight="SemiBold" Opacity="0.8" />
+                <TextBlock Margin="0,4,0,0" Text="{Binding Operation.Candidate.Source}" />
+                <TextBlock Opacity="0.6" FontSize="12" Text="{Binding SizeText}" />
+                <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.Candidate.DownloadUrl}" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="4"
+                Margin="0,12,0,0"
+                Padding="14,10"
+                CornerRadius="6"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel>
+                <CheckBox Content="Create system restore point before installing"
+                          IsChecked="{Binding CreateRestorePoint}" />
+                <CheckBox Margin="0,4,0,0"
+                          Content="Back up current driver before installing"
+                          IsChecked="{Binding BackupCurrentDriver}" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="5"
+                Margin="0,12,0,0"
+                Padding="14,10"
+                CornerRadius="6"
+                Background="#FFFFF4E5"
+                Visibility="{Binding ShowRiskWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock TextWrapping="Wrap"
+                       Foreground="#FF8B5A00"
+                       FontSize="12">
+                <Run FontWeight="SemiBold" Text="Caution: " />
+                <Run Text="Storage and display drivers can prevent Windows from booting if they fail. The restore point and backup mitigate but do not eliminate this risk." />
+            </TextBlock>
+        </Border>
+
+        <StackPanel Grid.Row="6"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,16,0,0">
+            <Button MinWidth="100"
+                    Content="Cancel"
+                    IsCancel="True"
+                    Click="OnCancel" />
+            <Button MinWidth="100"
+                    Margin="8,0,0,0"
+                    Content="Proceed"
+                    IsDefault="True"
+                    Style="{DynamicResource AccentButtonStyle}"
+                    Click="OnProceed" />
+        </StackPanel>
+    </Grid>
+</Window>
