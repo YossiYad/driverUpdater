@@ -7,7 +7,7 @@
         xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
-        Title="DriverUpdater"
+        Title="{DynamicResource App.Title}"
         Width="1200" Height="780"
         MinWidth="980" MinHeight="600"
         ui:WindowHelper.UseModernWindowStyle="True"
@@ -26,7 +26,7 @@
                 Padding="20,14"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="DriverUpdater"
+                <TextBlock Text="{DynamicResource App.Title}"
                            FontSize="22"
                            FontWeight="SemiBold"
                            VerticalAlignment="Center" />
@@ -37,7 +37,7 @@
                         Background="#FF2E7D32"
                         VerticalAlignment="Center">
                     <TextBlock x:Name="AdminBadgeText"
-                               Text="Administrator"
+                               Text="{DynamicResource App.Admin}"
                                Foreground="White"
                                FontSize="11"
                                FontWeight="SemiBold" />
@@ -45,7 +45,7 @@
                 <TextBlock Margin="14,0,0,0"
                            VerticalAlignment="Center"
                            Opacity="0.7"
-                           Text="v0.1.0" />
+                           Text="{DynamicResource App.Version}" />
             </StackPanel>
         </Border>
 
@@ -91,34 +91,34 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <Button Content="Scan now"
+                    <Button Content="{DynamicResource Toolbar.Scan}"
                             Padding="14,6"
                             Command="{Binding ScanCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
                     <Button Margin="8,0,0,0"
                             Padding="14,6"
-                            Content="Cancel"
+                            Content="{DynamicResource Toolbar.Cancel}"
                             Command="{Binding ScanCancelCommand}"
                             IsEnabled="{Binding IsScanning}" />
                     <Button Margin="8,0,0,0"
                             Padding="14,6"
-                            Content="Clear"
+                            Content="{DynamicResource Toolbar.Clear}"
                             Command="{Binding ClearCommand}" />
                     <Button Margin="24,0,0,0"
                             Padding="14,6"
-                            Content="Update outdated"
+                            Content="{DynamicResource Toolbar.UpdateOutdated}"
                             Command="{Binding UpdateOutdatedCommand}" />
                     <Button Margin="8,0,0,0"
                             Padding="14,6"
-                            Content="Dry run"
+                            Content="{DynamicResource Toolbar.DryRun}"
                             Command="{Binding DryRunOutdatedCommand}" />
                     <Button Margin="24,0,0,0"
                             Padding="14,6"
-                            Content="History"
+                            Content="{DynamicResource Toolbar.History}"
                             Command="{Binding OpenHistoryCommand}" />
                     <Button Margin="8,0,0,0"
                             Padding="14,6"
-                            Content="Settings"
+                            Content="{DynamicResource Toolbar.Settings}"
                             Command="{Binding OpenSettingsCommand}" />
                 </StackPanel>
 

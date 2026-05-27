@@ -55,9 +55,11 @@ public partial class App : Application
                 services.Configure<BackupSettings>(context.Configuration.GetSection(BackupSettings.SectionName));
                 services.Configure<HistorySettings>(context.Configuration.GetSection(HistorySettings.SectionName));
                 services.Configure<ScheduleSettings>(context.Configuration.GetSection(ScheduleSettings.SectionName));
+                services.Configure<LanguageSettings>(context.Configuration.GetSection(LanguageSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
+                services.AddSingleton<ILocalizationService, LocalizationService>();
                 services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
                 services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
                 services.AddSingleton<MainViewModel>();
@@ -70,6 +72,10 @@ public partial class App : Application
             .Build();
 
         await _host.StartAsync();
+
+        var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
+        var localization = _host.Services.GetRequiredService<ILocalizationService>();
+        localization.ApplyLanguage(languageSettings.Language);
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;

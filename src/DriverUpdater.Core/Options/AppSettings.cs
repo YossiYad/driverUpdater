@@ -6,4 +6,5 @@ public sealed class AppSettings
     public BackupSettings Backup { get; set; } = new();
     public HistorySettings History { get; set; } = new();
     public ScheduleSettings Schedule { get; set; } = new();
+    public LanguageSettings Language { get; set; } = new();
 }

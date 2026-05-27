@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
@@ -11,11 +12,15 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsStore _settingsStore;
     private readonly ISchedulerService _schedulerService;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
+    public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
+
+    [ObservableProperty] private AppLanguage _selectedLanguage = AppLanguage.SystemDefault;
 
     [ObservableProperty] private bool _enableWindowsUpdate = true;
     [ObservableProperty] private bool _enableMicrosoftCatalog;
@@ -41,13 +46,15 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(
         ISettingsStore settingsStore,
         ISchedulerService schedulerService,
-        ILogger<SettingsViewModel> logger)
+        ILogger<SettingsViewModel> logger,
+        ILocalizationService? localizationService = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
         ArgumentNullException.ThrowIfNull(logger);
         _settingsStore = settingsStore;
         _schedulerService = schedulerService;
+        _localizationService = localizationService;
         _logger = logger;
     }
 
@@ -103,6 +110,8 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
+            _localizationService?.ApplyLanguage(SelectedLanguage);
+
             StatusText = "Settings saved.";
         }
         catch (Exception ex)
@@ -147,6 +156,10 @@ public partial class SettingsViewModel : ObservableObject
             Cadence = ScheduleCadence,
             TimeOfDay = ScheduleTimeOfDay,
             DayOfWeek = ScheduleDayOfWeek
+        },
+        Language = new LanguageSettings
+        {
+            Language = SelectedLanguage
         }
     };
 
@@ -158,6 +171,7 @@ public partial class SettingsViewModel : ObservableObject
         ScheduleCadence = settings.Schedule.Cadence;
         ScheduleTimeOfDay = settings.Schedule.TimeOfDay;
         ScheduleDayOfWeek = settings.Schedule.DayOfWeek;
+        SelectedLanguage = settings.Language.Language;
         AcceptedAutoUpdateRisk = settings.Schedule.Mode == ScheduleMode.ScanAndUpdate;
     }
 }

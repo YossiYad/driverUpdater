@@ -49,7 +49,7 @@ Get-ChildItem -Path $RepoRoot -Recurse -File | Where-Object {
     $file = $_.FullName
     $relativePath = $file.Substring($RepoRoot.Length).TrimStart('\', '/')
     try {
-        $content = Get-Content -Raw -Path $file -ErrorAction Stop
+        $content = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
     }
     catch {
         return
