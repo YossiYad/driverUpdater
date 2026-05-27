@@ -13,6 +13,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IDriverScanService, DriverScanService>();
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
+        services.AddSingleton<IOemDetectionService, OemDetectionService>();
         return services;
     }
 }

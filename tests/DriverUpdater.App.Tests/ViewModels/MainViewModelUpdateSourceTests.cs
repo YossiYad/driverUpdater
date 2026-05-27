@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -69,6 +70,7 @@ public class MainViewModelUpdateSourceTests
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             sources,
+            new NullOemDetectionService(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -106,6 +108,7 @@ public class MainViewModelUpdateSourceTests
     private static MainViewModel NewVm(IEnumerable<DriverInfo> drivers, IEnumerable<UpdateCandidate> candidates) =>
         new(new FakeScanService(drivers),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
+            new NullOemDetectionService(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class FakeScanService : IDriverScanService

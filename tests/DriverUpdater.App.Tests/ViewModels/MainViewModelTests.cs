@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -76,7 +77,10 @@ public class MainViewModelTests
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>
-        new(new FakeScanService(drivers), Array.Empty<IUpdateSource>(), NullLogger<MainViewModel>.Instance);
+        new(new FakeScanService(drivers),
+            Array.Empty<IUpdateSource>(),
+            new NullOemDetectionService(),
+            NullLogger<MainViewModel>.Instance);
 
     private static DriverInfo NewDriver(string name, DriverCategory category) => new(
         DeviceId: $"ID\\{name}",
