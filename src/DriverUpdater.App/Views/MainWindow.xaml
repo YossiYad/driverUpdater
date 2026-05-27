@@ -1,0 +1,71 @@
+<Window x:Class="DriverUpdater.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="DriverUpdater"
+        Width="1100" Height="720"
+        MinWidth="900" MinHeight="600"
+        ui:WindowHelper.UseModernWindowStyle="True">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="20,16"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="DriverUpdater"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Border x:Name="AdminBadge"
+                        Margin="14,0,0,0"
+                        Padding="10,3"
+                        CornerRadius="10"
+                        Background="#FF2E7D32"
+                        VerticalAlignment="Center">
+                    <TextBlock x:Name="AdminBadgeText"
+                               Text="Administrator"
+                               Foreground="White"
+                               FontSize="11"
+                               FontWeight="SemiBold" />
+                </Border>
+                <TextBlock Margin="14,0,0,0"
+                           VerticalAlignment="Center"
+                           Opacity="0.7"
+                           Text="v0.1.0" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Padding="40">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="640">
+                <TextBlock Text="Scaffold ready"
+                           FontSize="32"
+                           FontWeight="Light"
+                           HorizontalAlignment="Center" />
+                <TextBlock Margin="0,16,0,0"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Opacity="0.75"
+                           Text="The application shell, DI host, logging, and theme are wired up. Driver scanning, update sources, backup, scheduler, history, and settings will be added in subsequent pull requests." />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2"
+                Padding="20,10"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <TextBlock x:Name="StatusText"
+                       Text="Idle"
+                       Opacity="0.7"
+                       FontSize="12" />
+        </Border>
+    </Grid>
+</Window>

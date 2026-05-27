@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore DriverUpdater.slnx
+
+      - name: Build
+        run: dotnet build DriverUpdater.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test DriverUpdater.slnx --no-build --configuration Release --filter "Category!=Integration"
+
+  lint-text:
+    name: Forbidden text scan
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run text lint
+        shell: pwsh
+        run: ./build/lint-text.ps1
