@@ -1,0 +1,69 @@
+## Visual Studio + .NET
+
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+.vs/
+.vscode/
+*.swp
+
+## Build artifacts
+
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+## NuGet
+
+*.nupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+
+## Rider
+
+.idea/
+*.sln.iml
+
+## ReSharper
+
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+## Velopack output
+
+Releases/
+build/output/
+
+## Test results
+
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.xml
+coverage*.json
+
+## App-local runtime data (should never be committed)
+
+local-data/
+*.db
+*.db-shm
+*.db-wal
+
+## OS
+
+Thumbs.db
+Desktop.ini
+.DS_Store
