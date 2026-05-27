@@ -1,9 +1,10 @@
 using System.IO;
 using System.Windows;
 using DriverUpdater.App.Views;
+using DriverUpdater.Infrastructure;
+using DriverUpdater.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Serilog;
 
 namespace DriverUpdater.App;
@@ -37,6 +38,8 @@ public partial class App : Application
             .UseSerilog()
             .ConfigureServices((_, services) =>
             {
+                services.AddDriverUpdaterInfrastructure();
+                services.AddDriverUpdaterServices();
                 services.AddSingleton<MainWindow>();
             })
             .Build();
