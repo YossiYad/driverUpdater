@@ -14,6 +14,7 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly IDriverScanService _scanService;
     private readonly IReadOnlyList<IUpdateSource> _updateSources;
+    private readonly IOemDetectionService _oemDetectionService;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -45,6 +46,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _searchText = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOem))]
+    [NotifyCanExecuteChangedFor(nameof(OpenOemToolCommand))]
+    private OemInfo? _detectedOem;
+
+    public bool HasOem => DetectedOem is not null;
+
     public string ProgressText => IsScanning
         ? $"Scanning... {ScannedCount} drivers found"
         : ScannedCount > 0
@@ -54,13 +62,16 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         IDriverScanService scanService,
         IEnumerable<IUpdateSource> updateSources,
+        IOemDetectionService oemDetectionService,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
+        ArgumentNullException.ThrowIfNull(oemDetectionService);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
+        _oemDetectionService = oemDetectionService;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -69,6 +80,18 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnCategoryFilterChanged(DriverCategory? value) => DriversView.Refresh();
     partial void OnSearchTextChanged(string value) => DriversView.Refresh();
+
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            DetectedOem = await _oemDetectionService.DetectAsync(cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OEM detection failed");
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanScan), IncludeCancelCommand = true)]
     private async Task ScanAsync(CancellationToken cancellationToken)
@@ -197,6 +220,47 @@ public partial class MainViewModel : ObservableObject
         UpdatesFoundCount = 0;
         StatusText = "Cleared.";
     }
+
+    [RelayCommand(CanExecute = nameof(CanOpenOemTool))]
+    private void OpenOemTool()
+    {
+        var oem = DetectedOem;
+        if (oem is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (oem.ToolInstalled && !string.IsNullOrEmpty(oem.ToolPath))
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = oem.ToolPath,
+                    UseShellExecute = true
+                };
+                Process.Start(psi);
+                _logger.LogInformation("Launched OEM tool {Tool}", oem.ToolName);
+            }
+            else
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = oem.FallbackUrl.AbsoluteUri,
+                    UseShellExecute = true
+                };
+                Process.Start(psi);
+                _logger.LogInformation("Opened OEM URL {Url}", oem.FallbackUrl);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not open OEM tool or URL");
+            StatusText = $"Could not open {oem.ToolName}: {ex.Message}";
+        }
+    }
+
+    private bool CanOpenOemTool() => DetectedOem is not null;
 
     private bool FilterDriver(object? item)
     {
