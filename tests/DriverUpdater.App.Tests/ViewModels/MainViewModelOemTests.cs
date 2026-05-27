@@ -50,6 +50,7 @@ public class MainViewModelOemTests
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         Func<Task> act = () => vm.InitializeAsync();
@@ -73,6 +74,7 @@ public class MainViewModelOemTests
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class ConstantOemService : IOemDetectionService

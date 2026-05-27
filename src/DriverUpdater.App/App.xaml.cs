@@ -59,9 +59,12 @@ public partial class App : Application
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
                 services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
+                services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
                 services.AddSingleton<MainViewModel>();
                 services.AddTransient<HistoryViewModel>();
                 services.AddTransient<HistoryWindow>();
+                services.AddTransient<SettingsViewModel>();
+                services.AddTransient<SettingsWindow>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();

@@ -18,6 +18,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IInstallPipeline _installPipeline;
     private readonly IInstallConfirmation _installConfirmation;
     private readonly IHistoryWindowOpener _historyWindowOpener;
+    private readonly ISettingsWindowOpener _settingsWindowOpener;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -69,6 +70,7 @@ public partial class MainViewModel : ObservableObject
         IInstallPipeline installPipeline,
         IInstallConfirmation installConfirmation,
         IHistoryWindowOpener historyWindowOpener,
+        ISettingsWindowOpener settingsWindowOpener,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(scanService);
@@ -77,6 +79,7 @@ public partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(installPipeline);
         ArgumentNullException.ThrowIfNull(installConfirmation);
         ArgumentNullException.ThrowIfNull(historyWindowOpener);
+        ArgumentNullException.ThrowIfNull(settingsWindowOpener);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
@@ -84,6 +87,7 @@ public partial class MainViewModel : ObservableObject
         _installPipeline = installPipeline;
         _installConfirmation = installConfirmation;
         _historyWindowOpener = historyWindowOpener;
+        _settingsWindowOpener = settingsWindowOpener;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -228,6 +232,12 @@ public partial class MainViewModel : ObservableObject
     private void OpenHistory()
     {
         _historyWindowOpener.Open();
+    }
+
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        _settingsWindowOpener.Open();
     }
 
     [RelayCommand]
