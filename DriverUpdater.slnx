@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DriverUpdater.App/DriverUpdater.App.csproj" />
+    <Project Path="src/DriverUpdater.Core/DriverUpdater.Core.csproj" />
+    <Project Path="src/DriverUpdater.Infrastructure/DriverUpdater.Infrastructure.csproj" />
+    <Project Path="src/DriverUpdater.Services/DriverUpdater.Services.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DriverUpdater.Core.Tests/DriverUpdater.Core.Tests.csproj" />
+    <Project Path="tests/DriverUpdater.Infrastructure.Tests/DriverUpdater.Infrastructure.Tests.csproj" />
+    <Project Path="tests/DriverUpdater.Services.Tests/DriverUpdater.Services.Tests.csproj" />
+  </Folder>
+</Solution>
