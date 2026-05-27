@@ -51,6 +51,7 @@ public partial class App : Application
             .ConfigureServices((context, services) =>
             {
                 services.Configure<CatalogSettings>(context.Configuration.GetSection(CatalogSettings.SectionName));
+                services.Configure<BackupSettings>(context.Configuration.GetSection(BackupSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<MainViewModel>();
