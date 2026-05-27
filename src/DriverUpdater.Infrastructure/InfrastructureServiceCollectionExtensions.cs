@@ -1,6 +1,7 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Infrastructure.Catalog;
+using DriverUpdater.Infrastructure.History;
 using DriverUpdater.Infrastructure.PnPUtil;
 using DriverUpdater.Infrastructure.Powershell;
 using DriverUpdater.Infrastructure.Wmi;
@@ -20,6 +21,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IWuApiClient, WuApiClient>();
         services.AddSingleton<IPnPUtilRunner, PnPUtilRunner>();
         services.AddSingleton<IPowerShellInvoker, PowerShellInvoker>();
+        services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddMemoryCache();
 
         services.AddHttpClient<ICatalogHttpClient, CatalogHttpClient>(CatalogHttpClient.HttpClientName, (sp, client) =>

@@ -82,6 +82,7 @@ public class MainViewModelTests
             new NullOemDetectionService(),
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
     private static DriverInfo NewDriver(string name, DriverCategory category) => new(

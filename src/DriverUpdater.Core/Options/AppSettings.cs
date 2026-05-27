@@ -4,4 +4,5 @@ public sealed class AppSettings
 {
     public CatalogSettings Catalog { get; set; } = new();
     public BackupSettings Backup { get; set; } = new();
+    public HistorySettings History { get; set; } = new();
 }

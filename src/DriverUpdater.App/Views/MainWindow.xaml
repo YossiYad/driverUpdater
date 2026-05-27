@@ -112,6 +112,10 @@
                             Padding="14,6"
                             Content="Dry run"
                             Command="{Binding DryRunOutdatedCommand}" />
+                    <Button Margin="24,0,0,0"
+                            Padding="14,6"
+                            Content="History"
+                            Command="{Binding OpenHistoryCommand}" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">

@@ -18,6 +18,8 @@
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Polly" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Dapper" />
   </ItemGroup>
 
 </Project>
