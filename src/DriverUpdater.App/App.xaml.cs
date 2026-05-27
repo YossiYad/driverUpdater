@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Velopack;
 
 namespace DriverUpdater.App;
 
@@ -20,6 +21,8 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        VelopackApp.Build().Run();
 
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -56,10 +59,12 @@ public partial class App : Application
                 services.Configure<HistorySettings>(context.Configuration.GetSection(HistorySettings.SectionName));
                 services.Configure<ScheduleSettings>(context.Configuration.GetSection(ScheduleSettings.SectionName));
                 services.Configure<LanguageSettings>(context.Configuration.GetSection(LanguageSettings.SectionName));
+                services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
                 services.AddSingleton<ILocalizationService, LocalizationService>();
+                services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
                 services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
                 services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
                 services.AddSingleton<MainViewModel>();
@@ -80,6 +85,9 @@ public partial class App : Application
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
         mainWindow.Show();
+
+        var updater = _host.Services.GetRequiredService<IAppUpdater>();
+        _ = updater.CheckAndApplyAsync();
     }
 
     protected override async void OnExit(ExitEventArgs e)
