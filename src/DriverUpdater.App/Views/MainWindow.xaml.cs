@@ -18,7 +18,7 @@ public partial class MainWindow : Window
         if (!IsRunningAsAdministrator())
         {
             AdminBadge.Background = System.Windows.Media.Brushes.DarkOrange;
-            AdminBadgeText.Text = "Not elevated";
+            AdminBadgeText.SetResourceReference(System.Windows.Controls.TextBlock.TextProperty, "App.NotElevated");
             viewModel.StatusText = "Warning: not running as administrator. Most operations will fail.";
         }
     }

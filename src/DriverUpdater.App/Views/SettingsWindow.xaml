@@ -115,6 +115,23 @@
                 </StackPanel>
             </TabItem>
 
+            <TabItem Header="{DynamicResource Settings.Tab.Language}">
+                <StackPanel Margin="16">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Width="120"
+                                   VerticalAlignment="Center"
+                                   Text="{DynamicResource Settings.Language.Label}" />
+                        <ComboBox Width="220"
+                                  ItemsSource="{Binding AvailableLanguages}"
+                                  SelectedItem="{Binding SelectedLanguage}" />
+                    </StackPanel>
+                    <TextBlock Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="{DynamicResource Settings.Language.Hint}" />
+                </StackPanel>
+            </TabItem>
+
             <TabItem Header="About">
                 <StackPanel Margin="16">
                     <TextBlock Text="DriverUpdater 0.1.0" FontSize="18" FontWeight="SemiBold" />

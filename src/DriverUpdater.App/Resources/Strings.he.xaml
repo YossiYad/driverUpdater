@@ -1,0 +1,57 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <sys:String x:Key="App.Title">DriverUpdater</sys:String>
+    <sys:String x:Key="App.Version">v0.1.0</sys:String>
+    <sys:String x:Key="App.Admin">מנהל</sys:String>
+    <sys:String x:Key="App.NotElevated">ללא הרשאות מנהל</sys:String>
+
+    <sys:String x:Key="Toolbar.Scan">סרוק עכשיו</sys:String>
+    <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
+    <sys:String x:Key="Toolbar.Clear">נקה</sys:String>
+    <sys:String x:Key="Toolbar.UpdateOutdated">עדכן לא מעודכנים</sys:String>
+    <sys:String x:Key="Toolbar.DryRun">הרצה יבשה</sys:String>
+    <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
+    <sys:String x:Key="Toolbar.Settings">הגדרות</sys:String>
+
+    <sys:String x:Key="Filter.Search">חפש מכשיר, ספק, או מזהה חומרה...</sys:String>
+    <sys:String x:Key="Filter.AllCategories">כל הקטגוריות</sys:String>
+
+    <sys:String x:Key="Grid.Status">סטטוס</sys:String>
+    <sys:String x:Key="Grid.Device">מכשיר</sys:String>
+    <sys:String x:Key="Grid.Category">קטגוריה</sys:String>
+    <sys:String x:Key="Grid.Version">גרסה</sys:String>
+    <sys:String x:Key="Grid.Date">תאריך</sys:String>
+    <sys:String x:Key="Grid.Available">זמין</sys:String>
+    <sys:String x:Key="Grid.AvailableDate">תאריך זמין</sys:String>
+    <sys:String x:Key="Grid.Source">מקור</sys:String>
+    <sys:String x:Key="Grid.Provider">ספק</sys:String>
+
+    <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
+    <sys:String x:Key="Confirm.Current">נוכחי</sys:String>
+    <sys:String x:Key="Confirm.Available">זמין</sys:String>
+    <sys:String x:Key="Confirm.Source">מקור</sys:String>
+    <sys:String x:Key="Confirm.CreateRestorePoint">צור נקודת שחזור מערכת לפני ההתקנה</sys:String>
+    <sys:String x:Key="Confirm.BackupDriver">גבה את הדרייבר הנוכחי לפני ההתקנה</sys:String>
+    <sys:String x:Key="Confirm.RiskHeader">זהירות:</sys:String>
+    <sys:String x:Key="Confirm.RiskBody">דרייברים של אחסון ותצוגה עלולים למנוע אתחול של Windows אם הם נכשלים. נקודת השחזור והגיבוי מצמצמים אך לא מבטלים את הסיכון.</sys:String>
+    <sys:String x:Key="Confirm.CancelButton">ביטול</sys:String>
+    <sys:String x:Key="Confirm.ProceedButton">המשך</sys:String>
+
+    <sys:String x:Key="Settings.Title">DriverUpdater - הגדרות</sys:String>
+    <sys:String x:Key="Settings.Save">שמור</sys:String>
+    <sys:String x:Key="Settings.Close">סגור</sys:String>
+    <sys:String x:Key="Settings.Tab.Sources">מקורות</sys:String>
+    <sys:String x:Key="Settings.Tab.Safety">בטיחות</sys:String>
+    <sys:String x:Key="Settings.Tab.Schedule">תזמון</sys:String>
+    <sys:String x:Key="Settings.Tab.Language">שפה</sys:String>
+    <sys:String x:Key="Settings.Tab.About">אודות</sys:String>
+    <sys:String x:Key="Settings.Language.Label">שפה</sys:String>
+    <sys:String x:Key="Settings.Language.Hint">הפעל מחדש את האפליקציה כדי להחיל את השפה בכל החלונות.</sys:String>
+
+    <sys:String x:Key="History.Title">DriverUpdater - היסטוריה</sys:String>
+    <sys:String x:Key="History.Heading">היסטוריית עדכונים</sys:String>
+    <sys:String x:Key="History.Refresh">רענן</sys:String>
+    <sys:String x:Key="History.Rollback">החזר</sys:String>
+</ResourceDictionary>

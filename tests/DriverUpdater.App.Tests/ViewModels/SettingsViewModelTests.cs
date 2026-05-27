@@ -92,6 +92,36 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task SaveAsync_writes_language_setting_to_store()
+    {
+        var store = new FakeStore(new AppSettings());
+        var scheduler = new FakeScheduler();
+        var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.SelectedLanguage = AppLanguage.Hebrew;
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Language.Language.Should().Be(AppLanguage.Hebrew);
+    }
+
+    [WpfFact]
+    public async Task LoadAsync_reads_language_setting_from_store()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Language = new LanguageSettings { Language = AppLanguage.English }
+        });
+        var scheduler = new FakeScheduler();
+        var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.SelectedLanguage.Should().Be(AppLanguage.English);
+    }
+
+    [WpfFact]
     public async Task SaveAsync_reports_failure_when_scheduler_fails()
     {
         var store = new FakeStore(new AppSettings());
