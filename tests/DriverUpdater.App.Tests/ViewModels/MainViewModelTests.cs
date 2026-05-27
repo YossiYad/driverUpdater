@@ -80,6 +80,8 @@ public class MainViewModelTests
         new(new FakeScanService(drivers),
             Array.Empty<IUpdateSource>(),
             new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
             NullLogger<MainViewModel>.Instance);
 
     private static DriverInfo NewDriver(string name, DriverCategory category) => new(

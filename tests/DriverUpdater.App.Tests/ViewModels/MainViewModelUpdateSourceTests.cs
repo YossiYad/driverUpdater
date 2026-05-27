@@ -71,6 +71,8 @@ public class MainViewModelUpdateSourceTests
             new FakeScanService(new[] { driver }),
             sources,
             new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -109,6 +111,8 @@ public class MainViewModelUpdateSourceTests
         new(new FakeScanService(drivers),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
             new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class FakeScanService : IDriverScanService

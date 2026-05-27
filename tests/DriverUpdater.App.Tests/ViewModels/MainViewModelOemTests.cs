@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -46,6 +47,8 @@ public class MainViewModelOemTests
             new EmptyScanService(),
             Array.Empty<IUpdateSource>(),
             new ThrowingOemService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
             NullLogger<MainViewModel>.Instance);
 
         Func<Task> act = () => vm.InitializeAsync();
@@ -66,6 +69,8 @@ public class MainViewModelOemTests
         new(new EmptyScanService(),
             Array.Empty<IUpdateSource>(),
             new ConstantOemService(oem),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class ConstantOemService : IOemDetectionService
