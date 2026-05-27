@@ -74,6 +74,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -115,6 +116,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class FakeScanService : IDriverScanService

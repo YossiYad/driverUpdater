@@ -5,6 +5,7 @@ using DriverUpdater.Infrastructure.History;
 using DriverUpdater.Infrastructure.PnPUtil;
 using DriverUpdater.Infrastructure.Powershell;
 using DriverUpdater.Infrastructure.Scheduling;
+using DriverUpdater.Infrastructure.Settings;
 using DriverUpdater.Infrastructure.Wmi;
 using DriverUpdater.Infrastructure.WuApi;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IPowerShellInvoker, PowerShellInvoker>();
         services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();
+        services.AddSingleton<ISettingsStore>(sp =>
+            new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
         services.AddMemoryCache();
 
         services.AddHttpClient<ICatalogHttpClient, CatalogHttpClient>(CatalogHttpClient.HttpClientName, (sp, client) =>
