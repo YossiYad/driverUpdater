@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
 using DriverUpdater.Infrastructure;
 using DriverUpdater.Services;
@@ -40,6 +41,7 @@ public partial class App : Application
             {
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
+                services.AddSingleton<MainViewModel>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();
