@@ -1,0 +1,15 @@
+{
+  "packId": "DriverUpdater",
+  "packTitle": "DriverUpdater",
+  "packAuthors": "Yossi Yadgar",
+  "packVersion": "0.1.0",
+  "exeName": "DriverUpdater.exe",
+  "outputDirectory": "build/output",
+  "publishDirectory": "src/DriverUpdater.App/bin/Release/net10.0-windows/win-x64/publish",
+  "runtime": "win-x64",
+  "channel": "stable",
+  "icon": null,
+  "signParameters": null,
+  "delta": "BestSize",
+  "framework": "net10.0-windows"
+}
