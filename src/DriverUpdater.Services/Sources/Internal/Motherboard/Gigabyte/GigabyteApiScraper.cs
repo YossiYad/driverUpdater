@@ -1,8 +1,9 @@
+using DriverUpdater.Services.Sources.Internal.Motherboard;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace DriverUpdater.Services.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 
 // Attempts the lightweight path: call Gigabyte's internal driver-search endpoint with
 // browser-mimicking headers. The endpoint is undocumented and discovered via DevTools
@@ -10,7 +11,7 @@ namespace DriverUpdater.Services.Sources.Internal.Gigabyte;
 // Akamai - when that happens GetDriversAsync throws ScraperUnavailableException so the
 // hybrid wrapper can fall through to Playwright (or to an empty result if Playwright is
 // disabled).
-public sealed class GigabyteApiScraper : IGigabyteScraper
+public sealed class GigabyteApiScraper : IMotherboardScraper
 {
     public const string HttpClientName = "GigabyteScraping";
 
@@ -30,7 +31,7 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<GigabyteDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
 
@@ -83,9 +84,9 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
         return System.Text.RegularExpressions.Regex.Replace(withoutRev, @"\s+", "-");
     }
 
-    internal static bool TryParseDriverList(string json, out IReadOnlyList<GigabyteDriverEntry> entries)
+    internal static bool TryParseDriverList(string json, out IReadOnlyList<MotherboardDriverEntry> entries)
     {
-        entries = Array.Empty<GigabyteDriverEntry>();
+        entries = Array.Empty<MotherboardDriverEntry>();
         if (string.IsNullOrWhiteSpace(json))
         {
             return false;
@@ -114,7 +115,7 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
                 return false;
             }
 
-            var parsed = new List<GigabyteDriverEntry>();
+            var parsed = new List<MotherboardDriverEntry>();
             foreach (var item in listElement.EnumerateArray())
             {
                 if (TryParseEntry(item, out var entry))
@@ -132,7 +133,7 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
         }
     }
 
-    private static bool TryParseEntry(JsonElement item, out GigabyteDriverEntry entry)
+    private static bool TryParseEntry(JsonElement item, out MotherboardDriverEntry entry)
     {
         entry = default!;
         if (item.ValueKind != JsonValueKind.Object)
@@ -159,7 +160,7 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
 
         var releaseDate = TryParseDate(dateRaw, out var parsedDate) ? parsedDate : DateOnly.MinValue;
 
-        entry = new GigabyteDriverEntry(title.Trim(), version.Trim(), releaseDate, downloadUrl, ParseSizeBytes(sizeRaw), category.Trim());
+        entry = new MotherboardDriverEntry(title.Trim(), version.Trim(), releaseDate, downloadUrl, ParseSizeBytes(sizeRaw), category.Trim());
         return true;
     }
 

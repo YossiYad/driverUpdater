@@ -1,10 +1,11 @@
 using DriverUpdater.Core.Options;
-using DriverUpdater.Services.Sources.Internal.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
-namespace DriverUpdater.Services.Tests.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Tests.Sources.Internal.Motherboard.Gigabyte;
 
 public class HybridGigabyteScraperTests
 {
@@ -61,7 +62,7 @@ public class HybridGigabyteScraperTests
         result.Should().BeEmpty();
     }
 
-    private static GigabyteDriverEntry NewEntry(string category) => new(
+    private static MotherboardDriverEntry NewEntry(string category) => new(
         Title: $"{category} Driver",
         Version: "1.0",
         ReleaseDate: new DateOnly(2026, 1, 1),
@@ -69,30 +70,30 @@ public class HybridGigabyteScraperTests
         SizeBytes: 10_000_000,
         Category: category);
 
-    private static HybridGigabyteScraper NewHybrid(IGigabyteScraper api, IGigabyteScraper playwright, bool playwrightEnabled)
+    private static HybridGigabyteScraper NewHybrid(IMotherboardScraper api, IMotherboardScraper playwright, bool playwrightEnabled)
     {
         var settings = new TestOptionsMonitor(new ScraperSettings { EnablePlaywrightFallback = playwrightEnabled });
         return new HybridGigabyteScraper(
             api,
-            new Lazy<IGigabyteScraper>(() => playwright),
+            new Lazy<IMotherboardScraper>(() => playwright),
             settings,
             NullLogger<HybridGigabyteScraper>.Instance);
     }
 
-    private sealed class FakeScraper : IGigabyteScraper
+    private sealed class FakeScraper : IMotherboardScraper
     {
-        private readonly IReadOnlyList<GigabyteDriverEntry> _entries;
+        private readonly IReadOnlyList<MotherboardDriverEntry> _entries;
         private readonly bool _throwOnCall;
 
-        public FakeScraper(IReadOnlyList<GigabyteDriverEntry>? entries = null, bool throwOnCall = false)
+        public FakeScraper(IReadOnlyList<MotherboardDriverEntry>? entries = null, bool throwOnCall = false)
         {
-            _entries = entries ?? Array.Empty<GigabyteDriverEntry>();
+            _entries = entries ?? Array.Empty<MotherboardDriverEntry>();
             _throwOnCall = throwOnCall;
         }
 
         public int CallCount { get; private set; }
 
-        public Task<IReadOnlyList<GigabyteDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
         {
             CallCount++;
             if (_throwOnCall)

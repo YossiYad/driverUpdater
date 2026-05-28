@@ -1,11 +1,11 @@
-namespace DriverUpdater.Services.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Sources.Internal.Motherboard;
 
-public interface IGigabyteScraper
+public interface IMotherboardScraper
 {
-    Task<IReadOnlyList<GigabyteDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default);
 }
 
-public sealed record GigabyteDriverEntry(
+public sealed record MotherboardDriverEntry(
     string Title,
     string Version,
     DateOnly ReleaseDate,

@@ -1,7 +1,8 @@
-using DriverUpdater.Services.Sources.Internal.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using FluentAssertions;
 
-namespace DriverUpdater.Services.Tests.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Tests.Sources.Internal.Motherboard.Gigabyte;
 
 public class GigabytePlaywrightScraperTests
 {

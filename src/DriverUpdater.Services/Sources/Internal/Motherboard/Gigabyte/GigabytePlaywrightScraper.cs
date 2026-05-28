@@ -1,14 +1,15 @@
+using DriverUpdater.Services.Sources.Internal.Motherboard;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 
-namespace DriverUpdater.Services.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 
 // Heavy-weight fallback that boots a real headless Chromium via Playwright so the SPA
 // can run its JavaScript and bypass Akamai's User-Agent heuristics. First run downloads
 // ~250 MB of browser binaries via Playwright's install flow. Guarded behind the
 // EnablePlaywrightFallback setting.
-public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposable
+public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDisposable
 {
     internal const int PageLoadTimeoutMs = 30_000;
 
@@ -52,7 +53,7 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<GigabyteDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
         await EnsureBrowserAsync(cancellationToken).ConfigureAwait(false);
@@ -132,7 +133,7 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             _logger.LogWarning(ex, "GigabytePlaywright: driver list never rendered on {Url} (final URL: {Final}, title: {Title})",
                 url, page.Url, await SafeTitleAsync(page).ConfigureAwait(false));
             await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
-            return Array.Empty<GigabyteDriverEntry>();
+            return Array.Empty<MotherboardDriverEntry>();
         }
 
         // Gigabyte support pages render every driver download as an <a> whose href points
@@ -149,7 +150,7 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             "})"
         ).ConfigureAwait(false);
 
-        var parsed = new List<GigabyteDriverEntry>();
+        var parsed = new List<MotherboardDriverEntry>();
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var link in links)
         {
@@ -173,7 +174,7 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             var title = string.IsNullOrWhiteSpace(link.Title) ? GuessTitle(rowText) : link.Title;
             var category = GuessCategory(title);
 
-            parsed.Add(new GigabyteDriverEntry(title.Trim(), version, releaseDate, canonicalUrl, SizeBytes: null, category));
+            parsed.Add(new MotherboardDriverEntry(title.Trim(), version, releaseDate, canonicalUrl, SizeBytes: null, category));
         }
 
         _logger.LogInformation("GigabytePlaywright: found {Count} driver links on {FinalUrl} (started from {StartUrl})", parsed.Count, page.Url, url);

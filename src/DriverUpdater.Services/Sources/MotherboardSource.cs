@@ -1,33 +1,33 @@
 using System.Runtime.CompilerServices;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
-using DriverUpdater.Services.Sources.Internal.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Sources;
 
-public sealed class GigabyteMotherboardSource : IUpdateSource
+public sealed class MotherboardSource : IUpdateSource
 {
     private readonly IOemDetectionService _oem;
-    private readonly IGigabyteScraper _scraper;
-    private readonly ILogger<GigabyteMotherboardSource> _logger;
+    private readonly IReadOnlyDictionary<OemVendor, IMotherboardScraper> _scrapers;
+    private readonly ILogger<MotherboardSource> _logger;
 
-    public GigabyteMotherboardSource(
+    public MotherboardSource(
         IOemDetectionService oem,
-        IGigabyteScraper scraper,
-        ILogger<GigabyteMotherboardSource> logger)
+        IReadOnlyDictionary<OemVendor, IMotherboardScraper> scrapers,
+        ILogger<MotherboardSource> logger)
     {
         ArgumentNullException.ThrowIfNull(oem);
-        ArgumentNullException.ThrowIfNull(scraper);
+        ArgumentNullException.ThrowIfNull(scrapers);
         ArgumentNullException.ThrowIfNull(logger);
         _oem = oem;
-        _scraper = scraper;
+        _scrapers = scrapers;
         _logger = logger;
     }
 
     public UpdateSource Kind => UpdateSource.Oem;
 
-    public string DisplayName => "Gigabyte motherboard drivers";
+    public string DisplayName => "Motherboard vendor drivers";
 
     public async IAsyncEnumerable<UpdateCandidate> SearchAsync(
         IReadOnlyCollection<DriverInfo> drivers,
@@ -36,41 +36,53 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
         ArgumentNullException.ThrowIfNull(drivers);
 
         var oemInfo = await _oem.DetectAsync(cancellationToken).ConfigureAwait(false);
-        if (oemInfo is null || oemInfo.Vendor != OemVendor.Gigabyte)
+        if (oemInfo is null)
         {
-            _logger.LogInformation("Gigabyte source skipped (vendor={Vendor})", oemInfo?.Vendor.ToString() ?? "Unknown");
+            _logger.LogInformation("Motherboard source skipped: no OEM detected");
+            yield break;
+        }
+
+        if (!_scrapers.TryGetValue(oemInfo.Vendor, out var scraper))
+        {
+            _logger.LogInformation(
+                "Motherboard source skipped: no scraper registered for vendor {Vendor}. Supported vendors: {Supported}",
+                oemInfo.Vendor, string.Join(", ", _scrapers.Keys));
             yield break;
         }
 
         if (string.IsNullOrWhiteSpace(oemInfo.Model))
         {
-            _logger.LogInformation("Gigabyte source skipped: empty motherboard model");
+            _logger.LogInformation("Motherboard source skipped: empty motherboard model for {Vendor}", oemInfo.Vendor);
             yield break;
         }
 
-        IReadOnlyList<GigabyteDriverEntry> entries;
+        _logger.LogInformation("Motherboard source: dispatching to scraper for {Vendor} ({Model})", oemInfo.Vendor, oemInfo.Model);
+
+        IReadOnlyList<MotherboardDriverEntry> entries;
         try
         {
-            entries = await _scraper.GetDriversAsync(oemInfo.Model, cancellationToken).ConfigureAwait(false);
+            entries = await scraper.GetDriversAsync(oemInfo.Model, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Gigabyte scraper failed for {Model}", oemInfo.Model);
+            _logger.LogWarning(ex, "{Vendor} scraper failed for {Model}", oemInfo.Vendor, oemInfo.Model);
             yield break;
         }
 
         if (entries.Count == 0)
         {
-            _logger.LogInformation("Gigabyte scraper returned 0 entries for {Model}", oemInfo.Model);
+            _logger.LogInformation("{Vendor} scraper returned 0 entries for {Model}", oemInfo.Vendor, oemInfo.Model);
             yield break;
         }
 
-        _logger.LogInformation("Gigabyte: matching {Count} catalog entries against {DriverCount} installed drivers", entries.Count, drivers.Count);
+        var vendorTag = oemInfo.Vendor.ToString().ToLowerInvariant();
+        _logger.LogInformation("{Vendor}: matching {Count} catalog entries against {DriverCount} installed drivers",
+            oemInfo.Vendor, entries.Count, drivers.Count);
         foreach (var entry in entries)
         {
             _logger.LogInformation(
-                "Gigabyte catalog entry: title={Title} version={Version} date={Date} category={Category} url={Url}",
-                entry.Title, entry.Version, entry.ReleaseDate, entry.Category, entry.DownloadUrl);
+                "{Vendor} catalog entry: title={Title} version={Version} date={Date} category={Category} url={Url}",
+                oemInfo.Vendor, entry.Title, entry.Version, entry.ReleaseDate, entry.Category, entry.DownloadUrl);
         }
 
         var matched = 0;
@@ -87,25 +99,26 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
             if (driver.CurrentDate is { } currentDate && match.ReleaseDate <= currentDate)
             {
                 _logger.LogInformation(
-                    "Gigabyte: skipping {Device} - local driver date {LocalDate} is at or newer than catalog {RemoteDate}",
-                    driver.DeviceName, currentDate, match.ReleaseDate);
+                    "{Vendor}: skipping {Device} - local driver date {LocalDate} is at or newer than catalog {RemoteDate}",
+                    oemInfo.Vendor, driver.DeviceName, currentDate, match.ReleaseDate);
                 continue;
             }
 
-            var candidate = BuildCandidate(driver, match, oemInfo.Model);
+            var candidate = BuildCandidate(driver, match, vendorTag, oemInfo.Model);
             _logger.LogInformation(
-                "Gigabyte: yielding {InstallKind} candidate for {Device} -> {Url}",
-                candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
+                "{Vendor}: yielding {InstallKind} candidate for {Device} -> {Url}",
+                oemInfo.Vendor, candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
             yield return candidate;
         }
 
         if (matched == 0)
         {
-            _logger.LogInformation("Gigabyte: 0 of {Count} installed drivers matched any catalog entry by category heuristic", drivers.Count);
+            _logger.LogInformation("{Vendor}: 0 of {Count} installed drivers matched any catalog entry by category heuristic",
+                oemInfo.Vendor, drivers.Count);
         }
     }
 
-    internal static UpdateCandidate BuildCandidate(DriverInfo driver, GigabyteDriverEntry entry, string model) =>
+    internal static UpdateCandidate BuildCandidate(DriverInfo driver, MotherboardDriverEntry entry, string vendorTag, string model) =>
         new(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,
@@ -115,14 +128,14 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
             SizeBytes: entry.SizeBytes ?? 0,
             KbArticle: null,
             IsSuperseded: false,
-            SourceUpdateId: $"vendor-installer:installshield:gigabyte:{model}:{entry.Title}:{entry.Version}",
+            SourceUpdateId: $"vendor-installer:installshield:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorInstaller);
 
-    internal static GigabyteDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<GigabyteDriverEntry> entries)
+    internal static MotherboardDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<MotherboardDriverEntry> entries)
     {
         // Skip virtual / peripheral devices that share a category with the real host
-        // driver but are not actually managed by the Realtek/Gigabyte installer.
+        // driver but are not actually managed by the vendor installer.
         if (Contains(driver.DeviceName, "HID")
             || Contains(driver.DeviceName, "Personal Area Network")
             || Contains(driver.DeviceName, "Enumerator")
@@ -135,9 +148,8 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
 
         var deviceName = driver.DeviceName;
 
-        // Audio: only Realtek-branded audio chips on this board. AMD's HD Audio Device,
-        // AMD Streaming Audio, and AMD-Dynamic Audio are AMD GPU audio components handled
-        // by the Adrenalin installer - skip them here too so we do not double-install.
+        // Audio: only Realtek-branded audio chips. The AMD/Intel GPU HDMI audio devices
+        // are handled by their respective GPU sources, not the motherboard installer.
         if (driver.Category == DriverCategory.Audio
             && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek")))
         {

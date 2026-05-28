@@ -1,9 +1,10 @@
 using System.Net;
-using DriverUpdater.Services.Sources.Internal.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace DriverUpdater.Services.Tests.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Tests.Sources.Internal.Motherboard.Gigabyte;
 
 public class GigabyteApiScraperTests
 {
