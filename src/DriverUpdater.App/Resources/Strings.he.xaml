@@ -31,6 +31,7 @@
     <sys:String x:Key="Grid.Available">זמין</sys:String>
     <sys:String x:Key="Grid.AvailableDate">תאריך זמין</sys:String>
     <sys:String x:Key="Grid.Source">מקור</sys:String>
+    <sys:String x:Key="Grid.Progress">התקדמות</sys:String>
     <sys:String x:Key="Grid.Update">עדכון</sys:String>
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
 

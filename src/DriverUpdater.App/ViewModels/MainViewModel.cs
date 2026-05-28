@@ -488,14 +488,17 @@ public partial class MainViewModel : ObservableObject
             cancellationToken.ThrowIfCancellationRequested();
 
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
+            row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
 
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
+                row.ActiveOperation = report;
                 row.Status = MapOperationStatus(report.Status);
                 StatusText = $"{report.Status}: {row.DeviceName}";
             }), cancellationToken).ConfigureAwait(true);
 
+            row.ActiveOperation = null;
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;
             if (finished.Status == UpdateStatus.Succeeded)

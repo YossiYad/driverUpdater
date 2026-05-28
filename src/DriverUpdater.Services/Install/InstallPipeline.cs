@@ -129,6 +129,7 @@ public sealed class InstallPipeline : IInstallPipeline
         private readonly IHistoryRepository? _repository;
         private readonly ILogger _logger;
         private readonly CancellationToken _cancellationToken;
+        private UpdateStatus? _lastRecordedStatus;
 
         public RecordingProgress(IProgress<UpdateOperation>? outer, IHistoryRepository? repository, ILogger logger, CancellationToken cancellationToken)
         {
@@ -141,20 +142,29 @@ public sealed class InstallPipeline : IInstallPipeline
         public void Report(UpdateOperation value)
         {
             _outer?.Report(value);
-            if (_repository is not null)
+            if (_repository is null)
             {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _repository.UpsertOperationAsync(value, _cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to record operation {Id}", value.OperationId);
-                    }
-                }, CancellationToken.None);
+                return;
             }
+            // Skip per-byte download progress reports - the row's status hasn't moved, only
+            // DownloadedBytes is ticking. Persisting every 256KB chunk to SQLite would be
+            // ~300 writes for a 76MB download, all of which the UI does not care about.
+            if (_lastRecordedStatus == value.Status && !value.IsTerminal)
+            {
+                return;
+            }
+            _lastRecordedStatus = value.Status;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _repository.UpsertOperationAsync(value, _cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to record operation {Id}", value.OperationId);
+                }
+            }, CancellationToken.None);
         }
     }
 
@@ -299,13 +309,21 @@ public sealed class InstallPipeline : IInstallPipeline
             return operation;
         }
 
-        operation = operation with { Status = UpdateStatus.Downloading };
+        operation = operation with { Status = UpdateStatus.Downloading, DownloadedBytes = 0, TotalBytes = null };
         progress?.Report(operation);
 
         var workDir = Path.Combine(Path.GetTempPath(), "DriverUpdater", operation.OperationId.ToString("N"));
         try
         {
-            var installerPath = await DownloadPackageAsync(operation.Candidate.DownloadUrl, workDir, cancellationToken).ConfigureAwait(false);
+            var installerPath = await DownloadPackageAsync(
+                operation.Candidate.DownloadUrl,
+                workDir,
+                (bytes, total) =>
+                {
+                    operation = operation with { DownloadedBytes = bytes, TotalBytes = total };
+                    progress?.Report(operation);
+                },
+                cancellationToken).ConfigureAwait(false);
             if (Path.GetExtension(installerPath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
                 var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out var extractionError);
@@ -349,7 +367,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
-            operation = operation with { Status = UpdateStatus.Installing };
+            operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
             var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
@@ -397,16 +415,24 @@ public sealed class InstallPipeline : IInstallPipeline
             return operation;
         }
 
-        operation = operation with { Status = UpdateStatus.Downloading };
+        operation = operation with { Status = UpdateStatus.Downloading, DownloadedBytes = 0, TotalBytes = null };
         progress?.Report(operation);
 
         var workDir = Path.Combine(Path.GetTempPath(), "DriverUpdater", operation.OperationId.ToString("N"));
         try
         {
-            var packagePath = await DownloadPackageAsync(operation.Candidate.DownloadUrl, workDir, cancellationToken).ConfigureAwait(false);
+            var packagePath = await DownloadPackageAsync(
+                operation.Candidate.DownloadUrl,
+                workDir,
+                (bytes, total) =>
+                {
+                    operation = operation with { DownloadedBytes = bytes, TotalBytes = total };
+                    progress?.Report(operation);
+                },
+                cancellationToken).ConfigureAwait(false);
             var installRoot = await PreparePnPUtilInstallRootAsync(packagePath, workDir, cancellationToken).ConfigureAwait(false);
 
-            operation = operation with { Status = UpdateStatus.Installing };
+            operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
             var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
@@ -453,7 +479,11 @@ public sealed class InstallPipeline : IInstallPipeline
         }
     }
 
-    private async Task<string> DownloadPackageAsync(Uri downloadUrl, string workDir, CancellationToken cancellationToken)
+    private async Task<string> DownloadPackageAsync(
+        Uri downloadUrl,
+        string workDir,
+        Action<long, long?>? onProgress,
+        CancellationToken cancellationToken)
     {
         if (downloadUrl.IsFile)
         {
@@ -470,12 +500,47 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var packagePath = Path.Combine(workDir, fileName);
         var client = _httpClientFactory!.CreateClient(DownloadsHttpClientName);
-        using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        // AMD's CDN checks Referer for anti-hotlinking. Send the download URL's own
+        // scheme+host as the Referer so AMD treats us as having clicked through from
+        // their own page instead of redirecting to "Download-Incomplete.html".
+        request.Headers.Referrer = new Uri($"{downloadUrl.Scheme}://{downloadUrl.Host}/");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
+
+        var totalBytes = response.Content.Headers.ContentLength;
+        onProgress?.Invoke(0, totalBytes);
+
         await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         await using (var output = File.Create(packagePath))
         {
-            await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+            var buffer = new byte[81920];
+            long downloaded = 0;
+            long lastReported = 0;
+            var lastReportAt = _clock.GetUtcNow();
+            while (true)
+            {
+                var read = await input.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                downloaded += read;
+
+                if (onProgress is not null)
+                {
+                    var now = _clock.GetUtcNow();
+                    if (downloaded - lastReported >= 262_144 || (now - lastReportAt) >= TimeSpan.FromMilliseconds(150))
+                    {
+                        onProgress(downloaded, totalBytes);
+                        lastReported = downloaded;
+                        lastReportAt = now;
+                    }
+                }
+            }
+
+            onProgress?.Invoke(downloaded, totalBytes ?? downloaded);
         }
 
         var info = new FileInfo(packagePath);

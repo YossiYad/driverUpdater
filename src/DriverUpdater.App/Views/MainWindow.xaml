@@ -202,6 +202,50 @@
                 <DataGridTextColumn Header="Source"
                                     Binding="{Binding SourceText}"
                                     Width="110" />
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Progress}" Width="220">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid VerticalAlignment="Center"
+                                  Margin="4,0"
+                                  Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ProgressBar Grid.Row="0"
+                                             Height="6"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Value="{Binding DownloadPercent, Mode=OneWay}"
+                                             Visibility="{Binding HasDeterminateProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <ProgressBar Grid.Row="0"
+                                             Height="6"
+                                             IsIndeterminate="True">
+                                    <ProgressBar.Style>
+                                        <Style TargetType="ProgressBar">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsBusy}" Value="True" />
+                                                        <Condition Binding="{Binding HasDeterminateProgress}" Value="False" />
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ProgressBar.Style>
+                                </ProgressBar>
+                                <TextBlock Grid.Row="1"
+                                           Margin="0,2,0,0"
+                                           FontSize="11"
+                                           Opacity="0.8"
+                                           Text="{Binding ProgressStatusText}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="{DynamicResource Grid.Update}" Width="140">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
