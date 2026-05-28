@@ -77,6 +77,25 @@ public sealed class DriverScanService : IDriverScanService
         {
             return string.Empty;
         }
+
+        // For PCI/USB/HID style IDs, the descriptive header before the last \ is the
+        // hardware ID; the segment after is the instance enumerator (e.g.
+        //     PCI\VEN_1002&DEV_747E&SUBSYS_24141458&REV_FF\3&11583659&0&00
+        // becomes
+        //     PCI\VEN_1002&DEV_747E&SUBSYS_24141458&REV_FF).
+        //
+        // For software/virtual drivers enumerated under ROOT (and SWD), the descriptive
+        // part is generic - dozens of unrelated drivers are reported with paths like
+        // ROOT\SYSTEM\0001, ROOT\SYSTEM\0005, ... Stripping the last \ would collapse
+        // them all to ROOT\SYSTEM, so an AMD chipset candidate ends up matched to a
+        // Logitech G HUB row (or vice versa). Keep the full DeviceID for these so each
+        // row stays uniquely indexed.
+        if (deviceId.StartsWith(@"ROOT\", StringComparison.OrdinalIgnoreCase)
+            || deviceId.StartsWith(@"SWD\", StringComparison.OrdinalIgnoreCase))
+        {
+            return deviceId;
+        }
+
         var lastSeparator = deviceId.LastIndexOf('\\');
         return lastSeparator > 0 ? deviceId[..lastSeparator] : deviceId;
     }

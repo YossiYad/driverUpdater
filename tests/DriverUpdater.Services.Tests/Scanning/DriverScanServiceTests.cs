@@ -125,9 +125,20 @@ public class DriverScanServiceTests
     }
 
     [Theory]
+    // PCI / USB / HID: the descriptive header is the hardware ID, the segment after
+    // the last \ is the instance enumerator and gets stripped.
     [InlineData("PCI\\VEN_8086&DEV_1234&REV_01\\3&11&0&A0", "PCI\\VEN_8086&DEV_1234&REV_01")]
     [InlineData("USB\\VID_046D&PID_C52B\\5&abc&0&1", "USB\\VID_046D&PID_C52B")]
-    [InlineData("ROOT\\BASICDISPLAY\\0000", "ROOT\\BASICDISPLAY")]
+    [InlineData("HID\\VID_046D&PID_C547&MI_03\\7&abcd&0&0001", "HID\\VID_046D&PID_C547&MI_03")]
+    // ROOT / SWD: stripping the last segment would collapse different software/virtual
+    // drivers (AMD Special Tools at ROOT\SYSTEM\0001, Logitech G HUB at
+    // ROOT\SYSTEM\0005, ...) onto the same key. Keep the instance number so each row
+    // stays uniquely indexable.
+    [InlineData("ROOT\\BASICDISPLAY\\0000", "ROOT\\BASICDISPLAY\\0000")]
+    [InlineData("ROOT\\SYSTEM\\0001", "ROOT\\SYSTEM\\0001")]
+    [InlineData("ROOT\\SYSTEM\\0005", "ROOT\\SYSTEM\\0005")]
+    [InlineData("SWD\\PRINTENUM\\PrintQueues", "SWD\\PRINTENUM\\PrintQueues")]
+    // Pathological inputs are returned as-is.
     [InlineData("NOSLASH", "NOSLASH")]
     [InlineData("", "")]
     public void ExtractHardwareId_strips_location_suffix(string deviceId, string expected)
