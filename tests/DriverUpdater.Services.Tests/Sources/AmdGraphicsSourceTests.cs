@@ -91,8 +91,12 @@ public class AmdGraphicsSourceTests
     }
 
     [Fact]
-    public async Task SearchAsync_returns_vendor_installer_candidate_when_direct_url_present()
+    public async Task SearchAsync_demotes_minimalsetup_web_stub_to_vendor_page()
     {
+        // The AMD download links are typically labeled "Minimal Setup" / *_web.exe -
+        // a tiny downloader stub that opens its own GUI and ignores /S. Demoting it
+        // means we open the support page in the browser instead of trying to silent
+        // install something that will never silent install.
         var source = NewSource("""
             <p>Revision Number</p><p>Adrenalin 26.5.2 (WHQL Recommended)</p>
             <p>File Size</p><p>818 MB</p>
@@ -104,9 +108,28 @@ public class AmdGraphicsSourceTests
         var results = await source.SearchAsync(new[] { driver }).ToListAsync();
 
         results.Should().ContainSingle();
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        results[0].DownloadUrl.AbsoluteUri.Should().Contain("amd.com");
+        results[0].DownloadUrl.AbsoluteUri.Should().NotContain("_web.exe");
+    }
+
+    [Fact]
+    public async Task SearchAsync_returns_vendor_installer_for_non_web_direct_url()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.5.2 (WHQL Recommended)</p>
+            <p>File Size</p><p>818 MB</p>
+            <p>Release Date</p><p>2026-05-14</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-fullinstall-260514.exe">Download</a>
+            """);
+        var driver = NewAmdDriver(new DateOnly(2026, 2, 17));
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
         results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:amd-radeon:");
-        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-minimalsetup-260514_web.exe");
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-fullinstall-260514.exe");
     }
 
     [Fact]
@@ -143,8 +166,10 @@ public class AmdGraphicsSourceTests
         var results = await source.SearchAsync(new[] { igpu }).ToListAsync();
 
         results.Should().ContainSingle();
-        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/installer/26.10/whql/amd-software-adrenalin-edition-26.5.2-minimalsetup-260513_web.exe");
+        // The scraped href is a *_web.exe stub which we now demote to VendorPage
+        // instead of attempting a silent install that always opens the AMD GUI.
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        results[0].DownloadUrl.AbsoluteUri.Should().Contain("amd.com");
     }
 
     [Fact]
