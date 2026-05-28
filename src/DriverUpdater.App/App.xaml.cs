@@ -53,10 +53,15 @@ public partial class App : Application
             {
                 services.Configure<CatalogSettings>(context.Configuration.GetSection(CatalogSettings.SectionName));
                 services.Configure<BackupSettings>(context.Configuration.GetSection(BackupSettings.SectionName));
+                services.Configure<HistorySettings>(context.Configuration.GetSection(HistorySettings.SectionName));
+                services.Configure<ScheduleSettings>(context.Configuration.GetSection(ScheduleSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
+                services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
                 services.AddSingleton<MainViewModel>();
+                services.AddTransient<HistoryViewModel>();
+                services.AddTransient<HistoryWindow>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();

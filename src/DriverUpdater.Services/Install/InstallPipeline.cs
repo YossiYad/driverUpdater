@@ -9,6 +9,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
+    private readonly IHistoryRepository? _historyRepository;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -17,6 +18,7 @@ public sealed class InstallPipeline : IInstallPipeline
         IBackupService backupService,
         IWuApiClient wuApiClient,
         ILogger<InstallPipeline> logger,
+        IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
@@ -26,6 +28,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _restorePointService = restorePointService;
         _backupService = backupService;
         _wuApiClient = wuApiClient;
+        _historyRepository = historyRepository;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -39,6 +42,8 @@ public sealed class InstallPipeline : IInstallPipeline
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(options);
 
+        var recordingProgress = WrapWithRecorder(progress, cancellationToken);
+
         try
         {
             if (options.DryRun)
@@ -50,13 +55,13 @@ public sealed class InstallPipeline : IInstallPipeline
                     ErrorMessage = BuildDryRunSummary(operation, options),
                     CompletedAt = _clock.GetUtcNow()
                 };
-                progress?.Report(operation);
+                recordingProgress.Report(operation);
                 return operation;
             }
 
             if (options.CreateRestorePoint)
             {
-                operation = await StepCreateRestorePointAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+                operation = await StepCreateRestorePointAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
                 if (operation.Status == UpdateStatus.Failed)
                 {
                     return operation;
@@ -65,14 +70,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
             if (options.BackupCurrentDriver)
             {
-                operation = await StepBackupAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+                operation = await StepBackupAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
                 if (operation.Status == UpdateStatus.Failed)
                 {
                     return operation;
                 }
             }
 
-            operation = await StepDownloadAndInstallAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+            operation = await StepDownloadAndInstallAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
             return operation;
         }
         catch (OperationCanceledException)
@@ -83,7 +88,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 ErrorMessage = "Operation cancelled by user.",
                 CompletedAt = _clock.GetUtcNow()
             };
-            progress?.Report(operation);
+            recordingProgress.Report(operation);
             return operation;
         }
         catch (Exception ex)
@@ -95,8 +100,46 @@ public sealed class InstallPipeline : IInstallPipeline
                 ErrorMessage = $"Unexpected error: {ex.Message}",
                 CompletedAt = _clock.GetUtcNow()
             };
-            progress?.Report(operation);
+            recordingProgress.Report(operation);
             return operation;
+        }
+    }
+
+    private IProgress<UpdateOperation> WrapWithRecorder(IProgress<UpdateOperation>? outer, CancellationToken cancellationToken) =>
+        new RecordingProgress(outer, _historyRepository, _logger, cancellationToken);
+
+    private sealed class RecordingProgress : IProgress<UpdateOperation>
+    {
+        private readonly IProgress<UpdateOperation>? _outer;
+        private readonly IHistoryRepository? _repository;
+        private readonly ILogger _logger;
+        private readonly CancellationToken _cancellationToken;
+
+        public RecordingProgress(IProgress<UpdateOperation>? outer, IHistoryRepository? repository, ILogger logger, CancellationToken cancellationToken)
+        {
+            _outer = outer;
+            _repository = repository;
+            _logger = logger;
+            _cancellationToken = cancellationToken;
+        }
+
+        public void Report(UpdateOperation value)
+        {
+            _outer?.Report(value);
+            if (_repository is not null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _repository.UpsertOperationAsync(value, _cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to record operation {Id}", value.OperationId);
+                    }
+                }, CancellationToken.None);
+            }
         }
     }
 

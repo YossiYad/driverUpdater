@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IOemDetectionService _oemDetectionService;
     private readonly IInstallPipeline _installPipeline;
     private readonly IInstallConfirmation _installConfirmation;
+    private readonly IHistoryWindowOpener _historyWindowOpener;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -67,6 +68,7 @@ public partial class MainViewModel : ObservableObject
         IOemDetectionService oemDetectionService,
         IInstallPipeline installPipeline,
         IInstallConfirmation installConfirmation,
+        IHistoryWindowOpener historyWindowOpener,
         ILogger<MainViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(scanService);
@@ -74,12 +76,14 @@ public partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(oemDetectionService);
         ArgumentNullException.ThrowIfNull(installPipeline);
         ArgumentNullException.ThrowIfNull(installConfirmation);
+        ArgumentNullException.ThrowIfNull(historyWindowOpener);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
         _oemDetectionService = oemDetectionService;
         _installPipeline = installPipeline;
         _installConfirmation = installConfirmation;
+        _historyWindowOpener = historyWindowOpener;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -219,6 +223,12 @@ public partial class MainViewModel : ObservableObject
     private int CountOutdated() => Drivers.Count(d => d.Status == DriverStatus.Outdated);
 
     private bool CanScan() => !IsScanning;
+
+    [RelayCommand]
+    private void OpenHistory()
+    {
+        _historyWindowOpener.Open();
+    }
 
     [RelayCommand]
     private void Clear()
