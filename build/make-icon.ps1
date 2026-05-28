@@ -1,5 +1,5 @@
 param(
-    [string]$Source = "C:\Users\YossiYadgar\Desktop\Untitled.jpg",
+    [string]$Source = "C:\Users\YossiYadgar\Downloads\Untitled.png",
     [string]$Destination = "C:\Projects\driverUpdater\src\DriverUpdater.App\Assets\app.ico"
 )
 
