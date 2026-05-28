@@ -200,7 +200,6 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         var revisionMatch = AdrenalinRevisionPattern().Match(html);
         var dateMatch = ReleaseDatePattern().Match(html);
         var sizeMatch = FileSizePattern().Match(html);
-        var installerMatch = DirectInstallerUrlPattern().Match(html);
 
         if (!revisionMatch.Success || !dateMatch.Success
             || !DateOnly.TryParseExact(dateMatch.Groups["date"].Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var releaseDate))
@@ -209,20 +208,40 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             return false;
         }
 
-        Uri? installerUrl = null;
-        if (installerMatch.Success
-            && Uri.TryCreate(installerMatch.Groups["url"].Value, UriKind.Absolute, out var parsed)
-            && parsed.Scheme is "http" or "https")
-        {
-            installerUrl = parsed;
-        }
-
         release = new AmdReleaseInfo(
             revisionMatch.Groups["revision"].Value.Trim(),
             releaseDate,
             ParseSizeBytes(sizeMatch.Success ? sizeMatch.Groups["size"].Value : null),
-            installerUrl);
+            ChooseInstallerUrl(html));
         return true;
+    }
+
+    // AMD's Adrenalin support pages typically list both a full installer (~800MB, NSIS,
+    // installs silent with /S) and a small _web / minimalsetup stub (~10MB, always opens
+    // GUI). We want the full installer so silent install actually works. Look at every
+    // .exe href in the page, prefer one that is not a web stub, and only fall through
+    // to the stub if that is all the page offers (the downstream IsWebStub check will
+    // then demote the candidate to VendorPage).
+    internal static Uri? ChooseInstallerUrl(string html)
+    {
+        Uri? firstAny = null;
+        foreach (Match m in DirectInstallerUrlPattern().Matches(html))
+        {
+            if (!Uri.TryCreate(m.Groups["url"].Value, UriKind.Absolute, out var parsed))
+            {
+                continue;
+            }
+            if (parsed.Scheme is not "http" and not "https")
+            {
+                continue;
+            }
+            firstAny ??= parsed;
+            if (!IsWebStub(parsed))
+            {
+                return parsed;
+            }
+        }
+        return firstAny;
     }
 
     internal static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
