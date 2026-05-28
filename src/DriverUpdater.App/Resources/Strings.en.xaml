@@ -15,6 +15,7 @@
     <sys:String x:Key="Toolbar.OpenVendorChecks">Open vendor checks</sys:String>
     <sys:String x:Key="Toolbar.DryRun">Dry run</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>
+    <sys:String x:Key="Toolbar.Logs">Logs</sys:String>
     <sys:String x:Key="Toolbar.Settings">Settings</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>

@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IUpdatePageOpener? _updatePageOpener;
     private readonly IHistoryWindowOpener _historyWindowOpener;
     private readonly ISettingsWindowOpener _settingsWindowOpener;
+    private readonly ILogsWindowOpener _logsWindowOpener;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -98,6 +99,7 @@ public partial class MainViewModel : ObservableObject
         IInstallConfirmation installConfirmation,
         IHistoryWindowOpener historyWindowOpener,
         ISettingsWindowOpener settingsWindowOpener,
+        ILogsWindowOpener logsWindowOpener,
         ILogger<MainViewModel> logger,
         IUpdatePageOpener? updatePageOpener = null)
     {
@@ -108,6 +110,7 @@ public partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(installConfirmation);
         ArgumentNullException.ThrowIfNull(historyWindowOpener);
         ArgumentNullException.ThrowIfNull(settingsWindowOpener);
+        ArgumentNullException.ThrowIfNull(logsWindowOpener);
         ArgumentNullException.ThrowIfNull(logger);
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
@@ -117,6 +120,7 @@ public partial class MainViewModel : ObservableObject
         _updatePageOpener = updatePageOpener;
         _historyWindowOpener = historyWindowOpener;
         _settingsWindowOpener = settingsWindowOpener;
+        _logsWindowOpener = logsWindowOpener;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -323,6 +327,12 @@ public partial class MainViewModel : ObservableObject
     private void OpenSettings()
     {
         _settingsWindowOpener.Open();
+    }
+
+    [RelayCommand]
+    private void OpenLogs()
+    {
+        _logsWindowOpener.Open();
     }
 
     [RelayCommand]
