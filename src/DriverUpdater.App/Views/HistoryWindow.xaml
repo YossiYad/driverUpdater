@@ -8,6 +8,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:HistoryViewModel}"
         Title="DriverUpdater - History"
+        Icon="pack://application:,,,/Assets/app.ico"
         Width="1000" Height="600"
         MinWidth="780" MinHeight="400"
         ui:WindowHelper.UseModernWindowStyle="True"
