@@ -195,6 +195,31 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_fails_when_approved_vendor_exe_is_not_a_valid_pe()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(System.Text.Encoding.UTF8.GetBytes("<html>not a binary</html>")));
+
+        var op = NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.exe"));
+        op = op with
+        {
+            Candidate = op.Candidate with { SourceUpdateId = "vendor-installer:installshield:amd-chipset:8.05" }
+        };
+
+        var result = await pipeline.ExecuteAsync(op, new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("HTML page");
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_skips_unapproved_vendor_exe()
     {
         var vendorInstaller = new FakeVendorInstallerRunner();
