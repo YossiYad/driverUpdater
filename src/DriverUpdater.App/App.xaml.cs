@@ -4,6 +4,7 @@ using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
+using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Infrastructure;
 using DriverUpdater.Services;
@@ -87,6 +88,15 @@ public partial class App : Application
             .Build();
 
         await _host.StartAsync();
+
+        try
+        {
+            await _host.Services.GetRequiredService<IHistoryRepository>().InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "History repository initialization failed; install history will not be recorded");
+        }
 
         var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
         var localization = _host.Services.GetRequiredService<ILocalizationService>();
