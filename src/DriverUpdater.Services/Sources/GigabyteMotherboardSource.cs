@@ -121,30 +121,60 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
 
     internal static GigabyteDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<GigabyteDriverEntry> entries)
     {
-        // Map common device-name patterns onto the rough categories that Gigabyte's
-        // support pages tend to label downloads with. Each rule fails open and falls
-        // through; first match wins.
+        // Skip Microsoft-provided drivers entirely. Windows ships virtual devices like
+        // "Microsoft Bluetooth LE Enumerator", "Bluetooth HID Device", "Audio Endpoint",
+        // and "Microsoft Streaming Service Proxy" that Windows Update keeps current -
+        // pushing a Realtek/Gigabyte installer at them produces noise without value.
+        if (Contains(driver.Provider, "Microsoft") || Contains(driver.Manufacturer, "Microsoft"))
+        {
+            return null;
+        }
+
+        // Skip generic Bluetooth peripherals (mouse/keyboard/headset). These show up
+        // with the Bluetooth category but their provider is Microsoft (filtered above)
+        // or a peripheral vendor (Logitech/Razer/etc.); the Realtek BT host driver does
+        // not apply to them.
+        if (Contains(driver.DeviceName, "HID") || Contains(driver.DeviceName, "Personal Area Network")
+            || Contains(driver.DeviceName, "Enumerator") || Contains(driver.DeviceName, "Identification Service"))
+        {
+            return null;
+        }
+
         var deviceName = driver.DeviceName;
 
-        if (driver.Category is DriverCategory.Audio || Contains(deviceName, "Audio") || Contains(deviceName, "Realtek HD"))
+        // Audio: only Realtek-branded audio chips on this board. AMD's HD Audio Device,
+        // AMD Streaming Audio, and AMD-Dynamic Audio are AMD GPU audio components handled
+        // by the Adrenalin installer - skip them here too so we do not double-install.
+        if (driver.Category == DriverCategory.Audio
+            && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek")))
         {
-            var audio = entries.FirstOrDefault(e => Contains(e.Category, "Audio") || Contains(e.Title, "Audio") || Contains(e.Title, "Realtek HD"));
+            var audio = entries.FirstOrDefault(e =>
+                (Contains(e.Category, "Audio") || Contains(e.Title, "Audio"))
+                && Contains(e.Title, "Realtek")
+                && !Contains(e.Title, "LE Audio"));
             if (audio is not null) { return audio; }
         }
 
-        if (driver.Category == DriverCategory.Network && (Contains(deviceName, "Ethernet") || Contains(deviceName, "GbE") || Contains(deviceName, "LAN")))
+        if (driver.Category == DriverCategory.Network
+            && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek"))
+            && (Contains(deviceName, "Ethernet") || Contains(deviceName, "GbE") || Contains(deviceName, "LAN")))
         {
-            var lan = entries.FirstOrDefault(e => Contains(e.Category, "LAN") || Contains(e.Title, "LAN") || Contains(e.Title, "Ethernet"));
+            var lan = entries.Where(e => Contains(e.Category, "LAN") || Contains(e.Title, "LAN"))
+                .OrderByDescending(e => e.ReleaseDate)
+                .FirstOrDefault();
             if (lan is not null) { return lan; }
         }
 
-        if (driver.Category == DriverCategory.Bluetooth || Contains(deviceName, "Bluetooth"))
+        if (driver.Category == DriverCategory.Bluetooth
+            && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek")))
         {
             var bt = entries.FirstOrDefault(e => Contains(e.Category, "Bluetooth") || Contains(e.Title, "Bluetooth"));
             if (bt is not null) { return bt; }
         }
 
-        if (driver.Category == DriverCategory.Network && (Contains(deviceName, "Wireless") || Contains(deviceName, "Wi-Fi") || Contains(deviceName, "WiFi")))
+        if (driver.Category == DriverCategory.Network
+            && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek"))
+            && (Contains(deviceName, "Wireless") || Contains(deviceName, "Wi-Fi") || Contains(deviceName, "WiFi")))
         {
             var wifi = entries.FirstOrDefault(e => Contains(e.Category, "Wireless") || Contains(e.Title, "WiFi") || Contains(e.Title, "Wireless"));
             if (wifi is not null) { return wifi; }
