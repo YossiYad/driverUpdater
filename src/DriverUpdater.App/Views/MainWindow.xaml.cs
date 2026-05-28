@@ -1,19 +1,31 @@
 using System.Security.Principal;
 using System.Windows;
+using DriverUpdater.App.ViewModels;
 
 namespace DriverUpdater.App.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    private readonly MainViewModel _viewModel;
+
+    public MainWindow(MainViewModel viewModel)
     {
+        ArgumentNullException.ThrowIfNull(viewModel);
         InitializeComponent();
+        _viewModel = viewModel;
+        DataContext = viewModel;
+
         if (!IsRunningAsAdministrator())
         {
             AdminBadge.Background = System.Windows.Media.Brushes.DarkOrange;
-            AdminBadgeText.Text = "Not elevated";
-            StatusText.Text = "Warning: not running as administrator. Most operations will fail.";
+            AdminBadgeText.SetResourceReference(System.Windows.Controls.TextBlock.TextProperty, "App.NotElevated");
+            viewModel.StatusText = "Warning: not running as administrator. Most operations will fail.";
         }
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        await _viewModel.InitializeAsync().ConfigureAwait(true);
     }
 
     private static bool IsRunningAsAdministrator()

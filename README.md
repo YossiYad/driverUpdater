@@ -27,6 +27,22 @@ dotnet build
 
 To run, launch Visual Studio as Administrator and press F5, or use `Launch.cmd` at the repo root.
 
+## Release
+
+The release pipeline produces a Velopack-based installer + delta updates under `build/output/`.
+
+```
+build\release.cmd 0.1.0
+```
+
+The script:
+1. Restores the solution.
+2. Runs `dotnet publish -c Release -r win-x64 --self-contained false`.
+3. Restores or installs the `vpk` global tool.
+4. Calls `vpk pack` with the version, runtime, and main-exe metadata.
+
+Distribute the produced `setup.exe` from `build/output/`. Subsequent versions auto-update through Velopack's manifest if the user has opted in via Settings (UpdaterSettings.CheckOnStartup + FeedUrl).
+
 ## Project layout
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full module layout and design.

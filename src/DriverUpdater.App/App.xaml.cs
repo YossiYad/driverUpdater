@@ -1,10 +1,16 @@
 using System.IO;
 using System.Windows;
+using DriverUpdater.App.Services;
+using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
+using DriverUpdater.Core.Options;
+using DriverUpdater.Infrastructure;
+using DriverUpdater.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Serilog;
+using Velopack;
 
 namespace DriverUpdater.App;
 
@@ -15,6 +21,8 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        VelopackApp.Build().Run();
 
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -33,19 +41,54 @@ public partial class App : Application
             .Enrich.FromLogContext()
             .CreateLogger();
 
+        var settingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DriverUpdater",
+            "settings.json");
+
         _host = Host.CreateDefaultBuilder()
             .UseSerilog()
-            .ConfigureServices((_, services) =>
+            .ConfigureAppConfiguration(builder =>
             {
+                builder.AddJsonFile(settingsPath, optional: true, reloadOnChange: true);
+            })
+            .ConfigureServices((context, services) =>
+            {
+                services.Configure<CatalogSettings>(context.Configuration.GetSection(CatalogSettings.SectionName));
+                services.Configure<BackupSettings>(context.Configuration.GetSection(BackupSettings.SectionName));
+                services.Configure<HistorySettings>(context.Configuration.GetSection(HistorySettings.SectionName));
+                services.Configure<ScheduleSettings>(context.Configuration.GetSection(ScheduleSettings.SectionName));
+                services.Configure<LanguageSettings>(context.Configuration.GetSection(LanguageSettings.SectionName));
+                services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
+                services.AddDriverUpdaterInfrastructure();
+                services.AddDriverUpdaterServices();
+                services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
+                services.AddSingleton<ILocalizationService, LocalizationService>();
+                services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
+                services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
+                services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
+                services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
+                services.AddSingleton<MainViewModel>();
+                services.AddTransient<HistoryViewModel>();
+                services.AddTransient<HistoryWindow>();
+                services.AddTransient<SettingsViewModel>();
+                services.AddTransient<SettingsWindow>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();
 
         await _host.StartAsync();
 
+        var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
+        var localization = _host.Services.GetRequiredService<ILocalizationService>();
+        localization.ApplyLanguage(languageSettings.Language);
+
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
         mainWindow.Show();
+
+        var updater = _host.Services.GetRequiredService<IAppUpdater>();
+        _ = updater.CheckAndApplyAsync();
     }
 
     protected override async void OnExit(ExitEventArgs e)

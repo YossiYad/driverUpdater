@@ -4,24 +4,29 @@
         xmlns:ui="http://schemas.modernwpf.com/2019"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
         mc:Ignorable="d"
-        Title="DriverUpdater"
-        Width="1100" Height="720"
-        MinWidth="900" MinHeight="600"
-        ui:WindowHelper.UseModernWindowStyle="True">
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+        Title="{DynamicResource App.Title}"
+        Width="1200" Height="780"
+        MinWidth="980" MinHeight="600"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Loaded="OnLoaded">
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Padding="20,16"
+                Padding="20,14"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="DriverUpdater"
+                <TextBlock Text="{DynamicResource App.Title}"
                            FontSize="22"
                            FontWeight="SemiBold"
                            VerticalAlignment="Center" />
@@ -32,7 +37,7 @@
                         Background="#FF2E7D32"
                         VerticalAlignment="Center">
                     <TextBlock x:Name="AdminBadgeText"
-                               Text="Administrator"
+                               Text="{DynamicResource App.Admin}"
                                Foreground="White"
                                FontSize="11"
                                FontWeight="SemiBold" />
@@ -40,32 +45,188 @@
                 <TextBlock Margin="14,0,0,0"
                            VerticalAlignment="Center"
                            Opacity="0.7"
-                           Text="v0.1.0" />
+                           Text="{DynamicResource App.Version}" />
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="1" Padding="40">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="640">
-                <TextBlock Text="Scaffold ready"
-                           FontSize="32"
-                           FontWeight="Light"
-                           HorizontalAlignment="Center" />
-                <TextBlock Margin="0,16,0,0"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap"
-                           Opacity="0.75"
-                           Text="The application shell, DI host, logging, and theme are wired up. Driver scanning, update sources, backup, scheduler, history, and settings will be added in subsequent pull requests." />
-            </StackPanel>
+        <Border Grid.Row="1"
+                Padding="20,10"
+                Background="#FFEEF6FF"
+                BorderBrush="#FFB6D7FF"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding HasOem, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock FontWeight="SemiBold"
+                               Foreground="#FF1A4B8A">
+                        <Run Text="Detected " /><Run Text="{Binding DetectedOem.Manufacturer}" /><Run Text=" " /><Run Text="{Binding DetectedOem.Model}" />
+                    </TextBlock>
+                    <TextBlock Margin="0,2,0,0"
+                               FontSize="12"
+                               Foreground="#FF1A4B8A"
+                               TextWrapping="Wrap"
+                               Text="For best driver coverage on OEM-specific components (firmware, dock, hotkeys), use the manufacturer's own tool alongside DriverUpdater." />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Padding="12,4"
+                        VerticalAlignment="Center"
+                        Content="{Binding DetectedOem.ToolName, StringFormat='Open {0}'}"
+                        Command="{Binding OpenOemToolCommand}" />
+            </Grid>
         </Border>
 
         <Border Grid.Row="2"
+                Padding="20,12"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <WrapPanel Grid.Column="0" VerticalAlignment="Center">
+                    <Button Content="{DynamicResource Toolbar.Scan}"
+                            Padding="14,6"
+                            Command="{Binding ScanCommand}"
+                            Style="{DynamicResource AccentButtonStyle}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.Cancel}"
+                            Command="{Binding ScanCancelCommand}"
+                            IsEnabled="{Binding IsScanning}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.Clear}"
+                            Command="{Binding ClearCommand}" />
+                    <Button Margin="24,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.UpdateOutdated}"
+                            Command="{Binding UpdateOutdatedCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.InstallConfirmed}"
+                            Command="{Binding InstallConfirmedCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.DryRun}"
+                            Command="{Binding DryRunOutdatedCommand}" />
+                    <Button Margin="24,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.History}"
+                            Command="{Binding OpenHistoryCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.Settings}"
+                            Command="{Binding OpenSettingsCommand}" />
+                </WrapPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBox Width="240"
+                             Margin="0,0,8,0"
+                             ui:ControlHelper.PlaceholderText="Search device, provider, hardware ID..."
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=150}" />
+                    <ComboBox Width="180"
+                              ui:ControlHelper.PlaceholderText="All categories"
+                              ItemsSource="{Binding AvailableCategories}"
+                              SelectedItem="{Binding CategoryFilter}" />
+                    <ComboBox Width="170"
+                              Margin="8,0,0,0"
+                              ItemsSource="{Binding AvailableUpdateFilters}"
+                              DisplayMemberPath="Label"
+                              SelectedValuePath="Value"
+                              SelectedValue="{Binding UpdateFilter}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <DataGrid Grid.Row="3"
+                  Margin="20,12,20,8"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserResizeRows="False"
+                  GridLinesVisibility="None"
+                  HeadersVisibility="Column"
+                  IsReadOnly="True"
+                  RowHeight="34"
+                  SelectionMode="Extended"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  EnableRowVirtualization="True"
+                  ItemsSource="{Binding DriversView}">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Status"
+                                    Binding="{Binding Status}"
+                                    Width="90" />
+                <DataGridTextColumn Header="Device"
+                                    Binding="{Binding DeviceName}"
+                                    Width="*"
+                                    MinWidth="200" />
+                <DataGridTextColumn Header="Category"
+                                    Binding="{Binding Category}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Version"
+                                    Binding="{Binding CurrentVersionText}"
+                                    Width="120" />
+                <DataGridTextColumn Header="Date"
+                                    Binding="{Binding CurrentDateText}"
+                                    Width="100" />
+                <DataGridTextColumn Header="Available"
+                                    Binding="{Binding AvailableVersionText}"
+                                    Width="120" />
+                <DataGridTextColumn Header="Available date"
+                                    Binding="{Binding AvailableDateText}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Source"
+                                    Binding="{Binding SourceText}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Action"
+                                    Binding="{Binding UpdateActionText}"
+                                    Width="130" />
+                <DataGridTextColumn Header="Confidence"
+                                    Binding="{Binding ConfidenceText}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Provider"
+                                    Binding="{Binding Provider}"
+                                    Width="160" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Border Grid.Row="4"
                 Padding="20,10"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <TextBlock x:Name="StatusText"
-                       Text="Idle"
-                       Opacity="0.7"
-                       FontSize="12" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusText}"
+                           Opacity="0.85"
+                           VerticalAlignment="Center"
+                           FontSize="12" />
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <ProgressBar Width="120"
+                                 Height="6"
+                                 Margin="0,0,12,0"
+                                 IsIndeterminate="True"
+                                 Visibility="{Binding IsScanning, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Text="{Binding ProgressText}"
+                               Opacity="0.7"
+                               FontSize="12"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>
