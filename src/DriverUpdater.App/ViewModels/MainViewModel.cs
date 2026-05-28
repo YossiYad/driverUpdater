@@ -57,6 +57,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(UpdateOutdatedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     [NotifyCanExecuteChangedFor(nameof(DryRunOutdatedCommand))]
     private int _updatesFoundCount;
 
