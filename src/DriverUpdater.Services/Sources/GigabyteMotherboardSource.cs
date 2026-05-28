@@ -121,21 +121,14 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
 
     internal static GigabyteDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<GigabyteDriverEntry> entries)
     {
-        // Skip Microsoft-provided drivers entirely. Windows ships virtual devices like
-        // "Microsoft Bluetooth LE Enumerator", "Bluetooth HID Device", "Audio Endpoint",
-        // and "Microsoft Streaming Service Proxy" that Windows Update keeps current -
-        // pushing a Realtek/Gigabyte installer at them produces noise without value.
-        if (Contains(driver.Provider, "Microsoft") || Contains(driver.Manufacturer, "Microsoft"))
-        {
-            return null;
-        }
-
-        // Skip generic Bluetooth peripherals (mouse/keyboard/headset). These show up
-        // with the Bluetooth category but their provider is Microsoft (filtered above)
-        // or a peripheral vendor (Logitech/Razer/etc.); the Realtek BT host driver does
-        // not apply to them.
-        if (Contains(driver.DeviceName, "HID") || Contains(driver.DeviceName, "Personal Area Network")
-            || Contains(driver.DeviceName, "Enumerator") || Contains(driver.DeviceName, "Identification Service"))
+        // Skip virtual / peripheral devices that share a category with the real host
+        // driver but are not actually managed by the Realtek/Gigabyte installer.
+        if (Contains(driver.DeviceName, "HID")
+            || Contains(driver.DeviceName, "Personal Area Network")
+            || Contains(driver.DeviceName, "Enumerator")
+            || Contains(driver.DeviceName, "Identification Service")
+            || Contains(driver.DeviceName, "Streaming Service")
+            || Contains(driver.DeviceName, "Audio Endpoint"))
         {
             return null;
         }
