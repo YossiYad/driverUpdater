@@ -50,20 +50,22 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             throw new ScraperUnavailableException("Playwright navigation failed", ex);
         }
 
-        // Heuristic DOM scrape: most Gigabyte support pages render driver downloads as
-        // <a href="...zip"> or <a href="...exe">. Surrounding rows expose title/version/
-        // date strings; we capture them via attribute queries that are more stable than
-        // CSS class names (which Gigabyte's React build mangles).
+        // Gigabyte support pages render every driver download as an <a> whose href points
+        // at download.gigabyte.com/FileList/Driver/<filename>.zip. The filename embeds the
+        // version (mb_driver_612_realtekdch_6.0.9927.1.zip), so we can pull a reliable
+        // version even if the surrounding row layout drifts. The row's innerText still
+        // gives us the human title ("Realtek HD Audio Driver") and the release date.
         var links = await page.EvalOnSelectorAllAsync<DriverScrape[]>(
-            "a[href*='.zip'], a[href*='.exe']",
+            "a[href*='download.gigabyte.com/FileList/Driver']",
             "elements => elements.map(e => { " +
-            "  const row = e.closest('tr, li, div.support-list, div.driver-item') || e.parentElement; " +
+            "  const row = e.closest('tr, li, div.support-list, div.driver-item, div[class*=\"item\"], div[class*=\"row\"]') || e.parentElement; " +
             "  const text = row ? row.innerText : e.innerText; " +
             "  return { Href: e.href, Title: e.getAttribute('title') || (e.innerText||'').trim(), RowText: text };" +
             "})"
         ).ConfigureAwait(false);
 
         var parsed = new List<GigabyteDriverEntry>();
+        var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var link in links)
         {
             if (!Uri.TryCreate(link.Href, UriKind.Absolute, out var downloadUrl) || downloadUrl.Scheme is not ("http" or "https"))
@@ -71,17 +73,36 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
                 continue;
             }
 
+            // Strip the `?v=...` cache buster so the SourceUpdateId stays stable across
+            // page reloads.
+            var canonicalUrl = new Uri(downloadUrl.GetLeftPart(UriPartial.Path));
+            if (!seenUrls.Add(canonicalUrl.AbsoluteUri))
+            {
+                continue;
+            }
+
             var rowText = link.RowText ?? string.Empty;
-            var version = ExtractVersion(rowText) ?? "0.0";
+            var fileName = Path.GetFileName(canonicalUrl.AbsolutePath);
+            var version = ExtractVersionFromFileName(fileName) ?? ExtractVersion(rowText) ?? "0.0";
             var releaseDate = ExtractDate(rowText) ?? DateOnly.MinValue;
             var title = string.IsNullOrWhiteSpace(link.Title) ? GuessTitle(rowText) : link.Title;
             var category = GuessCategory(title);
 
-            parsed.Add(new GigabyteDriverEntry(title.Trim(), version, releaseDate, downloadUrl, SizeBytes: null, category));
+            parsed.Add(new GigabyteDriverEntry(title.Trim(), version, releaseDate, canonicalUrl, SizeBytes: null, category));
         }
 
         _logger.LogInformation("GigabytePlaywright: found {Count} driver links on {Url}", parsed.Count, url);
         return parsed;
+    }
+
+    internal static string? ExtractVersionFromFileName(string fileName)
+    {
+        // mb_driver_612_realtekdch_6.0.9927.1.zip -> 6.0.9927.1
+        var match = System.Text.RegularExpressions.Regex.Match(
+            fileName,
+            @"_(?<version>\d+(?:\.\d+){2,3})\.(?:zip|exe)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["version"].Value : null;
     }
 
     private async Task EnsureBrowserAsync(CancellationToken cancellationToken)

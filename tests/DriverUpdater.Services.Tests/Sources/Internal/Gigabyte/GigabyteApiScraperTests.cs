@@ -68,8 +68,10 @@ public class GigabyteApiScraperTests
 
     [Theory]
     [InlineData("B850M GAMING X WIFI6E", "B850M-GAMING-X-WIFI6E")]
-    [InlineData("B850M GAMING X WIFI6E (rev. 1.0)", "B850M-GAMING-X-WIFI6E-rev-1x0")]
+    [InlineData("B850M GAMING X WIFI6E (rev. 1.0)", "B850M-GAMING-X-WIFI6E-rev-10")]
+    [InlineData("B850M GAMING X WIFI6E (rev. 1.2)", "B850M-GAMING-X-WIFI6E-rev-12")]
     [InlineData("X670E AORUS MASTER", "X670E-AORUS-MASTER")]
+    [InlineData("Z790 AORUS ELITE AX (rev. 1.1)", "Z790-AORUS-ELITE-AX-rev-11")]
     public void NormalizeModel_collapses_spaces_and_handles_rev_suffix(string raw, string expected)
     {
         GigabyteApiScraper.NormalizeModel(raw).Should().Be(expected);

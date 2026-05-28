@@ -71,11 +71,16 @@ public sealed class GigabyteApiScraper : IGigabyteScraper
 
     internal static string NormalizeModel(string model)
     {
-        // Gigabyte uses URL slugs like "B850M-GAMING-X-WIFI6E-rev-1x". Convert spaces and
-        // common separators to hyphens, drop "(rev x.x)" parens that WMI may report.
+        // Gigabyte URL slugs collapse rev numbers by dropping the dot: "rev. 1.0" -> "rev-10",
+        // "rev. 1.2" -> "rev-12". Spaces become hyphens. Verified live against
+        // https://www.gigabyte.com/Motherboard/B850M-GAMING-X-WIFI6E-rev-10/support.
         var trimmed = model.Trim();
-        var withoutRev = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s*\(rev\.?\s+([0-9.]+)\)\s*", "-rev-$1", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return System.Text.RegularExpressions.Regex.Replace(withoutRev, @"\s+", "-").Replace(".", "x", StringComparison.Ordinal);
+        var withoutRev = System.Text.RegularExpressions.Regex.Replace(
+            trimmed,
+            @"\s*\(rev\.?\s+(?<digits>[0-9.]+)\)\s*",
+            m => "-rev-" + m.Groups["digits"].Value.Replace(".", "", StringComparison.Ordinal),
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return System.Text.RegularExpressions.Regex.Replace(withoutRev, @"\s+", "-");
     }
 
     internal static bool TryParseDriverList(string json, out IReadOnlyList<GigabyteDriverEntry> entries)
