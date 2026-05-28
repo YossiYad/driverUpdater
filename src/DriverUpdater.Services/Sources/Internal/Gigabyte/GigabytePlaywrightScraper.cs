@@ -95,13 +95,18 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             throw new ScraperUnavailableException("Playwright navigation failed", ex);
         }
 
-        // Wait for the driver list to actually render. Some boards 301-redirect to the
-        // rev-suffixed URL (e.g. B850M GAMING X WIFI6E -> ...-rev-10) before the Driver
-        // tab populates - waiting for the selector also handles that path.
-        // The wait can throw either PlaywrightException or System.TimeoutException
-        // depending on the failure mode; catch both so diagnostics always get written.
+        // The /support URL redirects to /Motherboard/{slug}#Support-Driver but the React
+        // tab controller does not pick up the hash automatically - the page lands on the
+        // Key Features tab with the driver list unmounted. Force the Support tab + Driver
+        // subtab via clicks before we wait for the download anchors.
         try
         {
+            await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded,
+                new PageWaitForLoadStateOptions { Timeout = PageLoadTimeoutMs }).ConfigureAwait(false);
+
+            await ClickFirstMatchAsync(page, ["a:has-text(\"Support\")", "button:has-text(\"Support\")", "[data-tab*='Support']", "li:has-text(\"Support\")"], "Support tab");
+            await ClickFirstMatchAsync(page, ["a:has-text(\"Driver\")", "button:has-text(\"Driver\")", "li:has-text(\"Driver\")", "[data-id='Support-Driver']"], "Driver subtab");
+
             await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
                 new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
                 .ConfigureAwait(false);
@@ -161,6 +166,27 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
         }
         return parsed;
+    }
+
+    private async Task ClickFirstMatchAsync(IPage page, string[] selectors, string description)
+    {
+        foreach (var selector in selectors)
+        {
+            try
+            {
+                var locator = page.Locator(selector).First;
+                await locator.WaitForAsync(new LocatorWaitForOptions { Timeout = 5_000, State = WaitForSelectorState.Visible }).ConfigureAwait(false);
+                await locator.ClickAsync(new LocatorClickOptions { Timeout = 5_000 }).ConfigureAwait(false);
+                _logger.LogInformation("GigabytePlaywright: clicked {Description} via selector {Selector}", description, selector);
+                await page.WaitForTimeoutAsync(500).ConfigureAwait(false); // let React rebind
+                return;
+            }
+            catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+            {
+                _logger.LogDebug("GigabytePlaywright: selector {Selector} for {Description} did not match", selector, description);
+            }
+        }
+        _logger.LogInformation("GigabytePlaywright: no clickable element matched for {Description}; relying on URL fragment", description);
     }
 
     private static async Task<string> SafeTitleAsync(IPage page)
