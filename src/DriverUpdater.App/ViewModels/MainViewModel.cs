@@ -425,6 +425,8 @@ public partial class MainViewModel : ObservableObject
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
 
+    public event EventHandler<DriverRowViewModel>? ScrollToRowRequested;
+
     private async Task RunUpdatesAsync(
         IEnumerable<DriverRowViewModel> requested,
         bool dryRun,
@@ -473,6 +475,13 @@ public partial class MainViewModel : ObservableObject
         }
         var options = confirmResult;
 
+        // Switch the grid to show only installable rows so the user does not have
+        // to scrub through 250 unrelated entries to follow the active driver. The
+        // user can pick a different filter later; we leave it on Installable when
+        // the run finishes so the result of each install (UpToDate / Failed) is
+        // visible at a glance.
+        UpdateFilter = DriverUpdateFilter.Installable;
+
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in installTargets)
         {
@@ -488,6 +497,7 @@ public partial class MainViewModel : ObservableObject
 
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
+            ScrollToRowRequested?.Invoke(this, row);
 
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
