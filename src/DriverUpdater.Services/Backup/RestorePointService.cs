@@ -12,7 +12,12 @@ public sealed partial class RestorePointService : IRestorePointService
 try {
     Checkpoint-Computer -Description $description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop;
     $rp = Get-ComputerRestorePoint | Sort-Object -Property CreationTime -Descending | Select-Object -First 1;
-    Write-Output ('SEQ=' + $rp.SequenceNumber + ';DESC=' + $rp.Description + ';TIME=' + $rp.CreationTime.ToUniversalTime().ToString('o'));
+    if ($null -eq $rp) {
+        Write-Error 'No restore point found after Checkpoint-Computer';
+        exit 1;
+    }
+    $createdUtc = [System.Management.ManagementDateTimeConverter]::ToDateTime($rp.CreationTime).ToUniversalTime();
+    Write-Output ('SEQ=' + $rp.SequenceNumber + ';DESC=' + $rp.Description + ';TIME=' + $createdUtc.ToString('o'));
 } catch {
     Write-Error $_.Exception.Message;
     exit 1;
