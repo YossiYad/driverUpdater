@@ -104,8 +104,24 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded,
                 new PageWaitForLoadStateOptions { Timeout = PageLoadTimeoutMs }).ConfigureAwait(false);
 
-            await ClickFirstMatchAsync(page, ["a:has-text(\"Support\")", "button:has-text(\"Support\")", "[data-tab*='Support']", "li:has-text(\"Support\")"], "Support tab");
-            await ClickFirstMatchAsync(page, ["a:has-text(\"Driver\")", "button:has-text(\"Driver\")", "li:has-text(\"Driver\")", "[data-id='Support-Driver']"], "Driver subtab");
+            // Dismiss the CookieYes banner that overlays the tab strip and swallows clicks
+            // on the Support tab. The banner only ships an Accept button; with it gone the
+            // Element UI tabs become hit-testable.
+            await ClickFirstMatchAsync(page,
+                ["button.cky-btn-accept", ".cky-btn-accept", "button:has-text(\"Accept\")"],
+                "cookie banner Accept",
+                quick: true);
+
+            // Top-level tab strip uses the Element UI .el-tabs__item role=tab pattern with
+            // dynamic IDs - match by text instead.
+            await ClickFirstMatchAsync(page,
+                [".el-tabs__item[role='tab']:has-text(\"Support\")", "[role='tab']:has-text(\"Support\")"],
+                "Support tab");
+
+            // Inside Support, the Driver subtab is rendered as a sidebar item.
+            await ClickFirstMatchAsync(page,
+                [".el-tabs__item[role='tab']:has-text(\"Driver\")", "a:has-text(\"Driver\"):visible", "[role='tab']:has-text(\"Driver\")"],
+                "Driver subtab");
 
             await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
                 new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
@@ -168,15 +184,18 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
         return parsed;
     }
 
-    private async Task ClickFirstMatchAsync(IPage page, string[] selectors, string description)
+    private async Task ClickFirstMatchAsync(IPage page, string[] selectors, string description, bool quick = false)
     {
+        // `quick` shrinks each selector's wait so optional UI (e.g. the cookie banner)
+        // does not eat 20+ seconds when it is not present.
+        var perSelectorTimeoutMs = quick ? 1_500 : 4_000;
         foreach (var selector in selectors)
         {
             try
             {
                 var locator = page.Locator(selector).First;
-                await locator.WaitForAsync(new LocatorWaitForOptions { Timeout = 5_000, State = WaitForSelectorState.Visible }).ConfigureAwait(false);
-                await locator.ClickAsync(new LocatorClickOptions { Timeout = 5_000 }).ConfigureAwait(false);
+                await locator.WaitForAsync(new LocatorWaitForOptions { Timeout = perSelectorTimeoutMs, State = WaitForSelectorState.Visible }).ConfigureAwait(false);
+                await locator.ClickAsync(new LocatorClickOptions { Timeout = perSelectorTimeoutMs }).ConfigureAwait(false);
                 _logger.LogInformation("GigabytePlaywright: clicked {Description} via selector {Selector}", description, selector);
                 await page.WaitForTimeoutAsync(500).ConfigureAwait(false); // let React rebind
                 return;
@@ -186,7 +205,7 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
                 _logger.LogDebug("GigabytePlaywright: selector {Selector} for {Description} did not match", selector, description);
             }
         }
-        _logger.LogInformation("GigabytePlaywright: no clickable element matched for {Description}; relying on URL fragment", description);
+        _logger.LogInformation("GigabytePlaywright: no clickable element matched for {Description}", description);
     }
 
     private static async Task<string> SafeTitleAsync(IPage page)
