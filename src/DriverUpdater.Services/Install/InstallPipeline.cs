@@ -470,7 +470,12 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var packagePath = Path.Combine(workDir, fileName);
         var client = _httpClientFactory!.CreateClient(DownloadsHttpClientName);
-        using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        // AMD's CDN checks Referer for anti-hotlinking. Send the download URL's own
+        // scheme+host as the Referer so AMD treats us as having clicked through from
+        // their own page instead of redirecting to "Download-Incomplete.html".
+        request.Headers.Referrer = new Uri($"{downloadUrl.Scheme}://{downloadUrl.Host}/");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         await using (var output = File.Create(packagePath))

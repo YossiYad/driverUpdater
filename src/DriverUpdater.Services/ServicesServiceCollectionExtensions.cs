@@ -93,8 +93,9 @@ public static class ServicesServiceCollectionExtensions
     {
         // AMD's CDN 302-redirects non-browser User-Agents to an HTML "download-incomplete"
         // page, leaving us with HTML masquerading as .exe and Process.Start failing with
-        // "file or directory is corrupted and unreadable". Mimic a Chrome request so the
-        // CDN serves the actual PE binary.
+        // "file or directory is corrupted and unreadable". It also requires a same-origin
+        // Referer header - a Google referer still redirects. Mimic a Chrome request and
+        // set Referer per-call from the download URL (see InstallPipeline).
         services.AddHttpClient(InstallPipeline.DownloadsHttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromMinutes(15);
@@ -102,7 +103,6 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("*/*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-            client.DefaultRequestHeaders.Referrer = new Uri("https://www.google.com/");
         });
     }
 
