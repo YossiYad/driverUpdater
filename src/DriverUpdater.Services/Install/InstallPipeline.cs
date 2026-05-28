@@ -7,6 +7,8 @@ namespace DriverUpdater.Services.Install;
 
 public sealed class InstallPipeline : IInstallPipeline
 {
+    public const string DownloadsHttpClientName = "VendorInstallerDownloads";
+
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
@@ -351,6 +353,20 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            if (Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                && !HasPortableExecutableMagic(installerPath))
+            {
+                _logger.LogError("Downloaded file {Path} is not a valid PE - vendor CDN likely served HTML instead of the installer", installerPath);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"Downloaded file is not a valid Windows executable. The vendor's CDN likely returned an HTML page instead of the installer at {operation.Candidate.DownloadUrl}.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
@@ -483,8 +499,13 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         var packagePath = Path.Combine(workDir, fileName);
-        var client = _httpClientFactory!.CreateClient();
-        using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        var client = _httpClientFactory!.CreateClient(DownloadsHttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        // AMD's CDN checks Referer for anti-hotlinking. Send the download URL's own
+        // scheme+host as the Referer so AMD treats us as having clicked through from
+        // their own page instead of redirecting to "Download-Incomplete.html".
+        request.Headers.Referrer = new Uri($"{downloadUrl.Scheme}://{downloadUrl.Host}/");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength;
@@ -522,7 +543,29 @@ public sealed class InstallPipeline : IInstallPipeline
             onProgress?.Invoke(downloaded, totalBytes ?? downloaded);
         }
 
+        var info = new FileInfo(packagePath);
+        _logger.LogInformation("Downloaded {Bytes} bytes from {Url} to {Path} (content-type {ContentType})",
+            info.Length, downloadUrl, packagePath, response.Content.Headers.ContentType?.MediaType ?? "<unknown>");
+
         return packagePath;
+    }
+
+    internal static bool HasPortableExecutableMagic(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = new byte[2];
+            if (stream.Read(header, 0, 2) != 2)
+            {
+                return false;
+            }
+            return header[0] == 0x4D && header[1] == 0x5A;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task<string> PreparePnPUtilInstallRootAsync(string packagePath, string workDir, CancellationToken cancellationToken)
