@@ -87,6 +87,41 @@ public class OfficialVendorPageSourceTests
         page.Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task SearchAsync_skips_logitech_when_g_hub_is_installed()
+    {
+        var source = new OfficialVendorPageSource(
+            NullLogger<OfficialVendorPageSource>.Instance,
+            new FakeTimeProvider(new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero)),
+            path => path.EndsWith("lghub.exe", StringComparison.OrdinalIgnoreCase));
+
+        var results = await source.SearchAsync(new[]
+        {
+            NewDriver("LIGHTSPEED Receiver", "Logitech", DriverCategory.Usb, new DateOnly(2024, 1, 1)),
+            NewDriver("Realtek PCIe 2.5GbE Family Controller", "Realtek", DriverCategory.Network, new DateOnly(2024, 1, 1))
+        }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].DownloadUrl.Host.Should().Contain("realtek.com");
+    }
+
+    [Fact]
+    public async Task SearchAsync_offers_logitech_page_when_g_hub_not_installed()
+    {
+        var source = new OfficialVendorPageSource(
+            NullLogger<OfficialVendorPageSource>.Instance,
+            new FakeTimeProvider(new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero)),
+            _ => false);
+
+        var results = await source.SearchAsync(new[]
+        {
+            NewDriver("LIGHTSPEED Receiver", "Logitech", DriverCategory.Usb, new DateOnly(2024, 1, 1))
+        }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].DownloadUrl.Host.Should().Contain("logi.com");
+    }
+
     private static DriverInfo NewDriver(string deviceName, string provider, DriverCategory category, DateOnly currentDate) => new(
         DeviceId: $"ID\\{deviceName}",
         HardwareId: $"HW\\{deviceName}",

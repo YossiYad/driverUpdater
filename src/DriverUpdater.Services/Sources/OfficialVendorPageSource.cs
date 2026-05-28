@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.CompilerServices;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -11,13 +12,17 @@ public sealed class OfficialVendorPageSource : IUpdateSource
     private static readonly TimeSpan DisplayAdvisoryAge = TimeSpan.FromDays(14);
 
     private readonly TimeProvider _clock;
+    private readonly Func<string, bool> _fileExists;
     private readonly ILogger<OfficialVendorPageSource> _logger;
+    private readonly Lazy<bool> _gHubInstalled;
 
-    public OfficialVendorPageSource(ILogger<OfficialVendorPageSource> logger, TimeProvider? clock = null)
+    public OfficialVendorPageSource(ILogger<OfficialVendorPageSource> logger, TimeProvider? clock = null, Func<string, bool>? fileExists = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
+        _fileExists = fileExists ?? File.Exists;
+        _gHubInstalled = new Lazy<bool>(DetectGHub);
     }
 
     public UpdateSource Kind => UpdateSource.Oem;
@@ -38,6 +43,12 @@ public sealed class OfficialVendorPageSource : IUpdateSource
 
             if (!TryResolveVendorPage(driver, out var vendorName, out var page))
             {
+                continue;
+            }
+
+            if (vendorName == "Logitech" && _gHubInstalled.Value)
+            {
+                _logger.LogInformation("Skipping Logitech driver {Device} because Logitech G Hub is installed and handles updates", driver.DeviceName);
                 continue;
             }
 
@@ -134,4 +145,31 @@ public sealed class OfficialVendorPageSource : IUpdateSource
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
+
+    private bool DetectGHub()
+    {
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+        var candidates = new[]
+        {
+            Path.Combine(programFiles, "LGHUB", "lghub.exe"),
+            Path.Combine(programFilesX86, "LGHUB", "lghub.exe"),
+            Path.Combine(localAppData, "LGHUB", "lghub.exe"),
+            Path.Combine(programFiles, "Logitech", "LogiOptionsPlus", "logioptionsplus.exe"),
+            Path.Combine(programFilesX86, "Logitech", "LogiOptionsPlus", "logioptionsplus.exe")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrEmpty(candidate) && _fileExists(candidate))
+            {
+                _logger.LogInformation("Detected Logitech G Hub / Options+ at {Path}", candidate);
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

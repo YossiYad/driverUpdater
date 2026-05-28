@@ -48,11 +48,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         foreach (var driver in amdDisplays)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!TryResolveSupportPage(driver, out var supportUri))
-            {
-                _logger.LogInformation("AMD: could not resolve a model-specific support page for {Device}; skipping", driver.DeviceName);
-                continue;
-            }
+            TryResolveSupportPage(driver, out var supportUri);
 
             _logger.LogInformation("AMD: fetching support page for {Device}: {Uri}", driver.DeviceName, supportUri);
             AmdReleaseInfo? parsedRelease = null;
@@ -146,7 +142,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         }
 
         supportUri = new Uri(AmdSupportUrl);
-        return false;
+        return true;
     }
 
     internal static bool TryParseLatestWindowsRelease(string html, out AmdReleaseInfo release)
