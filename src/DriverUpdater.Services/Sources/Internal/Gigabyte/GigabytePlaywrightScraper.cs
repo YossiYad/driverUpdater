@@ -232,16 +232,39 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             }
 
             _playwright = await Playwright.CreateAsync().ConfigureAwait(false);
-            _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+
+            // First try the user's installed Chrome (or Edge) so the TLS/HTTP2
+            // fingerprint matches the browser they use day-to-day. Akamai's bot
+            // manager fingerprints far below the JS layer, so the bundled headless
+            // Chromium gets caught even with stealth shims. Real Chrome via the
+            // chrome channel keeps the realistic fingerprint but still drives via
+            // CDP. Falls back to bundled Chromium if neither channel is installed.
+            var launchOptions = new BrowserTypeLaunchOptions
             {
                 Headless = true,
                 Timeout = PageLoadTimeoutMs,
-                // Akamai's headless detection trips on the AutomationControlled blink
-                // feature and on a few CDP-only globals. Disabling those features is
-                // the minimal stealth move that gets us past the bot wall on
-                // gigabyte.com for AMD-CPU motherboards.
                 Args = ["--disable-blink-features=AutomationControlled"]
-            }).ConfigureAwait(false);
+            };
+
+            foreach (var channel in new[] { "chrome", "msedge", string.Empty })
+            {
+                try
+                {
+                    launchOptions.Channel = string.IsNullOrEmpty(channel) ? null : channel;
+                    _browser = await _playwright.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);
+                    _logger.LogInformation("Playwright: launched browser channel={Channel}", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel);
+                    break;
+                }
+                catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException)
+                {
+                    _logger.LogInformation("Playwright: channel {Channel} not available ({Reason}); trying next", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel, ex.Message);
+                }
+            }
+
+            if (_browser is null)
+            {
+                throw new ScraperUnavailableException("No Chromium-based browser channel could be launched");
+            }
         }
         finally
         {
