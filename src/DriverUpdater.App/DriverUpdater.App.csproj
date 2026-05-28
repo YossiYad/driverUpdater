@@ -5,9 +5,14 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RootNamespace>DriverUpdater.App</RootNamespace>
     <AssemblyName>DriverUpdater</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DriverUpdater.Core\DriverUpdater.Core.csproj" />
