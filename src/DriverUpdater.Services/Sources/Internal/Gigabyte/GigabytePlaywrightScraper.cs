@@ -56,15 +56,18 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
         // Wait for the driver list to actually render. Some boards 301-redirect to the
         // rev-suffixed URL (e.g. B850M GAMING X WIFI6E -> ...-rev-10) before the Driver
         // tab populates - waiting for the selector also handles that path.
+        // The wait can throw either PlaywrightException or System.TimeoutException
+        // depending on the failure mode; catch both so diagnostics always get written.
         try
         {
             await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
                 new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
                 .ConfigureAwait(false);
         }
-        catch (PlaywrightException ex)
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
-            _logger.LogWarning(ex, "GigabytePlaywright: driver list never rendered on {Url} (final URL: {Final})", url, page.Url);
+            _logger.LogWarning(ex, "GigabytePlaywright: driver list never rendered on {Url} (final URL: {Final}, title: {Title})",
+                url, page.Url, await SafeTitleAsync(page).ConfigureAwait(false));
             await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
             return Array.Empty<GigabyteDriverEntry>();
         }
@@ -116,6 +119,12 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
         }
         return parsed;
+    }
+
+    private static async Task<string> SafeTitleAsync(IPage page)
+    {
+        try { return await page.TitleAsync().ConfigureAwait(false); }
+        catch { return "<unavailable>"; }
     }
 
     private async Task SaveDiagnosticsAsync(IPage page, string normalizedModel, CancellationToken cancellationToken)
