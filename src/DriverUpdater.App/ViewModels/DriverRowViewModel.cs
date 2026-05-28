@@ -45,8 +45,8 @@ public partial class DriverRowViewModel : ObservableObject
     public string UpdateActionText => AvailableUpdate?.InstallKind switch
     {
         UpdateInstallKind.WindowsUpdate => "Install",
-        UpdateInstallKind.PnPUtilPackage => "Install package",
-        UpdateInstallKind.VendorInstaller => "Run vendor installer",
+        UpdateInstallKind.PnPUtilPackage => "Install",
+        UpdateInstallKind.VendorInstaller => "Install (silent)",
         UpdateInstallKind.VendorPage => "Open vendor page",
         _ => string.Empty
     };
