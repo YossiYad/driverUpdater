@@ -213,6 +213,39 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task UpdateOutdatedAsync_switches_filter_to_installable_and_scrolls_to_each_row()
+    {
+        var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var driverC = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var candidateA = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var candidateB = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var candidateC = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB, driverC }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidateA, candidateB, candidateC }) },
+            new NullOemDetectionService(),
+            new SuccessfulInstallPipeline(),
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        var scrolledRows = new List<DriverRowViewModel>();
+        vm.ScrollToRowRequested += (_, row) => scrolledRows.Add(row);
+
+        vm.UpdateFilter = DriverUpdateFilter.All;
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateOutdatedCommand.ExecuteAsync(null);
+
+        vm.UpdateFilter.Should().Be(DriverUpdateFilter.Installable);
+        scrolledRows.Should().HaveCount(3);
+        scrolledRows.Select(r => r.DeviceName)
+            .Should().BeEquivalentTo(new[] { "Intel Display", "AMD Display", "Realtek Audio" });
+    }
+
+    [WpfFact]
     public async Task UpdateOutdatedAsync_ignores_vendor_pages_in_automatic_mode()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
