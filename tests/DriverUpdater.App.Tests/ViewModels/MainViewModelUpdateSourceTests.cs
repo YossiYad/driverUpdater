@@ -478,12 +478,14 @@ public class MainViewModelUpdateSourceTests
             new RecordingUpdatePageOpener());
 
         vm.UpdateOutdatedCommand.CanExecute(null).Should().BeFalse();
+        vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
         vm.InstallConfirmedCommand.CanExecute(null).Should().BeFalse();
         vm.OpenVendorChecksCommand.CanExecute(null).Should().BeFalse();
 
         await vm.ScanCommand.ExecuteAsync(null);
 
         vm.UpdateOutdatedCommand.CanExecute(null).Should().BeTrue();
+        vm.UpdateAllCommand.CanExecute(null).Should().BeTrue();
         vm.InstallConfirmedCommand.CanExecute(null).Should().BeTrue();
         vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
     }
