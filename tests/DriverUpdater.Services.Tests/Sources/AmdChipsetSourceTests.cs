@@ -11,9 +11,18 @@ public class AmdChipsetSourceTests
 {
     private const string SampleB850Html = """
         <html><body>
-          <h2>AMD Chipset Drivers 8.05.04.516</h2>
-          <p>File Size</p><p>34 MB</p>
-          <p>Release Date</p><p>2026-05-18</p>
+          <div>
+            <strong>Revision Number</strong>
+            <p>8.05.04.516</p>
+          </div>
+          <div>
+            <strong>File Size</strong>
+            <p>34 MB</p>
+          </div>
+          <div>
+            <strong>Release Date</strong>
+            <p>2026-05-18</p>
+          </div>
           <a href="https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe">Download</a>
         </body></html>
         """;

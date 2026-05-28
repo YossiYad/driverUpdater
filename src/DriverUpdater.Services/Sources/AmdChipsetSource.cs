@@ -222,7 +222,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         return (long)(sizeMb * 1024 * 1024);
     }
 
-    [GeneratedRegex(@"AMD\s+Chipset\s+Drivers?\s+(?<version>\d+(?:\.\d+){2,3})", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"Revision Number\s*</[^>]+>\s*<[^>]+>\s*(?<version>\d+(?:\.\d+){2,3})", RegexOptions.IgnoreCase)]
     private static partial Regex ChipsetVersionPattern();
 
     [GeneratedRegex(@"Release Date\s*</[^>]+>\s*<[^>]+>\s*(?<date>\d{4}-\d{2}-\d{2})", RegexOptions.IgnoreCase)]
