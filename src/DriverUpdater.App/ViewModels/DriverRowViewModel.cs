@@ -1,3 +1,4 @@
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DriverUpdater.Core.Models;
 
@@ -25,6 +26,18 @@ public partial class DriverRowViewModel : ObservableObject
 
     [ObservableProperty]
     private UpdateOperation? _lastOperation;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(IsPreparing))]
+    [NotifyPropertyChangedFor(nameof(IsDownloading))]
+    [NotifyPropertyChangedFor(nameof(IsInstalling))]
+    [NotifyPropertyChangedFor(nameof(HasDeterminateProgress))]
+    [NotifyPropertyChangedFor(nameof(DownloadPercent))]
+    [NotifyPropertyChangedFor(nameof(ProgressStatusText))]
+    private UpdateOperation? _activeOperation;
+
+    private DispatcherTimer? _installTimer;
 
     public DriverRowViewModel(DriverInfo driver)
     {
@@ -60,4 +73,109 @@ public partial class DriverRowViewModel : ObservableObject
     };
 
     public bool CanUpdate => Status == DriverStatus.Outdated && AvailableUpdate is not null;
+
+    public bool IsBusy => ActiveOperation is { } op
+        && !op.IsTerminal
+        && op.Status is UpdateStatus.CreatingRestorePoint
+            or UpdateStatus.BackingUp
+            or UpdateStatus.Downloading
+            or UpdateStatus.Installing;
+
+    public bool IsPreparing => ActiveOperation?.Status is UpdateStatus.CreatingRestorePoint or UpdateStatus.BackingUp;
+    public bool IsDownloading => ActiveOperation?.Status == UpdateStatus.Downloading;
+    public bool IsInstalling => ActiveOperation?.Status == UpdateStatus.Installing;
+
+    public bool HasDeterminateProgress =>
+        ActiveOperation is { Status: UpdateStatus.Downloading, TotalBytes: > 0 };
+
+    public double DownloadPercent
+    {
+        get
+        {
+            if (ActiveOperation is not { TotalBytes: { } total } op || total <= 0)
+            {
+                return 0;
+            }
+            var pct = (double)op.DownloadedBytes / total * 100.0;
+            return pct < 0 ? 0 : pct > 100 ? 100 : pct;
+        }
+    }
+
+    public string ProgressStatusText
+    {
+        get
+        {
+            var op = ActiveOperation;
+            if (op is null)
+            {
+                return string.Empty;
+            }
+            return op.Status switch
+            {
+                UpdateStatus.Pending => "Waiting...",
+                UpdateStatus.CreatingRestorePoint => "Creating restore point...",
+                UpdateStatus.BackingUp => "Backing up driver...",
+                UpdateStatus.Downloading when op.TotalBytes is { } total && total > 0 =>
+                    $"{FormatMb(op.DownloadedBytes)} / {FormatMb(total)} ({DownloadPercent:F0}%)",
+                UpdateStatus.Downloading =>
+                    $"{FormatMb(op.DownloadedBytes)} downloaded",
+                UpdateStatus.Installing when op.InstallStartedAt is { } started =>
+                    $"Installing... {FormatElapsed(DateTimeOffset.UtcNow - started)}",
+                UpdateStatus.Installing => "Installing...",
+                _ => string.Empty
+            };
+        }
+    }
+
+    partial void OnActiveOperationChanged(UpdateOperation? value)
+    {
+        if (value?.Status == UpdateStatus.Installing)
+        {
+            StartInstallTimer();
+        }
+        else
+        {
+            StopInstallTimer();
+        }
+    }
+
+    private void StartInstallTimer()
+    {
+        if (_installTimer is not null)
+        {
+            return;
+        }
+        _installTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _installTimer.Tick += (_, _) => OnPropertyChanged(nameof(ProgressStatusText));
+        _installTimer.Start();
+    }
+
+    private void StopInstallTimer()
+    {
+        if (_installTimer is null)
+        {
+            return;
+        }
+        _installTimer.Stop();
+        _installTimer = null;
+    }
+
+    private static string FormatMb(long bytes) =>
+        bytes >= 1024L * 1024 * 1024
+            ? $"{bytes / 1024.0 / 1024.0 / 1024.0:F2} GB"
+            : $"{bytes / 1024.0 / 1024.0:F1} MB";
+
+    private static string FormatElapsed(TimeSpan ts)
+    {
+        if (ts.Ticks < 0)
+        {
+            ts = TimeSpan.Zero;
+        }
+        return ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
+            : $"{ts.Minutes}:{ts.Seconds:00}";
+    }
 }

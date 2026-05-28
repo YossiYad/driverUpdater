@@ -9,7 +9,10 @@ public sealed record UpdateOperation(
     string? BackupPath,
     string? RestorePointSequenceNumber,
     DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt)
+    DateTimeOffset? CompletedAt,
+    long DownloadedBytes = 0,
+    long? TotalBytes = null,
+    DateTimeOffset? InstallStartedAt = null)
 {
     public bool IsTerminal => Status is UpdateStatus.Succeeded
         or UpdateStatus.Failed
