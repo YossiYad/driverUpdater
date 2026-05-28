@@ -120,7 +120,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
                 SizeBytes: release.SizeBytes ?? 0,
                 KbArticle: null,
                 IsSuperseded: false,
-                SourceUpdateId: $"vendor-installer:nullsoft:amd-chipset:{release.Version}",
+                SourceUpdateId: $"vendor-installer:amd-chipset:{release.Version}",
                 SupersededIds: Array.Empty<string>(),
                 InstallKind: UpdateInstallKind.VendorInstaller);
         }

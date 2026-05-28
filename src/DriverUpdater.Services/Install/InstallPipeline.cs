@@ -746,6 +746,16 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        // AMD's chipset bundle reports itself as NSIS but the inner installer is an
+        // InstallAware wrapper that ignores /S and exits 2. Per AMD's own KB article
+        // ("Silent Installation of AMD Chipset Drivers") the documented unattended
+        // flag is -INSTALL.
+        if (sourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "-INSTALL";
+            return true;
+        }
+
         if (sourceUpdateId.StartsWith("vendor-installer:nvidia:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "-s -noeula -noreboot";
