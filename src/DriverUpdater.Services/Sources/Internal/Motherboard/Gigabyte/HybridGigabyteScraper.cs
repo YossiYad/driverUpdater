@@ -1,23 +1,24 @@
+using DriverUpdater.Services.Sources.Internal.Motherboard;
 using DriverUpdater.Core.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace DriverUpdater.Services.Sources.Internal.Gigabyte;
+namespace DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 
 // Routes scrape requests: API first (cheap), then Playwright if the API blows up and
 // the user has opted into the heavy browser fallback. Any failure beyond that point
 // degrades to an empty result so OfficialVendorPageSource can keep producing the
 // advisory it always has.
-public sealed class HybridGigabyteScraper : IGigabyteScraper
+public sealed class HybridGigabyteScraper : IMotherboardScraper
 {
-    private readonly IGigabyteScraper _api;
-    private readonly Lazy<IGigabyteScraper> _playwright;
+    private readonly IMotherboardScraper _api;
+    private readonly Lazy<IMotherboardScraper> _playwright;
     private readonly IOptionsMonitor<ScraperSettings> _settings;
     private readonly ILogger<HybridGigabyteScraper> _logger;
 
     public HybridGigabyteScraper(
-        IGigabyteScraper api,
-        Lazy<IGigabyteScraper> playwright,
+        IMotherboardScraper api,
+        Lazy<IMotherboardScraper> playwright,
         IOptionsMonitor<ScraperSettings> settings,
         ILogger<HybridGigabyteScraper> logger)
     {
@@ -31,7 +32,7 @@ public sealed class HybridGigabyteScraper : IGigabyteScraper
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<GigabyteDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -45,7 +46,7 @@ public sealed class HybridGigabyteScraper : IGigabyteScraper
         if (!_settings.CurrentValue.EnablePlaywrightFallback)
         {
             _logger.LogInformation("Playwright fallback is disabled in settings; no Gigabyte drivers will be returned");
-            return Array.Empty<GigabyteDriverEntry>();
+            return Array.Empty<MotherboardDriverEntry>();
         }
 
         try
@@ -56,7 +57,7 @@ public sealed class HybridGigabyteScraper : IGigabyteScraper
         catch (Exception playwrightEx)
         {
             _logger.LogWarning(playwrightEx, "Playwright fallback also failed; returning no Gigabyte drivers");
-            return Array.Empty<GigabyteDriverEntry>();
+            return Array.Empty<MotherboardDriverEntry>();
         }
     }
 }

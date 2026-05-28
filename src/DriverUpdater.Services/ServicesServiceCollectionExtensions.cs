@@ -1,11 +1,16 @@
 using DriverUpdater.Core.Abstractions;
+using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
 using DriverUpdater.Services.Sources;
 using DriverUpdater.Services.Sources.Internal;
-using DriverUpdater.Services.Sources.Internal.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Asrock;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Asus;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Msi;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -44,12 +49,24 @@ public static class ServicesServiceCollectionExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(GigabyteApiScraper.HttpClientName),
             sp.GetRequiredService<ILogger<GigabyteApiScraper>>()));
         services.AddSingleton<GigabytePlaywrightScraper>();
-        services.AddSingleton<IGigabyteScraper>(sp => new HybridGigabyteScraper(
+        services.AddSingleton<HybridGigabyteScraper>(sp => new HybridGigabyteScraper(
             sp.GetRequiredService<GigabyteApiScraper>(),
-            new Lazy<IGigabyteScraper>(() => sp.GetRequiredService<GigabytePlaywrightScraper>()),
+            new Lazy<IMotherboardScraper>(() => sp.GetRequiredService<GigabytePlaywrightScraper>()),
             sp.GetRequiredService<IOptionsMonitor<ScraperSettings>>(),
             sp.GetRequiredService<ILogger<HybridGigabyteScraper>>()));
-        services.AddSingleton<IUpdateSource, GigabyteMotherboardSource>();
+        services.AddSingleton<AsusMotherboardScraper>();
+        services.AddSingleton<MsiMotherboardScraper>();
+        services.AddSingleton<AsrockMotherboardScraper>();
+        services.AddSingleton<IUpdateSource>(sp => new MotherboardSource(
+            sp.GetRequiredService<IOemDetectionService>(),
+            new Dictionary<OemVendor, IMotherboardScraper>
+            {
+                [OemVendor.Gigabyte] = sp.GetRequiredService<HybridGigabyteScraper>(),
+                [OemVendor.Asus] = sp.GetRequiredService<AsusMotherboardScraper>(),
+                [OemVendor.Msi] = sp.GetRequiredService<MsiMotherboardScraper>(),
+                [OemVendor.ASRock] = sp.GetRequiredService<AsrockMotherboardScraper>(),
+            },
+            sp.GetRequiredService<ILogger<MotherboardSource>>()));
 
         services.AddSingleton<IUpdateSource, OfficialVendorPageSource>();
 
