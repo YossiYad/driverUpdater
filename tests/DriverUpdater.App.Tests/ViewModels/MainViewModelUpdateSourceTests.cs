@@ -80,6 +80,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -126,6 +127,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -158,6 +160,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -180,6 +183,7 @@ public class MainViewModelUpdateSourceTests
             new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
@@ -209,6 +213,7 @@ public class MainViewModelUpdateSourceTests
             new ThrowingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             opener);
 
@@ -242,6 +247,7 @@ public class MainViewModelUpdateSourceTests
             new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             opener);
 
@@ -274,6 +280,7 @@ public class MainViewModelUpdateSourceTests
             new ThrowingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             opener);
 
@@ -304,6 +311,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             new RecordingUpdatePageOpener());
 
@@ -401,6 +409,7 @@ public class MainViewModelUpdateSourceTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
     private sealed class FakeScanService : IDriverScanService
