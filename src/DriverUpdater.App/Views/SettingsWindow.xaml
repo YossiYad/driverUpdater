@@ -64,6 +64,16 @@
                                  Text="{Binding BackupRetentionDays}" />
                         <TextBlock VerticalAlignment="Center" Text="days" />
                     </StackPanel>
+                    <Separator Margin="0,16,0,8" />
+                    <TextBlock FontWeight="SemiBold" Text="Advanced scraping" />
+                    <CheckBox Margin="0,8,0,0"
+                              IsChecked="{Binding EnablePlaywrightFallback}"
+                              Content="Use headless browser as fallback when motherboard vendor API is blocked (~250 MB Chromium download on first use)" />
+                    <TextBlock Margin="22,4,0,0"
+                               Opacity="0.7"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Text="When Gigabyte/ASUS/MSI/etc. block the lightweight API call (Akamai 403), the app boots a headless Chromium and reads the rendered DOM. First run downloads ~250 MB of browser binaries; subsequent runs reuse them." />
                 </StackPanel>
             </TabItem>
 

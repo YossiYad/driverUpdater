@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -303,6 +304,23 @@ public sealed class InstallPipeline : IInstallPipeline
         try
         {
             var installerPath = await DownloadPackageAsync(operation.Candidate.DownloadUrl, workDir, cancellationToken).ConfigureAwait(false);
+            if (Path.GetExtension(installerPath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out var extractionError);
+                if (locatedInstaller is null)
+                {
+                    operation = operation with
+                    {
+                        Status = UpdateStatus.Skipped,
+                        ErrorMessage = extractionError,
+                        CompletedAt = _clock.GetUtcNow()
+                    };
+                    progress?.Report(operation);
+                    return operation;
+                }
+                installerPath = locatedInstaller;
+            }
+
             if (!TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out var fileName, out var arguments, out var skipReason))
             {
                 operation = operation with
@@ -482,6 +500,89 @@ public sealed class InstallPipeline : IInstallPipeline
 
     private static string QuotePowerShellLiteral(string value) =>
         $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
+
+    internal string? ExtractZipAndLocateInstaller(string zipPath, string workDir, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        var extractDir = Path.Combine(workDir, "extracted");
+
+        try
+        {
+            Directory.CreateDirectory(extractDir);
+            var fullExtractDir = Path.GetFullPath(extractDir);
+
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name))
+                    {
+                        // Directory entry - skip.
+                        continue;
+                    }
+
+                    var destinationPath = Path.GetFullPath(Path.Combine(extractDir, entry.FullName));
+                    if (!destinationPath.StartsWith(fullExtractDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                        && !destinationPath.Equals(fullExtractDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        errorMessage = $"Zip archive rejected: entry '{entry.FullName}' escapes extraction directory.";
+                        _logger.LogError("Zip Slip detected: entry {Entry} resolved to {Path}", entry.FullName, destinationPath);
+                        return null;
+                    }
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                    entry.ExtractToFile(destinationPath, overwrite: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Could not extract zip: {ex.Message}";
+            _logger.LogError(ex, "Zip extraction failed for {Zip}", zipPath);
+            return null;
+        }
+
+        var located = LocateInstallerInTree(extractDir);
+        if (located is null)
+        {
+            errorMessage = "Zip archive did not contain a recognised installer (Setup.exe / Install.exe / *.msi).";
+            return null;
+        }
+
+        _logger.LogInformation("Zip extracted to {Dir}, selected installer {Installer}", extractDir, located);
+        return located;
+    }
+
+    internal static string? LocateInstallerInTree(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+
+        var candidates = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Select(p => new { Path = p, Depth = p.AsSpan(root.Length).Count(Path.DirectorySeparatorChar) + p.AsSpan(root.Length).Count(Path.AltDirectorySeparatorChar) })
+            .ToArray();
+
+        string? Match(string fileName) => candidates
+            .Where(c => Path.GetFileName(c.Path).Equals(fileName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Depth)
+            .Select(c => c.Path)
+            .FirstOrDefault();
+
+        return Match("Setup.exe")
+            ?? Match("Install.exe")
+            ?? candidates
+                .Where(c => Path.GetExtension(c.Path).Equals(".msi", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(c => c.Depth)
+                .Select(c => c.Path)
+                .FirstOrDefault()
+            ?? candidates
+                .Where(c => Path.GetExtension(c.Path).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(c => c.Depth)
+                .Select(c => c.Path)
+                .FirstOrDefault();
+    }
 
     internal static bool TryBuildVendorInstallerCommand(
         UpdateCandidate candidate,

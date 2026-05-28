@@ -8,4 +8,5 @@ public sealed class AppSettings
     public ScheduleSettings Schedule { get; set; } = new();
     public LanguageSettings Language { get; set; } = new();
     public UpdaterSettings Updater { get; set; } = new();
+    public ScraperSettings Scraper { get; set; } = new();
 }

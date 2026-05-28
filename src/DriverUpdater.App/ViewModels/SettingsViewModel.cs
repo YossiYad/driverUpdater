@@ -36,6 +36,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private DayOfWeek _scheduleDayOfWeek = DayOfWeek.Monday;
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
 
+    [ObservableProperty] private bool _enablePlaywrightFallback;
+
     [ObservableProperty] private string _statusText = string.Empty;
     [ObservableProperty] private bool _isBusy;
 
@@ -160,6 +162,10 @@ public partial class SettingsViewModel : ObservableObject
         Language = new LanguageSettings
         {
             Language = SelectedLanguage
+        },
+        Scraper = new ScraperSettings
+        {
+            EnablePlaywrightFallback = EnablePlaywrightFallback
         }
     };
 
@@ -173,5 +179,6 @@ public partial class SettingsViewModel : ObservableObject
         ScheduleDayOfWeek = settings.Schedule.DayOfWeek;
         SelectedLanguage = settings.Language.Language;
         AcceptedAutoUpdateRisk = settings.Schedule.Mode == ScheduleMode.ScanAndUpdate;
+        EnablePlaywrightFallback = settings.Scraper.EnablePlaywrightFallback;
     }
 }
