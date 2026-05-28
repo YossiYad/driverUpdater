@@ -30,7 +30,10 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
         await EnsureBrowserAsync(cancellationToken).ConfigureAwait(false);
 
         var normalized = GigabyteApiScraper.NormalizeModel(motherboardModel);
-        var url = $"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support";
+        // The Support tab is React-gated and only renders the driver list when the URL
+        // includes the #Support-Driver fragment - omitting it leaves the page on the
+        // "Specifications" tab with no a[href*=download.gigabyte.com] anchors.
+        var url = $"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support#Support-Driver";
         _logger.LogInformation("GigabytePlaywright: navigating to {Url}", url);
 
         await using var context = await _browser!.NewContextAsync(new BrowserNewContextOptions
@@ -43,11 +46,27 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
         var page = await context.NewPageAsync().ConfigureAwait(false);
         try
         {
-            await page.GotoAsync(url, new PageGotoOptions { Timeout = PageLoadTimeoutMs, WaitUntil = WaitUntilState.NetworkIdle }).ConfigureAwait(false);
+            await page.GotoAsync(url, new PageGotoOptions { Timeout = PageLoadTimeoutMs, WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
         }
         catch (PlaywrightException ex)
         {
             throw new ScraperUnavailableException("Playwright navigation failed", ex);
+        }
+
+        // Wait for the driver list to actually render. Some boards 301-redirect to the
+        // rev-suffixed URL (e.g. B850M GAMING X WIFI6E -> ...-rev-10) before the Driver
+        // tab populates - waiting for the selector also handles that path.
+        try
+        {
+            await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
+                new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
+                .ConfigureAwait(false);
+        }
+        catch (PlaywrightException ex)
+        {
+            _logger.LogWarning(ex, "GigabytePlaywright: driver list never rendered on {Url} (final URL: {Final})", url, page.Url);
+            await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
+            return Array.Empty<GigabyteDriverEntry>();
         }
 
         // Gigabyte support pages render every driver download as an <a> whose href points
@@ -91,8 +110,38 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             parsed.Add(new GigabyteDriverEntry(title.Trim(), version, releaseDate, canonicalUrl, SizeBytes: null, category));
         }
 
-        _logger.LogInformation("GigabytePlaywright: found {Count} driver links on {Url}", parsed.Count, url);
+        _logger.LogInformation("GigabytePlaywright: found {Count} driver links on {FinalUrl} (started from {StartUrl})", parsed.Count, page.Url, url);
+        if (parsed.Count == 0)
+        {
+            await SaveDiagnosticsAsync(page, normalized, cancellationToken).ConfigureAwait(false);
+        }
         return parsed;
+    }
+
+    private async Task SaveDiagnosticsAsync(IPage page, string normalizedModel, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "DriverUpdater",
+                "Diagnostics");
+            Directory.CreateDirectory(dir);
+
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+            var screenshotPath = Path.Combine(dir, $"gigabyte-{normalizedModel}-{stamp}.png");
+            await page.ScreenshotAsync(new PageScreenshotOptions { Path = screenshotPath, FullPage = true }).ConfigureAwait(false);
+
+            var htmlPath = Path.Combine(dir, $"gigabyte-{normalizedModel}-{stamp}.html");
+            var html = await page.ContentAsync().ConfigureAwait(false);
+            await File.WriteAllTextAsync(htmlPath, html, cancellationToken).ConfigureAwait(false);
+
+            _logger.LogWarning("GigabytePlaywright: saved diagnostics to {Screenshot} and {Html}", screenshotPath, htmlPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GigabytePlaywright: failed to save diagnostics");
+        }
     }
 
     internal static string? ExtractVersionFromFileName(string fileName)
