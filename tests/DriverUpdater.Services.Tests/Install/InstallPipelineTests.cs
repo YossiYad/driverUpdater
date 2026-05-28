@@ -549,7 +549,7 @@ public class InstallPipelineTests
     [Theory]
     [InlineData("vendor-installer:nvidia:610.47", "C:\\Temp\\nvidia.exe", "-s -noeula -noreboot")]
     [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]
-    [InlineData("vendor-installer:installshield:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "/s")]
+    [InlineData("vendor-installer:nullsoft:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "/S")]
     [InlineData("vendor-installer:inno:bar", "C:\\Temp\\bar.exe", "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART")]
     public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
     {

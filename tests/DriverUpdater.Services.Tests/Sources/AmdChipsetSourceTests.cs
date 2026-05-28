@@ -37,7 +37,7 @@ public class AmdChipsetSourceTests
 
         results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        results[0].SourceUpdateId.Should().Be("vendor-installer:installshield:amd-chipset:8.05.04.516");
+        results[0].SourceUpdateId.Should().Be("vendor-installer:nullsoft:amd-chipset:8.05.04.516");
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe");
         results[0].NewDate.Should().Be(new DateOnly(2026, 5, 18));
     }
