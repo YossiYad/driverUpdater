@@ -44,6 +44,7 @@ public static class ServicesServiceCollectionExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(NvidiaGraphicsSource.HttpClientName),
             sp.GetRequiredService<ILogger<NvidiaGraphicsSource>>()));
 
+        ConfigureVendorInstallerDownloadHttpClient(services);
         ConfigureGigabyteHttpClient(services);
         services.AddSingleton(sp => new GigabyteApiScraper(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(GigabyteApiScraper.HttpClientName),
@@ -85,6 +86,23 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+        });
+    }
+
+    private static void ConfigureVendorInstallerDownloadHttpClient(IServiceCollection services)
+    {
+        // AMD's CDN 302-redirects non-browser User-Agents to an HTML "download-incomplete"
+        // page, leaving us with HTML masquerading as .exe and Process.Start failing with
+        // "file or directory is corrupted and unreadable". Mimic a Chrome request so the
+        // CDN serves the actual PE binary.
+        services.AddHttpClient(InstallPipeline.DownloadsHttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(15);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("*/*");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            client.DefaultRequestHeaders.Referrer = new Uri("https://www.google.com/");
         });
     }
 

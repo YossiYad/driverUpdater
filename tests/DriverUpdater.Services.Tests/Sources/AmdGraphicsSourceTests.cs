@@ -128,7 +128,7 @@ public class AmdGraphicsSourceTests
 
         results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:amd-radeon:");
+        results[0].SourceUpdateId.Should().StartWith("vendor-installer:nullsoft:amd-radeon:");
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-fullinstall-260514.exe");
     }
 

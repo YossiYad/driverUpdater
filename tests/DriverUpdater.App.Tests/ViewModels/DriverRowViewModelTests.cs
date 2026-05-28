@@ -136,6 +136,93 @@ public class DriverRowViewModelTests
     }
 
     [Fact]
+    public void Progress_status_text_shows_download_size_when_total_known()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        var op = NewActiveOperation() with
+        {
+            Status = UpdateStatus.Downloading,
+            DownloadedBytes = 12_300_000,
+            TotalBytes = 380_000_000
+        };
+
+        row.ActiveOperation = op;
+
+        row.IsBusy.Should().BeTrue();
+        row.IsDownloading.Should().BeTrue();
+        row.HasDeterminateProgress.Should().BeTrue();
+        row.DownloadPercent.Should().BeApproximately(3.2, 0.2);
+        row.ProgressStatusText.Should().Contain("11.7 MB").And.Contain("362.4 MB").And.Contain("3%");
+    }
+
+    [Fact]
+    public void Progress_status_text_shows_downloaded_only_when_total_unknown()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        var op = NewActiveOperation() with
+        {
+            Status = UpdateStatus.Downloading,
+            DownloadedBytes = 5 * 1024L * 1024,
+            TotalBytes = null
+        };
+
+        row.ActiveOperation = op;
+
+        row.HasDeterminateProgress.Should().BeFalse();
+        row.ProgressStatusText.Should().Contain("5.0 MB").And.Contain("downloaded");
+    }
+
+    [Fact]
+    public void Progress_status_text_shows_elapsed_when_installing()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        var startedAt = DateTimeOffset.UtcNow.AddSeconds(-42);
+        row.ActiveOperation = NewActiveOperation() with
+        {
+            Status = UpdateStatus.Installing,
+            InstallStartedAt = startedAt
+        };
+
+        row.IsInstalling.Should().BeTrue();
+        row.HasDeterminateProgress.Should().BeFalse();
+        row.ProgressStatusText.Should().StartWith("Installing...");
+        row.ProgressStatusText.Should().MatchRegex(@"\d+:\d{2}");
+    }
+
+    [Fact]
+    public void Is_busy_resets_to_false_when_active_operation_is_cleared()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            ActiveOperation = NewActiveOperation() with { Status = UpdateStatus.Downloading }
+        };
+        row.IsBusy.Should().BeTrue();
+
+        row.ActiveOperation = null;
+
+        row.IsBusy.Should().BeFalse();
+        row.IsDownloading.Should().BeFalse();
+        row.ProgressStatusText.Should().BeEmpty();
+    }
+
+    private static UpdateOperation NewActiveOperation()
+    {
+        var driver = NewSampleDriver();
+        var candidate = new UpdateCandidate(
+            ForHardwareId: driver.HardwareId,
+            Source: UpdateSource.Oem,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/x.exe"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "vendor-installer:installshield:test:1",
+            SupersededIds: Array.Empty<string>());
+        return UpdateOperation.NewPending(candidate, driver);
+    }
+
+    [Fact]
     public void Status_change_notifies_can_update()
     {
         var row = new DriverRowViewModel(NewSampleDriver());
