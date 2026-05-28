@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -349,19 +350,55 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
     private async Task UpdateOutdatedAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
+    private async Task UpdateAllAsync(CancellationToken cancellationToken)
+    {
+        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task UpdateSelectedAsync(IList? selection, CancellationToken cancellationToken)
+    {
+        if (selection is null)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        var rows = selection.OfType<DriverRowViewModel>().ToArray();
+        if (rows.Length == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        await RunUpdatesAsync(rows, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task UpdateSingleAsync(DriverRowViewModel? row, CancellationToken cancellationToken)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        await RunUpdatesAsync(new[] { row }, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
     private async Task DryRunOutdatedAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(dryRun: true, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(Drivers, dryRun: true, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanInstallConfirmed))]
     private async Task InstallConfirmedAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
@@ -388,9 +425,13 @@ public partial class MainViewModel : ObservableObject
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
 
-    private async Task RunUpdatesAsync(bool dryRun, bool includeVendorPages, CancellationToken cancellationToken)
+    private async Task RunUpdatesAsync(
+        IEnumerable<DriverRowViewModel> requested,
+        bool dryRun,
+        bool includeVendorPages,
+        CancellationToken cancellationToken)
     {
-        var targets = Drivers
+        var targets = requested
             .Where(r => r.Status == DriverStatus.Outdated && r.AvailableUpdate is not null)
             .ToArray();
 

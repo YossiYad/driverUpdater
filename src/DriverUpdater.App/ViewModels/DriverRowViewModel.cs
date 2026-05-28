@@ -8,6 +8,7 @@ public partial class DriverRowViewModel : ObservableObject
     public DriverInfo Driver { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
     private DriverStatus _status = DriverStatus.Unknown;
 
     [ObservableProperty]
@@ -19,6 +20,7 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SourceText))]
     [NotifyPropertyChangedFor(nameof(UpdateActionText))]
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
     private UpdateCandidate? _availableUpdate;
 
     [ObservableProperty]
@@ -56,4 +58,6 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateConfidence.Advisory => "Check vendor",
         _ => string.Empty
     };
+
+    public bool CanUpdate => Status == DriverStatus.Outdated && AvailableUpdate is not null;
 }
