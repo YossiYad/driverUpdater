@@ -4,7 +4,7 @@ public sealed class CatalogSettings
 {
     public const string SectionName = "Catalog";
 
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     public int MaxConcurrentSearches { get; set; } = 4;
 

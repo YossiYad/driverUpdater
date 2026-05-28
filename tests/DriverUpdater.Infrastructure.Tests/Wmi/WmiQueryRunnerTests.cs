@@ -1,6 +1,7 @@
 using DriverUpdater.Infrastructure.Wmi;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Management;
 
 namespace DriverUpdater.Infrastructure.Tests.Wmi;
 
@@ -14,20 +15,27 @@ public class WmiQueryRunnerTests
         var count = 0;
         var sample = (string?)null;
 
-        await foreach (var row in runner.QueryAsync(
-                           "\\\\.\\root\\CIMV2",
-                           "SELECT DeviceID, DeviceName FROM Win32_PnPSignedDriver",
-                           CancellationToken.None))
+        try
         {
-            count++;
-            if (sample is null && row.TryGetValue("DeviceName", out var deviceName))
+            await foreach (var row in runner.QueryAsync(
+                               "\\\\.\\root\\CIMV2",
+                               "SELECT DeviceID, DeviceName FROM Win32_PnPSignedDriver",
+                               CancellationToken.None))
             {
-                sample = deviceName?.ToString();
+                count++;
+                if (sample is null && row.TryGetValue("DeviceName", out var deviceName))
+                {
+                    sample = deviceName?.ToString();
+                }
+                if (count >= 5)
+                {
+                    break;
+                }
             }
-            if (count >= 5)
-            {
-                break;
-            }
+        }
+        catch (ManagementException ex) when (ex.Message.Contains("Access denied", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
         }
 
         count.Should().BeGreaterThan(0, "every Windows machine has signed drivers");

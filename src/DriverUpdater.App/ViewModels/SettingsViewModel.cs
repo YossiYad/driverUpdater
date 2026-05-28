@@ -23,7 +23,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private AppLanguage _selectedLanguage = AppLanguage.SystemDefault;
 
     [ObservableProperty] private bool _enableWindowsUpdate = true;
-    [ObservableProperty] private bool _enableMicrosoftCatalog;
+    [ObservableProperty] private bool _enableMicrosoftCatalog = true;
     [ObservableProperty] private bool _enableOemHints = true;
 
     [ObservableProperty] private bool _createRestorePoint = true;

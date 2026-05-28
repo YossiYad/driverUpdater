@@ -81,6 +81,33 @@ public class DriverRowViewModelTests
         row.SourceText.Should().Be("MicrosoftCatalog");
     }
 
+    [Fact]
+    public void Available_update_setter_notifies_computed_update_properties()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        var notified = new List<string?>();
+        row.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        row.AvailableUpdate = new UpdateCandidate(
+            ForHardwareId: row.HardwareId,
+            Source: UpdateSource.MicrosoftCatalog,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/x.cab"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "abc",
+            SupersededIds: Array.Empty<string>());
+
+        notified.Should().Contain(nameof(DriverRowViewModel.AvailableUpdate));
+        notified.Should().Contain(nameof(DriverRowViewModel.AvailableVersionText));
+        notified.Should().Contain(nameof(DriverRowViewModel.AvailableDateText));
+        notified.Should().Contain(nameof(DriverRowViewModel.SourceText));
+        notified.Should().Contain(nameof(DriverRowViewModel.UpdateActionText));
+        notified.Should().Contain(nameof(DriverRowViewModel.ConfidenceText));
+    }
+
     private static DriverInfo NewSampleDriver() => new(
         DeviceId: "PCI\\VEN_8086&DEV_1234\\3&1&0",
         HardwareId: "PCI\\VEN_8086&DEV_1234",

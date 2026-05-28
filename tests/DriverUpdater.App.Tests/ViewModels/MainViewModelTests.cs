@@ -21,6 +21,7 @@ public class MainViewModelTests
         vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo(["A", "B"]);
         vm.IsScanning.Should().BeFalse();
         vm.StatusText.Should().StartWith("Done.");
+        vm.ProgressText.Should().Be("2 drivers (0 confirmed, 0 vendor checks)");
     }
 
     [WpfFact]
@@ -73,7 +74,24 @@ public class MainViewModelTests
 
         vm.Drivers.Should().BeEmpty();
         vm.ScannedCount.Should().Be(0);
+        vm.UpdatesFoundCount.Should().Be(0);
+        vm.ConfirmedUpdatesCount.Should().Be(0);
+        vm.VendorChecksCount.Should().Be(0);
         vm.StatusText.Should().Be("Cleared.");
+    }
+
+    [Fact]
+    public void Available_update_filters_have_user_friendly_labels()
+    {
+        var vm = NewVm();
+
+        vm.AvailableUpdateFilters.Select(f => f.Label).Should().Contain([
+            "All updates",
+            "Confirmed",
+            "Vendor checks",
+            "Installable",
+            "No update"
+        ]);
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>

@@ -12,5 +12,8 @@ public enum OemVendor
     MicrosoftSurface,
     Razer,
     Samsung,
-    Toshiba
+    Toshiba,
+    Gigabyte,
+    ASRock,
+    Biostar
 }

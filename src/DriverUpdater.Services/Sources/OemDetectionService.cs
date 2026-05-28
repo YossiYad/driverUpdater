@@ -57,6 +57,7 @@ public sealed class OemDetectionService : IOemDetectionService
 
         var template = GetToolTemplate(vendor);
         var toolPath = ResolveToolPath(template.CandidateToolPaths);
+        var fallbackUrl = ResolveVendorSupportUrl(vendor, csModel) ?? template.FallbackUrl;
 
         var info = new OemInfo(
             Vendor: vendor,
@@ -64,7 +65,7 @@ public sealed class OemDetectionService : IOemDetectionService
             Model: (csModel ?? string.Empty).Trim(),
             ToolName: template.ToolName,
             ToolPath: toolPath,
-            FallbackUrl: template.FallbackUrl);
+            FallbackUrl: fallbackUrl);
 
         _logger.LogInformation("OEM detected: {Vendor} {Model} (tool installed={Installed})", vendor, info.Model, info.ToolInstalled);
         return info;
@@ -113,6 +114,18 @@ public sealed class OemDetectionService : IOemDetectionService
         {
             return OemVendor.Toshiba;
         }
+        if (Contains(lookup, "GIGABYTE"))
+        {
+            return OemVendor.Gigabyte;
+        }
+        if (Contains(lookup, "ASROCK"))
+        {
+            return OemVendor.ASRock;
+        }
+        if (Contains(lookup, "BIOSTAR"))
+        {
+            return OemVendor.Biostar;
+        }
         return OemVendor.Unknown;
     }
 
@@ -145,9 +158,11 @@ public sealed class OemDetectionService : IOemDetectionService
         return vendor switch
         {
             OemVendor.Lenovo => new OemToolTemplate(
-                ToolName: "Lenovo Vantage",
+                ToolName: "Lenovo System Update",
                 CandidateToolPaths: new[]
                 {
+                    Path.Combine(programFilesX86, "Lenovo", "System Update", "tvsu.exe"),
+                    Path.Combine(programFiles, "Lenovo", "System Update", "tvsu.exe"),
                     Path.Combine(programFiles, "Lenovo", "Vantage", "Vantage.exe"),
                     Path.Combine(programFilesX86, "Lenovo", "VantageService", "LenovoVantageService.exe")
                 },
@@ -162,9 +177,11 @@ public sealed class OemDetectionService : IOemDetectionService
                 },
                 FallbackUrl: new Uri("https://www.dell.com/support/home/drivers/driversdetails")),
             OemVendor.Hp => new OemToolTemplate(
-                ToolName: "HP Support Assistant",
+                ToolName: "HP Image Assistant",
                 CandidateToolPaths: new[]
                 {
+                    Path.Combine(programFiles, "HP", "HP Image Assistant", "HPImageAssistant.exe"),
+                    Path.Combine(programFilesX86, "HP", "HP Image Assistant", "HPImageAssistant.exe"),
                     Path.Combine(programFilesX86, "HP", "HP Support Framework", "HPSF.exe"),
                     Path.Combine(programFilesX86, "HP", "HP Support Solutions", "HPSF.exe")
                 },
@@ -213,11 +230,58 @@ public sealed class OemDetectionService : IOemDetectionService
                 ToolName: "Toshiba Service Station",
                 CandidateToolPaths: Array.Empty<string>(),
                 FallbackUrl: new Uri("https://support.dynabook.com/")),
+            OemVendor.Gigabyte => new OemToolTemplate(
+                ToolName: "GIGABYTE Control Center",
+                CandidateToolPaths: new[]
+                {
+                    Path.Combine(programFiles, "GIGABYTE", "Control Center", "GCC.exe"),
+                    Path.Combine(programFilesX86, "GIGABYTE", "Control Center", "GCC.exe")
+                },
+                FallbackUrl: new Uri("https://www.gigabyte.com/Support")),
+            OemVendor.ASRock => new OemToolTemplate(
+                ToolName: "ASRock APP Shop",
+                CandidateToolPaths: Array.Empty<string>(),
+                FallbackUrl: new Uri("https://www.asrock.com/support/index.asp")),
+            OemVendor.Biostar => new OemToolTemplate(
+                ToolName: "BIOSTAR support",
+                CandidateToolPaths: Array.Empty<string>(),
+                FallbackUrl: new Uri("https://www.biostar.com.tw/app/en/support/download.php")),
             _ => new OemToolTemplate(
                 ToolName: "OEM tool",
                 CandidateToolPaths: Array.Empty<string>(),
                 FallbackUrl: new Uri("https://support.microsoft.com"))
         };
+    }
+
+    internal static Uri? ResolveVendorSupportUrl(OemVendor vendor, string? model)
+    {
+        var query = NormalizeModelQuery(model);
+        return vendor switch
+        {
+            OemVendor.Lenovo when query is not null => new Uri($"https://support.lenovo.com/search?query={Uri.EscapeDataString(query)}"),
+            OemVendor.Dell when query is not null => new Uri($"https://www.dell.com/support/search/en-us#q={Uri.EscapeDataString(query)}"),
+            OemVendor.Hp when query is not null => new Uri($"https://support.hp.com/us-en/search?q={Uri.EscapeDataString(query)}"),
+            OemVendor.Msi when query is not null => new Uri($"https://www.msi.com/search/{Uri.EscapeDataString(query)}"),
+            OemVendor.Asus when query is not null => new Uri($"https://www.asus.com/support/search-result/?keyword={Uri.EscapeDataString(query)}"),
+            OemVendor.Acer when query is not null => new Uri($"https://www.acer.com/us-en/search?q={Uri.EscapeDataString(query)}"),
+            OemVendor.Razer when query is not null => new Uri($"https://mysupport.razer.com/app/answers/list/kw/{Uri.EscapeDataString(query)}"),
+            OemVendor.Samsung when query is not null => new Uri($"https://www.samsung.com/us/search/searchMain/?searchTerm={Uri.EscapeDataString(query)}"),
+            OemVendor.Gigabyte when query is not null => new Uri($"https://www.gigabyte.com/Search?kw={Uri.EscapeDataString(query)}"),
+            OemVendor.ASRock when query is not null => new Uri($"https://www.asrock.com/search/index.asp?q={Uri.EscapeDataString(query)}"),
+            OemVendor.Biostar when query is not null => new Uri($"https://www.biostar.com.tw/app/en/search/search.php?keyword={Uri.EscapeDataString(query)}"),
+            _ => null
+        };
+    }
+
+    internal static string? NormalizeModelQuery(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return null;
+        }
+
+        var normalized = string.Join(' ', model.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return normalized.Length == 0 ? null : normalized;
     }
 
     internal sealed record OemToolTemplate(

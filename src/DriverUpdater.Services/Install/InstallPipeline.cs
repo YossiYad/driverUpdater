@@ -9,6 +9,10 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
+    private readonly IPnPUtilRunner? _pnputil;
+    private readonly IPowerShellInvoker? _powerShell;
+    private readonly IVendorInstallerRunner? _vendorInstallerRunner;
+    private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
@@ -18,6 +22,10 @@ public sealed class InstallPipeline : IInstallPipeline
         IBackupService backupService,
         IWuApiClient wuApiClient,
         ILogger<InstallPipeline> logger,
+        IPnPUtilRunner? pnputil = null,
+        IPowerShellInvoker? powerShell = null,
+        IVendorInstallerRunner? vendorInstallerRunner = null,
+        IHttpClientFactory? httpClientFactory = null,
         IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null)
     {
@@ -28,6 +36,10 @@ public sealed class InstallPipeline : IInstallPipeline
         _restorePointService = restorePointService;
         _backupService = backupService;
         _wuApiClient = wuApiClient;
+        _pnputil = pnputil;
+        _powerShell = powerShell;
+        _vendorInstallerRunner = vendorInstallerRunner;
+        _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
@@ -203,6 +215,28 @@ public sealed class InstallPipeline : IInstallPipeline
         IProgress<UpdateOperation>? progress,
         CancellationToken cancellationToken)
     {
+        if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
+        {
+            operation = operation with
+            {
+                Status = UpdateStatus.Skipped,
+                ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        if (operation.Candidate.InstallKind == UpdateInstallKind.PnPUtilPackage)
+        {
+            return await StepInstallPnPUtilPackageAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (operation.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
+        {
+            return await StepInstallVendorInstallerAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+        }
+
         if (operation.Candidate.Source != UpdateSource.WindowsUpdate)
         {
             operation = operation with
@@ -243,6 +277,299 @@ public sealed class InstallPipeline : IInstallPipeline
         };
         progress?.Report(operation);
         return operation;
+    }
+
+    private async Task<UpdateOperation> StepInstallVendorInstallerAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_vendorInstallerRunner is null || _httpClientFactory is null)
+        {
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = "Vendor installer services are not configured.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with { Status = UpdateStatus.Downloading };
+        progress?.Report(operation);
+
+        var workDir = Path.Combine(Path.GetTempPath(), "DriverUpdater", operation.OperationId.ToString("N"));
+        try
+        {
+            var installerPath = await DownloadPackageAsync(operation.Candidate.DownloadUrl, workDir, cancellationToken).ConfigureAwait(false);
+            if (!TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out var fileName, out var arguments, out var skipReason))
+            {
+                operation = operation with
+                {
+                    Status = UpdateStatus.Skipped,
+                    ErrorMessage = skipReason,
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            operation = operation with { Status = UpdateStatus.Installing };
+            progress?.Report(operation);
+
+            var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                _logger.LogError("Vendor installer failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"Vendor installer exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            operation = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+        finally
+        {
+            TryDeleteWorkDirectory(workDir);
+        }
+    }
+
+    private async Task<UpdateOperation> StepInstallPnPUtilPackageAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_pnputil is null || _powerShell is null || _httpClientFactory is null)
+        {
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = "Catalog install services are not configured.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with { Status = UpdateStatus.Downloading };
+        progress?.Report(operation);
+
+        var workDir = Path.Combine(Path.GetTempPath(), "DriverUpdater", operation.OperationId.ToString("N"));
+        try
+        {
+            var packagePath = await DownloadPackageAsync(operation.Candidate.DownloadUrl, workDir, cancellationToken).ConfigureAwait(false);
+            var installRoot = await PreparePnPUtilInstallRootAsync(packagePath, workDir, cancellationToken).ConfigureAwait(false);
+
+            operation = operation with { Status = UpdateStatus.Installing };
+            progress?.Report(operation);
+
+            var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
+            var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                _logger.LogError("pnputil catalog install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"pnputil install exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            operation = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+        finally
+        {
+            TryDeleteWorkDirectory(workDir);
+        }
+    }
+
+    private void TryDeleteWorkDirectory(string workDir)
+    {
+        try
+        {
+            if (Directory.Exists(workDir))
+            {
+                Directory.Delete(workDir, recursive: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove temporary install directory {Path}", workDir);
+        }
+    }
+
+    private async Task<string> DownloadPackageAsync(Uri downloadUrl, string workDir, CancellationToken cancellationToken)
+    {
+        if (downloadUrl.IsFile)
+        {
+            return downloadUrl.LocalPath;
+        }
+
+        Directory.CreateDirectory(workDir);
+
+        var fileName = Path.GetFileName(downloadUrl.LocalPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = "driver-package.cab";
+        }
+
+        var packagePath = Path.Combine(workDir, fileName);
+        var client = _httpClientFactory!.CreateClient();
+        await using var input = await client.GetStreamAsync(downloadUrl, cancellationToken).ConfigureAwait(false);
+        await using var output = File.Create(packagePath);
+        await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        return packagePath;
+    }
+
+    private async Task<string> PreparePnPUtilInstallRootAsync(string packagePath, string workDir, CancellationToken cancellationToken)
+    {
+        var extension = Path.GetExtension(packagePath);
+        if (extension.Equals(".inf", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetDirectoryName(packagePath) ?? workDir;
+        }
+
+        if (!extension.Equals(".cab", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Catalog package type '{extension}' is not supported for automatic install.");
+        }
+
+        var extractDir = Path.Combine(workDir, "expanded");
+        Directory.CreateDirectory(extractDir);
+
+        var expandPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "expand.exe");
+        var script = $"& {QuotePowerShellLiteral(expandPath)} -F:* {QuotePowerShellLiteral(packagePath)} {QuotePowerShellLiteral(extractDir)}; exit $LASTEXITCODE";
+        var result = await _powerShell!.InvokeAsync(script, cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException($"expand.exe exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}");
+        }
+
+        if (!Directory.EnumerateFiles(extractDir, "*.inf", SearchOption.AllDirectories).Any())
+        {
+            throw new InvalidOperationException("Catalog package did not contain any INF files.");
+        }
+
+        return extractDir;
+    }
+
+    private static string FirstNonEmpty(string first, string second)
+    {
+        var value = string.IsNullOrWhiteSpace(first) ? second : first;
+        return value.Trim();
+    }
+
+    private static string QuotePowerShellLiteral(string value) =>
+        $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
+
+    internal static bool TryBuildVendorInstallerCommand(
+        UpdateCandidate candidate,
+        string installerPath,
+        out string fileName,
+        out string arguments,
+        out string skipReason)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installerPath);
+
+        var extension = Path.GetExtension(installerPath);
+        if (extension.Equals(".msi", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msiexec.exe");
+            arguments = $"/i \"{installerPath}\" /qn /norestart";
+            skipReason = string.Empty;
+            return true;
+        }
+
+        if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            && TryGetKnownExeSilentArguments(candidate.SourceUpdateId, installerPath, out arguments))
+        {
+            fileName = installerPath;
+            skipReason = string.Empty;
+            return true;
+        }
+
+        fileName = string.Empty;
+        arguments = string.Empty;
+        skipReason = $"Vendor installer type '{extension}' is not approved for unattended install.";
+        return false;
+    }
+
+    private static bool TryGetKnownExeSilentArguments(string sourceUpdateId, string installerPath, out string arguments)
+    {
+        arguments = string.Empty;
+
+        if (!sourceUpdateId.StartsWith("vendor-installer:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:msi-wrapper:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = $"/quiet /norestart /log \"{Path.ChangeExtension(installerPath, ".log")}\"";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:nullsoft:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/S";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:inno:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:installshield:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/s";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:oem-tool:dell-command-update:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/applyUpdates -silent -reboot=disable";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:oem-tool:lenovo-system-update:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/CM -search A -action INSTALL -noicon -noreboot";
+            return true;
+        }
+
+        if (sourceUpdateId.StartsWith("vendor-installer:oem-tool:hp-image-assistant:", StringComparison.OrdinalIgnoreCase))
+        {
+            var downloadFolder = Path.Combine(Path.GetTempPath(), "DriverUpdater", "HPImageAssistant");
+            Directory.CreateDirectory(downloadFolder);
+            arguments = $"/Operation:Analyze /Action:Install /Silent /Noninteractive /SoftpaqDownloadFolder:\"{downloadFolder}\"";
+            return true;
+        }
+
+        return false;
     }
 
     internal static string BuildDryRunSummary(UpdateOperation operation, InstallOptions options)

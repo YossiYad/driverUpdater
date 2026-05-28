@@ -38,7 +38,7 @@ public class JsonSettingsStoreTests : IDisposable
         var settings = await store.LoadAsync();
 
         settings.Should().NotBeNull();
-        settings.Catalog.Enabled.Should().BeFalse();
+        settings.Catalog.Enabled.Should().BeTrue();
         settings.Schedule.Mode.Should().Be(ScheduleMode.Manual);
     }
 
@@ -82,7 +82,7 @@ public class JsonSettingsStoreTests : IDisposable
         var settings = await store.LoadAsync();
 
         settings.Should().NotBeNull();
-        settings.Catalog.Enabled.Should().BeFalse();
+        settings.Catalog.Enabled.Should().BeTrue();
     }
 
     [Fact]

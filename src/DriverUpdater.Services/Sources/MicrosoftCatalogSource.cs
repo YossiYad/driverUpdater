@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -9,7 +10,7 @@ using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Services.Sources;
 
-public sealed class MicrosoftCatalogSource : IUpdateSource
+public sealed partial class MicrosoftCatalogSource : IUpdateSource
 {
     private readonly ICatalogHttpClient _httpClient;
     private readonly IMemoryCache _cache;
@@ -50,7 +51,7 @@ public sealed class MicrosoftCatalogSource : IUpdateSource
         }
 
         var hardwareIds = drivers
-            .Select(d => d.HardwareId)
+            .SelectMany(d => ExpandHardwareIdQueries(d.HardwareId))
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -161,6 +162,44 @@ public sealed class MicrosoftCatalogSource : IUpdateSource
         return hits;
     }
 
+    internal static IReadOnlyList<string> ExpandHardwareIdQueries(string hardwareId)
+    {
+        if (string.IsNullOrWhiteSpace(hardwareId))
+        {
+            return Array.Empty<string>();
+        }
+
+        var queries = new List<string> { hardwareId };
+        var pci = PciHardwareIdPattern().Match(hardwareId);
+        if (pci.Success)
+        {
+            var venDev = $"{pci.Groups["prefix"].Value}\\VEN_{pci.Groups["ven"].Value}&DEV_{pci.Groups["dev"].Value}";
+            AddIfMissing(queries, venDev);
+
+            var subsys = SubsystemPattern().Match(hardwareId);
+            if (subsys.Success)
+            {
+                AddIfMissing(queries, $"{venDev}&SUBSYS_{subsys.Groups["subsys"].Value}");
+            }
+        }
+
+        var usb = UsbHardwareIdPattern().Match(hardwareId);
+        if (usb.Success)
+        {
+            AddIfMissing(queries, $"{usb.Groups["prefix"].Value}\\VID_{usb.Groups["vid"].Value}&PID_{usb.Groups["pid"].Value}");
+        }
+
+        return queries;
+    }
+
+    private static void AddIfMissing(List<string> queries, string value)
+    {
+        if (!queries.Contains(value, StringComparer.OrdinalIgnoreCase))
+        {
+            queries.Add(value);
+        }
+    }
+
     internal static bool TryMap(
         CatalogSearchHit hit,
         string hardwareId,
@@ -192,6 +231,7 @@ public sealed class MicrosoftCatalogSource : IUpdateSource
             downloadUrl = new Uri($"https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid={hit.UpdateId}");
         }
 
+        var hasDownload = downloadMap.ContainsKey(hit.UpdateId);
         candidate = new UpdateCandidate(
             ForHardwareId: hardwareId,
             Source: UpdateSource.MicrosoftCatalog,
@@ -202,7 +242,18 @@ public sealed class MicrosoftCatalogSource : IUpdateSource
             KbArticle: null,
             IsSuperseded: false,
             SourceUpdateId: hit.UpdateId,
-            SupersededIds: Array.Empty<string>());
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: hasDownload ? UpdateInstallKind.PnPUtilPackage : UpdateInstallKind.VendorPage,
+            Confidence: hasDownload ? UpdateConfidence.Confirmed : UpdateConfidence.Advisory);
         return true;
     }
+
+    [GeneratedRegex(@"(?<prefix>PCI)\\VEN_(?<ven>[0-9A-F]{4})&DEV_(?<dev>[0-9A-F]{4})", RegexOptions.IgnoreCase)]
+    private static partial Regex PciHardwareIdPattern();
+
+    [GeneratedRegex(@"SUBSYS_(?<subsys>[0-9A-F]{8})", RegexOptions.IgnoreCase)]
+    private static partial Regex SubsystemPattern();
+
+    [GeneratedRegex(@"(?<prefix>USB)\\VID_(?<vid>[0-9A-F]{4})&PID_(?<pid>[0-9A-F]{4})", RegexOptions.IgnoreCase)]
+    private static partial Regex UsbHardwareIdPattern();
 }

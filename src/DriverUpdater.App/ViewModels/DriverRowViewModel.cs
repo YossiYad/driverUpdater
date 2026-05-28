@@ -14,6 +14,11 @@ public partial class DriverRowViewModel : ObservableObject
     private bool _isSelected;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AvailableVersionText))]
+    [NotifyPropertyChangedFor(nameof(AvailableDateText))]
+    [NotifyPropertyChangedFor(nameof(SourceText))]
+    [NotifyPropertyChangedFor(nameof(UpdateActionText))]
+    [NotifyPropertyChangedFor(nameof(ConfidenceText))]
     private UpdateCandidate? _availableUpdate;
 
     [ObservableProperty]
@@ -37,4 +42,18 @@ public partial class DriverRowViewModel : ObservableObject
     public string? AvailableVersionText => AvailableUpdate?.NewVersion.ToString();
     public string? AvailableDateText => AvailableUpdate?.NewDate.ToString("yyyy-MM-dd");
     public string? SourceText => AvailableUpdate?.Source.ToString();
+    public string UpdateActionText => AvailableUpdate?.InstallKind switch
+    {
+        UpdateInstallKind.WindowsUpdate => "Install",
+        UpdateInstallKind.PnPUtilPackage => "Install package",
+        UpdateInstallKind.VendorInstaller => "Run vendor installer",
+        UpdateInstallKind.VendorPage => "Open vendor page",
+        _ => string.Empty
+    };
+    public string ConfidenceText => AvailableUpdate?.Confidence switch
+    {
+        UpdateConfidence.Confirmed => "Confirmed",
+        UpdateConfidence.Advisory => "Check vendor",
+        _ => string.Empty
+    };
 }

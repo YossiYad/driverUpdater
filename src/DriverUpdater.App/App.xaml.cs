@@ -64,6 +64,7 @@ public partial class App : Application
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
                 services.AddSingleton<ILocalizationService, LocalizationService>();
+                services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
                 services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
                 services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
                 services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();

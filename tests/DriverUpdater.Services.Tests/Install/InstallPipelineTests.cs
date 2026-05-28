@@ -4,6 +4,8 @@ using DriverUpdater.Core.Results;
 using DriverUpdater.Services.Install;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Net;
+using System.Text.RegularExpressions;
 
 namespace DriverUpdater.Services.Tests.Install;
 
@@ -54,7 +56,7 @@ public class InstallPipelineTests
         var pipeline = new InstallPipeline(rp, bk, wu, NullLogger<InstallPipeline>.Instance);
 
         var statuses = new List<UpdateStatus>();
-        var progress = new Progress<UpdateOperation>(o => statuses.Add(o.Status));
+        var progress = new RecordingProgress(o => statuses.Add(o.Status));
 
         var op = NewOperation();
         var result = await pipeline.ExecuteAsync(op, new InstallOptions(), progress);
@@ -140,7 +142,83 @@ public class InstallPipelineTests
         result.ErrorMessage.Should().Contain("MicrosoftCatalog");
     }
 
-    private static UpdateOperation NewOperation(UpdateSource source = UpdateSource.WindowsUpdate)
+    [Fact]
+    public async Task ExecuteAsync_installs_catalog_cab_package_with_pnputil()
+    {
+        var pnputil = new FakePnPUtilRunner();
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/driver.cab")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        http.RequestedUris.Should().ContainSingle().Which.Should().Be(new Uri("https://download.example.com/driver.cab"));
+        powerShell.Invocations.Should().ContainSingle(s => s.Contains("expand.exe", StringComparison.OrdinalIgnoreCase));
+        pnputil.Arguments.Should().ContainSingle();
+        pnputil.Arguments[0].Should().Contain("/add-driver");
+        pnputil.Arguments[0].Should().Contain("*.inf");
+        pnputil.Arguments[0].Should().Contain("/install");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_installs_vendor_msi_with_msiexec()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.msi")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        vendorInstaller.Invocations.Should().ContainSingle();
+        vendorInstaller.Invocations[0].FileName.Should().EndWith("msiexec.exe");
+        vendorInstaller.Invocations[0].Arguments.Should().Contain("/qn");
+        vendorInstaller.Invocations[0].Arguments.Should().Contain("/norestart");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_unapproved_vendor_exe()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }));
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("not approved");
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    private static UpdateOperation NewOperation(
+        UpdateSource source = UpdateSource.WindowsUpdate,
+        UpdateInstallKind installKind = UpdateInstallKind.WindowsUpdate,
+        Uri? downloadUrl = null)
     {
         var driver = new DriverInfo(
             DeviceId: "PCI\\X",
@@ -160,12 +238,13 @@ public class InstallPipelineTests
             Source: source,
             NewVersion: new Version(2, 0),
             NewDate: new DateOnly(2026, 1, 1),
-            DownloadUrl: new Uri("https://example.com/x.cab"),
+            DownloadUrl: downloadUrl ?? new Uri("https://example.com/x.cab"),
             SizeBytes: 1024,
             KbArticle: null,
             IsSuperseded: false,
             SourceUpdateId: "abc-123",
-            SupersededIds: Array.Empty<string>());
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: installKind);
         return UpdateOperation.NewPending(candidate, driver);
     }
 
@@ -186,6 +265,18 @@ public class InstallPipelineTests
             }
             return Task.FromResult<Result<RestorePointInfo>>(new RestorePointInfo("42", description, DateTimeOffset.UtcNow));
         }
+    }
+
+    private sealed class RecordingProgress : IProgress<UpdateOperation>
+    {
+        private readonly Action<UpdateOperation> _onReport;
+
+        public RecordingProgress(Action<UpdateOperation> onReport)
+        {
+            _onReport = onReport;
+        }
+
+        public void Report(UpdateOperation value) => _onReport(value);
     }
 
     private sealed class FakeBackupService : IBackupService
@@ -233,6 +324,78 @@ public class InstallPipelineTests
                 return Task.FromResult(Result<WuInstallResult>.Failure(InstallFailure));
             }
             return Task.FromResult<Result<WuInstallResult>>(InstallResult ?? new WuInstallResult(0, false, "ok"));
+        }
+    }
+
+    private sealed class FakePnPUtilRunner : IPnPUtilRunner
+    {
+        public List<string> Arguments { get; } = new();
+
+        public Task<ProcessResult> RunAsync(string arguments, CancellationToken cancellationToken = default)
+        {
+            Arguments.Add(arguments);
+            return Task.FromResult(new ProcessResult(0, "ok", ""));
+        }
+    }
+
+    private sealed class FakePowerShellInvoker : IPowerShellInvoker
+    {
+        public List<string> Invocations { get; } = new();
+
+        public Task<ProcessResult> InvokeAsync(string script, CancellationToken cancellationToken = default)
+        {
+            Invocations.Add(script);
+            var matches = Regex.Matches(script, "'(?<path>[^']*)'");
+            var extractDir = matches[^1].Groups["path"].Value;
+            Directory.CreateDirectory(extractDir);
+            File.WriteAllText(Path.Combine(extractDir, "driver.inf"), "[Version]");
+            return Task.FromResult(new ProcessResult(0, "expanded", ""));
+        }
+    }
+
+    private sealed class FakeVendorInstallerRunner : IVendorInstallerRunner
+    {
+        public List<(string FileName, string Arguments)> Invocations { get; } = new();
+
+        public Task<ProcessResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
+        {
+            Invocations.Add((fileName, arguments));
+            return Task.FromResult(new ProcessResult(0, "ok", ""));
+        }
+    }
+
+    private sealed class FakeHttpClientFactory : IHttpClientFactory
+    {
+        private readonly byte[] _content;
+
+        public FakeHttpClientFactory(byte[] content)
+        {
+            _content = content;
+        }
+
+        public List<Uri> RequestedUris { get; } = new();
+
+        public HttpClient CreateClient(string name) => new(new Handler(_content, RequestedUris));
+
+        private sealed class Handler : HttpMessageHandler
+        {
+            private readonly byte[] _content;
+            private readonly List<Uri> _requestedUris;
+
+            public Handler(byte[] content, List<Uri> requestedUris)
+            {
+                _content = content;
+                _requestedUris = requestedUris;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                _requestedUris.Add(request.RequestUri!);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(_content)
+                });
+            }
         }
     }
 }

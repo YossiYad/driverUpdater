@@ -130,6 +130,23 @@ public class MicrosoftCatalogSourceTests
         candidate.DownloadUrl.AbsoluteUri.Should().Contain("guid-z");
     }
 
+    [Fact]
+    public void ExpandHardwareIdQueries_adds_less_specific_pci_and_usb_queries()
+    {
+        MicrosoftCatalogSource.ExpandHardwareIdQueries(@"PCI\VEN_1002&DEV_747E&SUBSYS_24141458&REV_FF")
+            .Should().BeEquivalentTo([
+                @"PCI\VEN_1002&DEV_747E&SUBSYS_24141458&REV_FF",
+                @"PCI\VEN_1002&DEV_747E",
+                @"PCI\VEN_1002&DEV_747E&SUBSYS_24141458"
+            ], options => options.WithStrictOrdering());
+
+        MicrosoftCatalogSource.ExpandHardwareIdQueries(@"USB\VID_046D&PID_C548&MI_00")
+            .Should().BeEquivalentTo([
+                @"USB\VID_046D&PID_C548&MI_00",
+                @"USB\VID_046D&PID_C548"
+            ], options => options.WithStrictOrdering());
+    }
+
     private static MicrosoftCatalogSource NewSource(ICatalogHttpClient client, bool enabled)
     {
         var settings = new CatalogSettings { Enabled = enabled, MaxConcurrentSearches = 4, CacheDuration = TimeSpan.FromHours(1) };

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IOemDetectionService _oemDetectionService;
     private readonly IInstallPipeline _installPipeline;
     private readonly IInstallConfirmation _installConfirmation;
+    private readonly IUpdatePageOpener? _updatePageOpener;
     private readonly IHistoryWindowOpener _historyWindowOpener;
     private readonly ISettingsWindowOpener _settingsWindowOpener;
     private readonly ILogger<MainViewModel> _logger;
@@ -28,11 +30,21 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<DriverCategory> AvailableCategories { get; } =
         Enum.GetValues<DriverCategory>().ToArray();
 
+    public IReadOnlyList<DriverUpdateFilterOption> AvailableUpdateFilters { get; } =
+    [
+        new(DriverUpdateFilter.All, "All updates"),
+        new(DriverUpdateFilter.ConfirmedUpdates, "Confirmed"),
+        new(DriverUpdateFilter.VendorChecks, "Vendor checks"),
+        new(DriverUpdateFilter.Installable, "Installable"),
+        new(DriverUpdateFilter.NoUpdate, "No update")
+    ];
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     private string _statusText = "Ready. Click Scan to inventory drivers.";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
     private bool _isScanning;
 
@@ -42,10 +54,25 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateOutdatedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DryRunOutdatedCommand))]
     private int _updatesFoundCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    [NotifyCanExecuteChangedFor(nameof(InstallConfirmedCommand))]
+    private int _confirmedUpdatesCount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    [NotifyCanExecuteChangedFor(nameof(OpenVendorChecksCommand))]
+    private int _vendorChecksCount;
+
+    [ObservableProperty]
     private DriverCategory? _categoryFilter;
+
+    [ObservableProperty]
+    private DriverUpdateFilter _updateFilter = DriverUpdateFilter.All;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -60,7 +87,7 @@ public partial class MainViewModel : ObservableObject
     public string ProgressText => IsScanning
         ? $"Scanning... {ScannedCount} drivers found"
         : ScannedCount > 0
-            ? $"{ScannedCount} drivers ({UpdatesFoundCount} updates available)"
+            ? $"{ScannedCount} drivers ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} vendor checks)"
             : string.Empty;
 
     public MainViewModel(
@@ -71,7 +98,8 @@ public partial class MainViewModel : ObservableObject
         IInstallConfirmation installConfirmation,
         IHistoryWindowOpener historyWindowOpener,
         ISettingsWindowOpener settingsWindowOpener,
-        ILogger<MainViewModel> logger)
+        ILogger<MainViewModel> logger,
+        IUpdatePageOpener? updatePageOpener = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -86,6 +114,7 @@ public partial class MainViewModel : ObservableObject
         _oemDetectionService = oemDetectionService;
         _installPipeline = installPipeline;
         _installConfirmation = installConfirmation;
+        _updatePageOpener = updatePageOpener;
         _historyWindowOpener = historyWindowOpener;
         _settingsWindowOpener = settingsWindowOpener;
         _logger = logger;
@@ -95,6 +124,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     partial void OnCategoryFilterChanged(DriverCategory? value) => DriversView.Refresh();
+    partial void OnUpdateFilterChanged(DriverUpdateFilter value) => DriversView.Refresh();
     partial void OnSearchTextChanged(string value) => DriversView.Refresh();
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -116,6 +146,8 @@ public partial class MainViewModel : ObservableObject
         Drivers.Clear();
         ScannedCount = 0;
         UpdatesFoundCount = 0;
+        ConfirmedUpdatesCount = 0;
+        VendorChecksCount = 0;
         StatusText = "Scanning drivers via WMI...";
         var stopwatch = Stopwatch.StartNew();
 
@@ -133,7 +165,7 @@ public partial class MainViewModel : ObservableObject
 
             await QueryUpdateSourcesAsync(cancellationToken);
 
-            StatusText = $"Done. {Drivers.Count} drivers, {UpdatesFoundCount} updates available.";
+            StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} vendor checks.";
         }
         catch (OperationCanceledException)
         {
@@ -170,11 +202,13 @@ public partial class MainViewModel : ObservableObject
 
                 await foreach (var candidate in source.SearchAsync(driverSnapshots, cancellationToken))
                 {
-                    if (TryFindRow(index, candidate.ForHardwareId, out var row) && candidate.IsNewerThan(row.Driver))
+                    if (TryFindRow(index, candidate.ForHardwareId, out var row)
+                        && candidate.IsNewerThan(row.Driver)
+                        && ShouldAcceptCandidate(row, candidate))
                     {
                         row.AvailableUpdate = candidate;
                         row.Status = DriverStatus.Outdated;
-                        UpdatesFoundCount = CountOutdated();
+                        RefreshUpdateCounts();
                     }
                 }
             }
@@ -220,11 +254,62 @@ public partial class MainViewModel : ObservableObject
             row = bucket[0];
             return true;
         }
+
+        if (!string.IsNullOrWhiteSpace(hardwareId))
+        {
+            foreach (var (knownHardwareId, rows) in index)
+            {
+                if (rows.Count > 0
+                    && (knownHardwareId.StartsWith(hardwareId, StringComparison.OrdinalIgnoreCase)
+                        || hardwareId.StartsWith(knownHardwareId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    row = rows[0];
+                    return true;
+                }
+            }
+        }
+
         row = null!;
         return false;
     }
 
-    private int CountOutdated() => Drivers.Count(d => d.Status == DriverStatus.Outdated);
+    private void RefreshUpdateCounts()
+    {
+        UpdatesFoundCount = Drivers.Count(d => d.Status == DriverStatus.Outdated);
+        ConfirmedUpdatesCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
+        VendorChecksCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
+    }
+
+    private static bool ShouldAcceptCandidate(DriverRowViewModel row, UpdateCandidate candidate)
+    {
+        var current = row.AvailableUpdate;
+        if (current is null)
+        {
+            return true;
+        }
+
+        var currentPriority = CandidatePriority(current);
+        var newPriority = CandidatePriority(candidate);
+        if (newPriority < currentPriority)
+        {
+            return false;
+        }
+        if (newPriority > currentPriority)
+        {
+            return true;
+        }
+
+        var versionComparison = candidate.NewVersion.CompareTo(current.NewVersion);
+        if (versionComparison != 0)
+        {
+            return versionComparison > 0;
+        }
+
+        return candidate.NewDate > current.NewDate;
+    }
+
+    private static int CandidatePriority(UpdateCandidate candidate) =>
+        candidate.Confidence == UpdateConfidence.Confirmed ? 2 : 1;
 
     private bool CanScan() => !IsScanning;
 
@@ -246,22 +331,54 @@ public partial class MainViewModel : ObservableObject
         Drivers.Clear();
         ScannedCount = 0;
         UpdatesFoundCount = 0;
+        ConfirmedUpdatesCount = 0;
+        VendorChecksCount = 0;
         StatusText = "Cleared.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
     private async Task UpdateOutdatedAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(dryRun: false, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
     private async Task DryRunOutdatedAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(dryRun: true, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(dryRun: true, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
-    private async Task RunUpdatesAsync(bool dryRun, CancellationToken cancellationToken)
+    [RelayCommand(CanExecute = nameof(CanInstallConfirmed))]
+    private async Task InstallConfirmedAsync(CancellationToken cancellationToken)
+    {
+        await RunUpdatesAsync(dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
+    private void OpenVendorChecks()
+    {
+        var pageTargets = Drivers
+            .Where(r => r.Status == DriverStatus.Outdated
+                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .ToArray();
+
+        if (pageTargets.Length == 0)
+        {
+            StatusText = "No vendor checks to open.";
+            return;
+        }
+
+        OpenVendorPages(pageTargets);
+        StatusText = $"Opened {pageTargets.Length} vendor update pages.";
+    }
+
+    private bool CanRunAnyUpdates() => UpdatesFoundCount > 0;
+
+    private bool CanInstallConfirmed() => ConfirmedUpdatesCount > 0;
+
+    private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
+
+    private async Task RunUpdatesAsync(bool dryRun, bool includeVendorPages, CancellationToken cancellationToken)
     {
         var targets = Drivers
             .Where(r => r.Status == DriverStatus.Outdated && r.AvailableUpdate is not null)
@@ -273,7 +390,29 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var firstTarget = targets[0];
+        var installTargets = targets
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
+            .ToArray();
+        var pageTargets = targets
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .ToArray();
+
+        if (!dryRun && includeVendorPages && pageTargets.Length > 0)
+        {
+            OpenVendorPages(pageTargets);
+        }
+
+        if (installTargets.Length == 0)
+        {
+            StatusText = dryRun
+                ? $"Dry run completed. {pageTargets.Length} vendor pages would be opened."
+                : includeVendorPages
+                    ? $"Opened {pageTargets.Length} vendor update pages."
+                    : "No confirmed updates to install.";
+            return;
+        }
+
+        var firstTarget = installTargets[0];
         var sampleOperation = UpdateOperation.NewPending(firstTarget.AvailableUpdate!, firstTarget.Driver);
         var confirmResult = _installConfirmation.Confirm(sampleOperation, dryRun);
         if (confirmResult is null)
@@ -283,9 +422,14 @@ public partial class MainViewModel : ObservableObject
         }
         var options = confirmResult;
 
-        foreach (var row in targets)
+        var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in installTargets)
         {
             if (row.AvailableUpdate is null)
+            {
+                continue;
+            }
+            if (!processedUpdateIds.Add(row.AvailableUpdate.SourceUpdateId))
             {
                 continue;
             }
@@ -302,12 +446,63 @@ public partial class MainViewModel : ObservableObject
 
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;
+            if (finished.Status == UpdateStatus.Succeeded)
+            {
+                row.AvailableUpdate = null;
+            }
+            RefreshUpdateCounts();
             _logger.LogInformation("Operation {Id} finished with {Status}", finished.OperationId, finished.Status);
+
+            if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
+            {
+                ApplySharedVendorInstallerResult(finished);
+            }
         }
 
         StatusText = dryRun
-            ? $"Dry run completed for {targets.Length} drivers."
-            : $"Install completed for {targets.Length} drivers.";
+            ? $"Dry run completed for {installTargets.Length} drivers."
+            : includeVendorPages
+                ? $"Install completed for {installTargets.Length} drivers. Opened {pageTargets.Length} vendor pages."
+                : $"Install completed for {installTargets.Length} confirmed drivers.";
+    }
+
+    private void ApplySharedVendorInstallerResult(UpdateOperation finished)
+    {
+        foreach (var row in Drivers.Where(r => r.AvailableUpdate?.SourceUpdateId == finished.Candidate.SourceUpdateId))
+        {
+            row.Status = MapOperationStatus(finished.Status);
+            row.LastOperation = finished;
+            if (finished.Status == UpdateStatus.Succeeded)
+            {
+                row.AvailableUpdate = null;
+            }
+        }
+
+        RefreshUpdateCounts();
+    }
+
+    private void OpenVendorPages(IEnumerable<DriverRowViewModel> targets)
+    {
+        var opener = _updatePageOpener;
+        if (opener is null)
+        {
+            return;
+        }
+
+        foreach (var candidate in targets
+            .Select(t => t.AvailableUpdate)
+            .OfType<UpdateCandidate>()
+            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                opener.Open(candidate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidate.DownloadUrl);
+            }
+        }
     }
 
     private static DriverStatus MapOperationStatus(UpdateStatus status) => status switch
@@ -372,6 +567,11 @@ public partial class MainViewModel : ObservableObject
             return false;
         }
 
+        if (!MatchesUpdateFilter(row))
+        {
+            return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
             var needle = SearchText.Trim();
@@ -386,4 +586,14 @@ public partial class MainViewModel : ObservableObject
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
+
+    private bool MatchesUpdateFilter(DriverRowViewModel row) => UpdateFilter switch
+    {
+        DriverUpdateFilter.All => true,
+        DriverUpdateFilter.ConfirmedUpdates => row.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed,
+        DriverUpdateFilter.VendorChecks => row.AvailableUpdate?.Confidence == UpdateConfidence.Advisory,
+        DriverUpdateFilter.Installable => row.AvailableUpdate?.InstallKind is UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller,
+        DriverUpdateFilter.NoUpdate => row.AvailableUpdate is null,
+        _ => true
+    };
 }

@@ -68,6 +68,7 @@
             <StackPanel>
                 <TextBlock Text="Source" FontWeight="SemiBold" Opacity="0.8" />
                 <TextBlock Margin="0,4,0,0" Text="{Binding Operation.Candidate.Source}" />
+                <TextBlock Opacity="0.6" FontSize="12" Text="{Binding InstallKindText}" />
                 <TextBlock Opacity="0.6" FontSize="12" Text="{Binding SizeText}" />
                 <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.Candidate.DownloadUrl}" />
             </StackPanel>

@@ -21,6 +21,9 @@ public class OemDetectionServiceTests
     [InlineData("Razer", "Blade 15", OemVendor.Razer)]
     [InlineData("Samsung Electronics Co., Ltd.", "Galaxy Book", OemVendor.Samsung)]
     [InlineData("TOSHIBA", "Satellite", OemVendor.Toshiba)]
+    [InlineData("Gigabyte Technology Co., Ltd.", "Z790 AORUS ELITE AX", OemVendor.Gigabyte)]
+    [InlineData("ASRock", "B850 Steel Legend", OemVendor.ASRock)]
+    [InlineData("BIOSTAR Group", "B850MT", OemVendor.Biostar)]
     [InlineData("Some Generic Maker", "Mystery Box", OemVendor.Unknown)]
     [InlineData("", "", OemVendor.Unknown)]
     public void MapVendor_recognizes_known_manufacturers(string manufacturer, string model, OemVendor expected)
@@ -48,7 +51,7 @@ public class OemDetectionServiceTests
         info!.Vendor.Should().Be(OemVendor.Lenovo);
         info.Manufacturer.Should().Be("LENOVO");
         info.Model.Should().Be("ThinkPad X1 Carbon Gen 11");
-        info.ToolName.Should().Be("Lenovo Vantage");
+        info.ToolName.Should().Be("Lenovo System Update");
         info.FallbackUrl.Host.Should().Contain("lenovo.com");
     }
 
@@ -104,6 +107,30 @@ public class OemDetectionServiceTests
             .ToArray();
 
         names.Should().OnlyHaveUniqueItems();
+    }
+
+    [Theory]
+    [InlineData(OemVendor.Gigabyte, "Z790 AORUS ELITE AX", "gigabyte.com", "Z790%20AORUS%20ELITE%20AX")]
+    [InlineData(OemVendor.Asus, "ROG Strix B650", "asus.com", "ROG%20Strix%20B650")]
+    [InlineData(OemVendor.Msi, "MAG B650 TOMAHAWK", "msi.com", "MAG%20B650%20TOMAHAWK")]
+    [InlineData(OemVendor.Dell, "XPS 13 9340", "dell.com", "XPS%2013%209340")]
+    public void ResolveVendorSupportUrl_builds_generic_model_search_urls(
+        OemVendor vendor,
+        string model,
+        string expectedHost,
+        string expectedQuery)
+    {
+        var url = OemDetectionService.ResolveVendorSupportUrl(vendor, model);
+
+        url.Should().NotBeNull();
+        url!.Host.Should().Contain(expectedHost);
+        url.AbsoluteUri.Should().Contain(expectedQuery);
+    }
+
+    [Fact]
+    public void ResolveVendorSupportUrl_returns_null_without_model()
+    {
+        OemDetectionService.ResolveVendorSupportUrl(OemVendor.Gigabyte, "  ").Should().BeNull();
     }
 
     private static IReadOnlyDictionary<string, object?> Row(params (string Key, object? Value)[] pairs)

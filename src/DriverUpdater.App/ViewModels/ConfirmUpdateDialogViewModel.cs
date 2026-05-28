@@ -23,6 +23,15 @@ public partial class ConfirmUpdateDialogViewModel : ObservableObject
         ? $"Size: {FormatSize(Operation.Candidate.SizeBytes)}"
         : "Size: unknown";
 
+    public string InstallKindText => Operation.Candidate.InstallKind switch
+    {
+        UpdateInstallKind.WindowsUpdate => "Installs through Windows Update",
+        UpdateInstallKind.PnPUtilPackage => "Installs through pnputil",
+        UpdateInstallKind.VendorInstaller => "Uses the vendor installer",
+        UpdateInstallKind.VendorPage => "Opens the official vendor download page",
+        _ => "Install method unknown"
+    };
+
     public bool ShowRiskWarning =>
         Operation.TargetSnapshot.Category is DriverCategory.Display or DriverCategory.Storage;
 

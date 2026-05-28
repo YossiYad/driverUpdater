@@ -90,7 +90,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <WrapPanel Grid.Column="0" VerticalAlignment="Center">
                     <Button Content="{DynamicResource Toolbar.Scan}"
                             Padding="14,6"
                             Command="{Binding ScanCommand}"
@@ -110,6 +110,10 @@
                             Command="{Binding UpdateOutdatedCommand}" />
                     <Button Margin="8,0,0,0"
                             Padding="14,6"
+                            Content="{DynamicResource Toolbar.InstallConfirmed}"
+                            Command="{Binding InstallConfirmedCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Padding="14,6"
                             Content="{DynamicResource Toolbar.DryRun}"
                             Command="{Binding DryRunOutdatedCommand}" />
                     <Button Margin="24,0,0,0"
@@ -120,7 +124,7 @@
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.Settings}"
                             Command="{Binding OpenSettingsCommand}" />
-                </StackPanel>
+                </WrapPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <TextBox Width="240"
@@ -131,6 +135,12 @@
                               ui:ControlHelper.PlaceholderText="All categories"
                               ItemsSource="{Binding AvailableCategories}"
                               SelectedItem="{Binding CategoryFilter}" />
+                    <ComboBox Width="170"
+                              Margin="8,0,0,0"
+                              ItemsSource="{Binding AvailableUpdateFilters}"
+                              DisplayMemberPath="Label"
+                              SelectedValuePath="Value"
+                              SelectedValue="{Binding UpdateFilter}" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -175,6 +185,12 @@
                                     Width="110" />
                 <DataGridTextColumn Header="Source"
                                     Binding="{Binding SourceText}"
+                                    Width="110" />
+                <DataGridTextColumn Header="Action"
+                                    Binding="{Binding UpdateActionText}"
+                                    Width="130" />
+                <DataGridTextColumn Header="Confidence"
+                                    Binding="{Binding ConfidenceText}"
                                     Width="110" />
                 <DataGridTextColumn Header="Provider"
                                     Binding="{Binding Provider}"
