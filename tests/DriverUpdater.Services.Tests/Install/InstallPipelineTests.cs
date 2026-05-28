@@ -398,4 +398,32 @@ public class InstallPipelineTests
             }
         }
     }
+
+    [Theory]
+    [InlineData("vendor-installer:nvidia:610.47", "C:\\Temp\\nvidia.exe", "-s -noeula -noreboot")]
+    [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]
+    [InlineData("vendor-installer:installshield:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "/s")]
+    [InlineData("vendor-installer:inno:bar", "C:\\Temp\\bar.exe", "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART")]
+    public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
+    {
+        var candidate = new UpdateCandidate(
+            ForHardwareId: "PCI\\X",
+            Source: UpdateSource.Oem,
+            NewVersion: new Version(1, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/installer.exe"),
+            SizeBytes: 0,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: sourceUpdateId,
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: UpdateInstallKind.VendorInstaller);
+
+        var ok = InstallPipeline.TryBuildVendorInstallerCommand(candidate, installerPath, out var fileName, out var arguments, out var skipReason);
+
+        ok.Should().BeTrue();
+        fileName.Should().Be(installerPath);
+        arguments.Should().Be(expectedArgs);
+        skipReason.Should().BeEmpty();
+    }
 }

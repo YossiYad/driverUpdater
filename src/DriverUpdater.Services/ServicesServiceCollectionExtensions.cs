@@ -22,6 +22,7 @@ public static class ServicesServiceCollectionExtensions
 
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
+        ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
@@ -31,6 +32,9 @@ public static class ServicesServiceCollectionExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdChipsetSource.HttpClientName),
             sp.GetRequiredService<IAmdSocketDetector>(),
             sp.GetRequiredService<ILogger<AmdChipsetSource>>()));
+        services.AddSingleton<IUpdateSource>(sp => new NvidiaGraphicsSource(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(NvidiaGraphicsSource.HttpClientName),
+            sp.GetRequiredService<ILogger<NvidiaGraphicsSource>>()));
         services.AddSingleton<IUpdateSource, OfficialVendorPageSource>();
 
         services.AddSingleton<IOemDetectionService, OemDetectionService>();

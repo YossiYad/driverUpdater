@@ -537,6 +537,12 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        if (sourceUpdateId.StartsWith("vendor-installer:nvidia:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "-s -noeula -noreboot";
+            return true;
+        }
+
         if (sourceUpdateId.StartsWith("vendor-installer:inno:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
