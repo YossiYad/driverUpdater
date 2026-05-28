@@ -15,6 +15,7 @@
     <sys:String x:Key="Toolbar.OpenVendorChecks">פתח בדיקות יצרן</sys:String>
     <sys:String x:Key="Toolbar.DryRun">הרצה יבשה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
+    <sys:String x:Key="Toolbar.Logs">לוגים</sys:String>
     <sys:String x:Key="Toolbar.Settings">הגדרות</sys:String>
 
     <sys:String x:Key="Filter.Search">חפש מכשיר, ספק, או מזהה חומרה...</sys:String>
