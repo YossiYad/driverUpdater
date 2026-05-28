@@ -399,6 +399,128 @@ public class InstallPipelineTests
         }
     }
 
+    [Fact]
+    public void LocateInstallerInTree_finds_setup_exe_at_root()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "Setup.exe"), "stub");
+        File.WriteAllText(Path.Combine(temp.Path, "ReadMe.txt"), "stub");
+
+        var located = InstallPipeline.LocateInstallerInTree(temp.Path);
+
+        located.Should().EndWith("Setup.exe");
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_prefers_shallow_setup_over_nested_exe()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "Setup.exe"), "stub");
+        Directory.CreateDirectory(Path.Combine(temp.Path, "x86"));
+        File.WriteAllText(Path.Combine(temp.Path, "x86", "Install.exe"), "stub");
+
+        var located = InstallPipeline.LocateInstallerInTree(temp.Path);
+
+        located.Should().EndWith("Setup.exe");
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_falls_back_to_msi_and_then_first_exe()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "vendor.msi"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().EndWith("vendor.msi");
+
+        File.Delete(Path.Combine(temp.Path, "vendor.msi"));
+        File.WriteAllText(Path.Combine(temp.Path, "Other.exe"), "stub");
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().EndWith("Other.exe");
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_returns_null_when_no_installer_found()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "ReadMe.txt"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractZipAndLocateInstaller_extracts_and_finds_setup()
+    {
+        using var temp = new TempDir();
+        var zipPath = Path.Combine(temp.Path, "driver.zip");
+        using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            var entry = zip.CreateEntry("Setup.exe");
+            using var stream = entry.Open();
+            stream.WriteByte(0x4D); // MZ header
+            stream.WriteByte(0x5A);
+        }
+
+        var pipeline = NewPipelineForZip();
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+
+        located.Should().NotBeNull();
+        located!.Should().EndWith("Setup.exe");
+        error.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractZipAndLocateInstaller_rejects_zip_slip_paths()
+    {
+        using var temp = new TempDir();
+        var zipPath = Path.Combine(temp.Path, "evil.zip");
+        using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            var entry = zip.CreateEntry("../../escape.exe");
+            using var stream = entry.Open();
+            stream.WriteByte(0x4D);
+        }
+
+        var pipeline = NewPipelineForZip();
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+
+        located.Should().BeNull();
+        error.Should().Contain("escape");
+    }
+
+    [Fact]
+    public void ExtractZipAndLocateInstaller_returns_error_when_no_installer_inside()
+    {
+        using var temp = new TempDir();
+        var zipPath = Path.Combine(temp.Path, "docs.zip");
+        using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            var entry = zip.CreateEntry("ReadMe.txt");
+            using var stream = entry.Open();
+            stream.WriteByte(0x41);
+        }
+
+        var pipeline = NewPipelineForZip();
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+
+        located.Should().BeNull();
+        error.Should().Contain("did not contain");
+    }
+
+    private static InstallPipeline NewPipelineForZip() => new(
+        new FakeRestorePointService(),
+        new FakeBackupService(),
+        new FakeWuApiClient(),
+        NullLogger<InstallPipeline>.Instance);
+
+    private sealed class TempDir : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DriverUpdater.Tests", Guid.NewGuid().ToString("N"));
+        public TempDir() { Directory.CreateDirectory(Path); }
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     [Theory]
     [InlineData("vendor-installer:nvidia:610.47", "C:\\Temp\\nvidia.exe", "-s -noeula -noreboot")]
     [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]

@@ -64,6 +64,7 @@ public partial class App : Application
                 services.Configure<ScheduleSettings>(context.Configuration.GetSection(ScheduleSettings.SectionName));
                 services.Configure<LanguageSettings>(context.Configuration.GetSection(LanguageSettings.SectionName));
                 services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
+                services.Configure<ScraperSettings>(context.Configuration.GetSection(ScraperSettings.SectionName));
                 services.AddDriverUpdaterInfrastructure();
                 services.AddDriverUpdaterServices();
                 services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
