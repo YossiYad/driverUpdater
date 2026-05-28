@@ -24,13 +24,39 @@ public class OemSupportSourceTests
 
         var results = await source.SearchAsync(new[]
         {
-            NewDriver("AMD SMBus", DriverCategory.Chipset, "Advanced Micro Devices", new DateOnly(2024, 1, 1)),
-            NewDriver("AMD Radeon RX 7700 XT", DriverCategory.Display, "Advanced Micro Devices", new DateOnly(2024, 1, 1))
+            NewDriver("ASMedia USB 3.2 Host Controller", DriverCategory.Usb, "ASMedia Technology Inc.", new DateOnly(2024, 1, 1)),
+            NewDriver("AMD Radeon RX 7700 XT", DriverCategory.Display, "Advanced Micro Devices", new DateOnly(2024, 1, 1)),
+            NewDriver("AMD SMBus", DriverCategory.Chipset, "Advanced Micro Devices", new DateOnly(2024, 1, 1))
         }).ToListAsync();
 
         results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
         results[0].DownloadUrl.Host.Should().Contain("gigabyte.com");
+    }
+
+    [Fact]
+    public async Task SearchAsync_skips_drivers_with_dedicated_component_vendor()
+    {
+        var source = new OemSupportSource(
+            new FakeOemDetectionService(new OemInfo(
+                OemVendor.Gigabyte,
+                "Gigabyte Technology Co., Ltd.",
+                "B850M GAMING X WIFI6E",
+                "GIGABYTE Control Center",
+                ToolPath: null,
+                FallbackUrl: new Uri("https://www.gigabyte.com/Search?kw=B850M"))),
+            NullLogger<OemSupportSource>.Instance,
+            new FakeTimeProvider(new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero)));
+
+        var results = await source.SearchAsync(new[]
+        {
+            NewDriver("AMD SMBus", DriverCategory.Chipset, "Advanced Micro Devices", new DateOnly(2024, 1, 1)),
+            NewDriver("Realtek PCIe 2.5GbE Family Controller", DriverCategory.Network, "Realtek", new DateOnly(2024, 1, 1)),
+            NewDriver("LIGHTSPEED Receiver", DriverCategory.Usb, "Logitech", new DateOnly(2024, 1, 1)),
+            NewDriver("Intel Wi-Fi 7", DriverCategory.Network, "Intel Corporation", new DateOnly(2024, 1, 1))
+        }).ToListAsync();
+
+        results.Should().BeEmpty();
     }
 
     [Theory]

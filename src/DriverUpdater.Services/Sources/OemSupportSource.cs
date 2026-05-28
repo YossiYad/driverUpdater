@@ -94,6 +94,11 @@ public sealed class OemSupportSource : IUpdateSource
             return false;
         }
 
+        if (HasDedicatedComponentVendor(driver))
+        {
+            return false;
+        }
+
         if (Contains(driver.DeviceName, "Hyper-V")
             || Contains(driver.DeviceName, "Virtual")
             || Contains(driver.DeviceName, "ACPI")
@@ -113,6 +118,7 @@ public sealed class OemSupportSource : IUpdateSource
             || Contains(driver.DeviceName, "Resource Hub")
             || Contains(driver.DeviceName, "UMBus")
             || Contains(driver.DeviceName, "Volume")
+            || Contains(driver.DeviceName, "SQExt")
             || Contains(driver.DeviceName, "Nefarius"))
         {
             return false;
@@ -120,6 +126,34 @@ public sealed class OemSupportSource : IUpdateSource
 
         return true;
     }
+
+    private static bool HasDedicatedComponentVendor(DriverInfo driver)
+    {
+        foreach (var keyword in DedicatedVendorKeywords)
+        {
+            if (Contains(driver.Provider, keyword)
+                || Contains(driver.Manufacturer, keyword)
+                || Contains(driver.DeviceName, keyword))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static readonly string[] DedicatedVendorKeywords =
+    [
+        "Advanced Micro Devices",
+        "AMD",
+        "NVIDIA",
+        "Intel",
+        "Realtek",
+        "Logitech",
+        "LIGHTSPEED",
+        "Qualcomm",
+        "MediaTek",
+        "Broadcom"
+    ];
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
