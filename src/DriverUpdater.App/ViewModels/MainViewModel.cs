@@ -208,10 +208,16 @@ public partial class MainViewModel : ObservableObject
 
                 await foreach (var candidate in source.SearchAsync(driverSnapshots, cancellationToken))
                 {
-                    if (TryFindRow(index, candidate.ForHardwareId, out var row)
+                    if (TryFindRow(index, candidate.ForHardwareId, out var row, out var matchKind)
                         && candidate.IsNewerThan(row.Driver)
                         && ShouldAcceptCandidate(row, candidate))
                     {
+                        if (matchKind == HardwareIdMatchKind.Fuzzy)
+                        {
+                            _logger.LogWarning(
+                                "{Source}: fuzzy prefix match - candidate ForHardwareId '{CandidateHwId}' bound to row '{RowDevice}' ({RowHwId}); download {Url}",
+                                source.DisplayName, candidate.ForHardwareId, row.DeviceName, row.HardwareId, candidate.DownloadUrl);
+                        }
                         row.AvailableUpdate = candidate;
                         row.Status = DriverStatus.Outdated;
                         RefreshUpdateCounts();
@@ -250,14 +256,23 @@ public partial class MainViewModel : ObservableObject
         return dict;
     }
 
+    internal enum HardwareIdMatchKind
+    {
+        None,
+        Exact,
+        Fuzzy
+    }
+
     private static bool TryFindRow(
         Dictionary<string, List<DriverRowViewModel>> index,
         string hardwareId,
-        out DriverRowViewModel row)
+        out DriverRowViewModel row,
+        out HardwareIdMatchKind matchKind)
     {
         if (!string.IsNullOrWhiteSpace(hardwareId) && index.TryGetValue(hardwareId, out var bucket) && bucket.Count > 0)
         {
             row = bucket[0];
+            matchKind = HardwareIdMatchKind.Exact;
             return true;
         }
 
@@ -265,18 +280,38 @@ public partial class MainViewModel : ObservableObject
         {
             foreach (var (knownHardwareId, rows) in index)
             {
-                if (rows.Count > 0
-                    && (knownHardwareId.StartsWith(hardwareId, StringComparison.OrdinalIgnoreCase)
-                        || hardwareId.StartsWith(knownHardwareId, StringComparison.OrdinalIgnoreCase)))
+                if (rows.Count > 0 && IsBoundaryPrefix(knownHardwareId, hardwareId))
                 {
                     row = rows[0];
+                    matchKind = HardwareIdMatchKind.Fuzzy;
                     return true;
                 }
             }
         }
 
         row = null!;
+        matchKind = HardwareIdMatchKind.None;
         return false;
+    }
+
+    // True when one of the IDs is a clean prefix of the other, where "clean" means the
+    // next character after the prefix is a Windows hardware-ID separator (\ or &). Without
+    // that boundary, IDs like ROOT\X and ROOT\XYZ would match each other coincidentally,
+    // which has caused cross-vendor confusion (an AMD chipset candidate landing on a
+    // Logitech row, for example).
+    internal static bool IsBoundaryPrefix(string a, string b)
+    {
+        if (a.Length == b.Length)
+        {
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+        var (shorter, longer) = a.Length < b.Length ? (a, b) : (b, a);
+        if (!longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        var nextChar = longer[shorter.Length];
+        return nextChar == '\\' || nextChar == '&';
     }
 
     private void RefreshUpdateCounts()
