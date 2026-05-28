@@ -125,6 +125,39 @@ public class AmdGraphicsSourceTests
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
     }
 
+    [Fact]
+    public async Task SearchAsync_yields_for_integrated_amd_radeon_graphics_via_generic_page()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.5.2 (WHQL Recommended)</p>
+            <p>File Size</p><p>48 MB</p>
+            <p>Release Date</p><p>2026-05-14</p>
+            <a href="https://drivers.amd.com/drivers/installer/26.10/whql/amd-software-adrenalin-edition-26.5.2-minimalsetup-260513_web.exe">Download</a>
+            """);
+        var igpu = NewAmdDriver(new DateOnly(2026, 2, 17)) with
+        {
+            DeviceName = "AMD Radeon(TM) Graphics",
+            HardwareId = "PCI\\VEN_1002&DEV_150E"
+        };
+
+        var results = await source.SearchAsync(new[] { igpu }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/installer/26.10/whql/amd-software-adrenalin-edition-26.5.2-minimalsetup-260513_web.exe");
+    }
+
+    [Fact]
+    public void TryResolveSupportPage_returns_generic_url_for_non_rx_devices()
+    {
+        var igpu = NewAmdDriver(new DateOnly(2026, 2, 17)) with { DeviceName = "AMD Radeon(TM) Graphics" };
+
+        var ok = AmdGraphicsSource.TryResolveSupportPage(igpu, out var uri);
+
+        ok.Should().BeTrue();
+        uri.AbsoluteUri.Should().Be(AmdGraphicsSource.AmdSupportUrl);
+    }
+
     private static AmdGraphicsSource NewSource(string html)
     {
         var client = new HttpClient(new StaticHtmlHandler(html))

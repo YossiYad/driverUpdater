@@ -102,6 +102,7 @@ public class MainViewModelTests
             new NullInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
 
     private static DriverInfo NewDriver(string name, DriverCategory category) => new(

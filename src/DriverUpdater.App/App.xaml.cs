@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
@@ -30,6 +31,8 @@ public partial class App : Application
             "Logs");
         Directory.CreateDirectory(logDirectory);
 
+        var inMemoryLogSink = new InMemoryLogSink();
+
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
             .WriteTo.Debug()
@@ -38,6 +41,7 @@ public partial class App : Application
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 14,
                 shared: true)
+            .WriteTo.Sink(inMemoryLogSink)
             .Enrich.FromLogContext()
             .CreateLogger();
 
@@ -68,11 +72,15 @@ public partial class App : Application
                 services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
                 services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
                 services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
+                services.AddSingleton<ILogsWindowOpener, LogsWindowOpener>();
+                services.AddSingleton(inMemoryLogSink);
                 services.AddSingleton<MainViewModel>();
                 services.AddTransient<HistoryViewModel>();
                 services.AddTransient<HistoryWindow>();
                 services.AddTransient<SettingsViewModel>();
                 services.AddTransient<SettingsWindow>();
+                services.AddTransient<LogsViewModel>();
+                services.AddTransient<LogsWindow>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();

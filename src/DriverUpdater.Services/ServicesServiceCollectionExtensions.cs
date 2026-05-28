@@ -3,6 +3,7 @@ using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
 using DriverUpdater.Services.Sources;
+using DriverUpdater.Services.Sources.Internal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -25,8 +26,10 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
             sp.GetRequiredService<ILogger<AmdGraphicsSource>>()));
+        services.AddSingleton<IAmdSocketDetector, AmdSocketDetector>();
         services.AddSingleton<IUpdateSource>(sp => new AmdChipsetSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdChipsetSource.HttpClientName),
+            sp.GetRequiredService<IAmdSocketDetector>(),
             sp.GetRequiredService<ILogger<AmdChipsetSource>>()));
         services.AddSingleton<IUpdateSource, OfficialVendorPageSource>();
 

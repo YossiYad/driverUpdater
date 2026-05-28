@@ -45,16 +45,23 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             yield break;
         }
 
-        foreach (var driver in amdDisplays)
+        // Phase 1: collect (driver, supportUri, parsedRelease?) per display, sorted so devices with
+        // a model-specific page (the discrete RX cards) are fetched first. Their parse result becomes
+        // the cached fallback for any device whose page is just a navigation hub (the iGPU "AMD
+        // Radeon(TM) Graphics" lands on amd.com/.../drivers.html, which has no Revision/Release block).
+        var ordered = amdDisplays
+            .Select(d => (Driver: d, Uri: ResolveAndReturn(d), IsSpecific: RadeonRxModelPattern().IsMatch(d.DeviceName)))
+            .OrderByDescending(t => t.IsSpecific)
+            .ToArray();
+
+        AmdReleaseInfo? cached = null;
+        var fetched = new List<(DriverInfo Driver, Uri Uri, AmdReleaseInfo? Release)>(ordered.Length);
+
+        foreach (var (driver, supportUri, _) in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!TryResolveSupportPage(driver, out var supportUri))
-            {
-                _logger.LogInformation("AMD: could not resolve a model-specific support page for {Device}; skipping", driver.DeviceName);
-                continue;
-            }
-
             _logger.LogInformation("AMD: fetching support page for {Device}: {Uri}", driver.DeviceName, supportUri);
+
             AmdReleaseInfo? parsedRelease = null;
             int htmlLength = 0;
             try
@@ -70,29 +77,50 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
 
             if (parsedRelease is null)
             {
-                _logger.LogWarning("AMD: parser found no release in {Length}-byte page for {Device} - HTML layout may have changed", htmlLength, driver.DeviceName);
+                _logger.LogWarning("AMD: parser found no release in {Length}-byte page for {Device}; will reuse cached release if available", htmlLength, driver.DeviceName);
+                fetched.Add((driver, supportUri, null));
                 continue;
             }
 
-            var release = parsedRelease.Value;
+            cached ??= parsedRelease;
             _logger.LogInformation(
                 "AMD: parsed release for {Device}: revision={Revision}, date={ReleaseDate}, sizeBytes={Size}, directInstaller={HasInstaller}",
-                driver.DeviceName, release.Revision, release.ReleaseDate, release.SizeBytes ?? 0, release.DirectInstallerUrl is not null);
+                driver.DeviceName, parsedRelease.Value.Revision, parsedRelease.Value.ReleaseDate, parsedRelease.Value.SizeBytes ?? 0, parsedRelease.Value.DirectInstallerUrl is not null);
+            fetched.Add((driver, supportUri, parsedRelease));
+        }
 
-            if (driver.CurrentDate is { } currentDate && release.ReleaseDate <= currentDate)
+        // Phase 2: emit. Unparseable rows reuse the cached release so the iGPU still gets the same
+        // VendorInstaller candidate as the discrete card (the Adrenalin bundle covers both).
+        foreach (var (driver, supportUri, parsedRelease) in fetched)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var release = parsedRelease ?? cached;
+            if (release is null)
+            {
+                _logger.LogWarning("AMD: no release info available for {Device} (no cache, parser failed); skipping", driver.DeviceName);
+                continue;
+            }
+
+            if (driver.CurrentDate is { } currentDate && release.Value.ReleaseDate <= currentDate)
             {
                 _logger.LogInformation(
                     "AMD: local driver for {Device} dated {CurrentDate} is already at or newer than upstream {ReleaseDate}; skipping",
-                    driver.DeviceName, currentDate, release.ReleaseDate);
+                    driver.DeviceName, currentDate, release.Value.ReleaseDate);
                 continue;
             }
 
-            var candidate = BuildCandidate(driver, supportUri, release);
+            var candidate = BuildCandidate(driver, supportUri, release.Value);
             _logger.LogInformation(
                 "AMD: yielding {InstallKind} candidate for {Device} -> {Url}",
                 candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
             yield return candidate;
         }
+    }
+
+    private static Uri ResolveAndReturn(DriverInfo driver)
+    {
+        TryResolveSupportPage(driver, out var uri);
+        return uri;
     }
 
     internal static UpdateCandidate BuildCandidate(DriverInfo driver, Uri supportUri, AmdReleaseInfo release)
@@ -146,7 +174,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         }
 
         supportUri = new Uri(AmdSupportUrl);
-        return false;
+        return true;
     }
 
     internal static bool TryParseLatestWindowsRelease(string html, out AmdReleaseInfo release)
