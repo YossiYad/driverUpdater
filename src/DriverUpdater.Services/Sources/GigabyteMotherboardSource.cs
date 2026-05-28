@@ -66,6 +66,14 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
         }
 
         _logger.LogInformation("Gigabyte: matching {Count} catalog entries against {DriverCount} installed drivers", entries.Count, drivers.Count);
+        foreach (var entry in entries)
+        {
+            _logger.LogInformation(
+                "Gigabyte catalog entry: title={Title} version={Version} date={Date} category={Category} url={Url}",
+                entry.Title, entry.Version, entry.ReleaseDate, entry.Category, entry.DownloadUrl);
+        }
+
+        var matched = 0;
         foreach (var driver in drivers)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -75,8 +83,12 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
                 continue;
             }
 
+            matched++;
             if (driver.CurrentDate is { } currentDate && match.ReleaseDate <= currentDate)
             {
+                _logger.LogInformation(
+                    "Gigabyte: skipping {Device} - local driver date {LocalDate} is at or newer than catalog {RemoteDate}",
+                    driver.DeviceName, currentDate, match.ReleaseDate);
                 continue;
             }
 
@@ -85,6 +97,11 @@ public sealed class GigabyteMotherboardSource : IUpdateSource
                 "Gigabyte: yielding {InstallKind} candidate for {Device} -> {Url}",
                 candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
             yield return candidate;
+        }
+
+        if (matched == 0)
+        {
+            _logger.LogInformation("Gigabyte: 0 of {Count} installed drivers matched any catalog entry by category heuristic", drivers.Count);
         }
     }
 

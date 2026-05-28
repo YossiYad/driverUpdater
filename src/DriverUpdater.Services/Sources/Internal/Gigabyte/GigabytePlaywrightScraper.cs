@@ -338,11 +338,29 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
 
     private static DateOnly? ExtractDate(string text)
     {
-        var match = System.Text.RegularExpressions.Regex.Match(text, @"\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b");
-        if (match.Success && DateOnly.TryParse(match.Groups[1].Value.Replace('.', '-').Replace('/', '-'), CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        // ISO-ish (2026-05-18, 2026/05/18, 2026.05.18).
+        var iso = System.Text.RegularExpressions.Regex.Match(text, @"\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b");
+        if (iso.Success && DateOnly.TryParse(iso.Groups[1].Value.Replace('.', '-').Replace('/', '-'), CultureInfo.InvariantCulture, DateTimeStyles.None, out var isoDate))
         {
-            return date;
+            return isoDate;
         }
+
+        // Gigabyte renders dates as "Jan 15, 2026" or "May 24, 2026" in the row text.
+        var month = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"\b(?<m>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?<d>\d{1,2}),\s*(?<y>\d{4})\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (month.Success
+            && DateOnly.TryParseExact(
+                $"{month.Groups["m"].Value} {month.Groups["d"].Value}, {month.Groups["y"].Value}",
+                ["MMM d, yyyy", "MMM dd, yyyy"],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var named))
+        {
+            return named;
+        }
+
         return null;
     }
 
