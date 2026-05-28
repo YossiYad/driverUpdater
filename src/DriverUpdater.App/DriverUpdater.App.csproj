@@ -23,6 +23,7 @@
     <PackageReference Include="Serilog.Sinks.File" />
     <PackageReference Include="Serilog.Sinks.Debug" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Velopack" />
   </ItemGroup>
 
 </Project>

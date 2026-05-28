@@ -42,6 +42,30 @@ public class UpdateCandidateTests
     }
 
     [Fact]
+    public void IsNewerThan_compares_date_based_candidate_to_current_driver_date()
+    {
+        var candidate = NewCandidate(new Version(2026, 5, 14, 0), new DateOnly(2026, 5, 14));
+        var current = SampleDriver(new Version(32, 0, 23027, 2005)) with
+        {
+            CurrentDate = new DateOnly(2026, 2, 17)
+        };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNewerThan_rejects_date_based_candidate_when_current_driver_date_is_newer()
+    {
+        var candidate = NewCandidate(new Version(2026, 5, 14, 0), new DateOnly(2026, 5, 14));
+        var current = SampleDriver(new Version(32, 0, 23027, 2005)) with
+        {
+            CurrentDate = new DateOnly(2026, 6, 1)
+        };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
     public void IsNewerThan_throws_when_current_is_null()
     {
         var candidate = NewCandidate(new Version(1, 0, 0, 0));
@@ -51,11 +75,11 @@ public class UpdateCandidateTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    private static UpdateCandidate NewCandidate(Version newVersion) => new(
+    private static UpdateCandidate NewCandidate(Version newVersion, DateOnly? newDate = null) => new(
         ForHardwareId: "PCI\\VEN_8086&DEV_1234",
         Source: UpdateSource.WindowsUpdate,
         NewVersion: newVersion,
-        NewDate: new DateOnly(2026, 1, 1),
+        NewDate: newDate ?? new DateOnly(2026, 1, 1),
         DownloadUrl: new Uri("https://download.windowsupdate.com/example.cab"),
         SizeBytes: 1_234_567,
         KbArticle: "KB1234567",

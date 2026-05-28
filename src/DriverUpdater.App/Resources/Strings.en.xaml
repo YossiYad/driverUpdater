@@ -1,0 +1,59 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <sys:String x:Key="App.Title">DriverUpdater</sys:String>
+    <sys:String x:Key="App.Version">v0.1.0</sys:String>
+    <sys:String x:Key="App.Admin">Administrator</sys:String>
+    <sys:String x:Key="App.NotElevated">Not elevated</sys:String>
+
+    <sys:String x:Key="Toolbar.Scan">Scan now</sys:String>
+    <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Toolbar.Clear">Clear</sys:String>
+    <sys:String x:Key="Toolbar.UpdateOutdated">Update outdated</sys:String>
+    <sys:String x:Key="Toolbar.InstallConfirmed">Install confirmed</sys:String>
+    <sys:String x:Key="Toolbar.OpenVendorChecks">Open vendor checks</sys:String>
+    <sys:String x:Key="Toolbar.DryRun">Dry run</sys:String>
+    <sys:String x:Key="Toolbar.History">History</sys:String>
+    <sys:String x:Key="Toolbar.Settings">Settings</sys:String>
+
+    <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
+    <sys:String x:Key="Filter.AllCategories">All categories</sys:String>
+
+    <sys:String x:Key="Grid.Status">Status</sys:String>
+    <sys:String x:Key="Grid.Device">Device</sys:String>
+    <sys:String x:Key="Grid.Category">Category</sys:String>
+    <sys:String x:Key="Grid.Version">Version</sys:String>
+    <sys:String x:Key="Grid.Date">Date</sys:String>
+    <sys:String x:Key="Grid.Available">Available</sys:String>
+    <sys:String x:Key="Grid.AvailableDate">Available date</sys:String>
+    <sys:String x:Key="Grid.Source">Source</sys:String>
+    <sys:String x:Key="Grid.Provider">Provider</sys:String>
+
+    <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
+    <sys:String x:Key="Confirm.Current">Current</sys:String>
+    <sys:String x:Key="Confirm.Available">Available</sys:String>
+    <sys:String x:Key="Confirm.Source">Source</sys:String>
+    <sys:String x:Key="Confirm.CreateRestorePoint">Create system restore point before installing</sys:String>
+    <sys:String x:Key="Confirm.BackupDriver">Back up current driver before installing</sys:String>
+    <sys:String x:Key="Confirm.RiskHeader">Caution:</sys:String>
+    <sys:String x:Key="Confirm.RiskBody">Storage and display drivers can prevent Windows from booting if they fail. The restore point and backup mitigate but do not eliminate this risk.</sys:String>
+    <sys:String x:Key="Confirm.CancelButton">Cancel</sys:String>
+    <sys:String x:Key="Confirm.ProceedButton">Proceed</sys:String>
+
+    <sys:String x:Key="Settings.Title">DriverUpdater - Settings</sys:String>
+    <sys:String x:Key="Settings.Save">Save</sys:String>
+    <sys:String x:Key="Settings.Close">Close</sys:String>
+    <sys:String x:Key="Settings.Tab.Sources">Sources</sys:String>
+    <sys:String x:Key="Settings.Tab.Safety">Safety</sys:String>
+    <sys:String x:Key="Settings.Tab.Schedule">Schedule</sys:String>
+    <sys:String x:Key="Settings.Tab.Language">Language</sys:String>
+    <sys:String x:Key="Settings.Tab.About">About</sys:String>
+    <sys:String x:Key="Settings.Language.Label">Language</sys:String>
+    <sys:String x:Key="Settings.Language.Hint">Restart the app to fully apply the language change in every window.</sys:String>
+
+    <sys:String x:Key="History.Title">DriverUpdater - History</sys:String>
+    <sys:String x:Key="History.Heading">Update history</sys:String>
+    <sys:String x:Key="History.Refresh">Refresh</sys:String>
+    <sys:String x:Key="History.Rollback">Rollback</sys:String>
+</ResourceDictionary>
