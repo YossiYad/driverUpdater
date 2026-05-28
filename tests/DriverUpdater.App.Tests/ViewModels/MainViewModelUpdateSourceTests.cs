@@ -104,6 +104,23 @@ public class MainViewModelUpdateSourceTests
         vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
     }
 
+    [Theory]
+    // Same string and clean prefix-with-separator cases match.
+    [InlineData(@"PCI\VEN_1002&DEV_747E", @"PCI\VEN_1002&DEV_747E", true)]
+    [InlineData(@"PCI\VEN_1002&DEV_747E", @"PCI\VEN_1002&DEV_747E&SUBSYS_24141458", true)]
+    [InlineData(@"PCI\VEN_1002&DEV_747E&SUBSYS_24141458", @"PCI\VEN_1002&DEV_747E", true)]
+    [InlineData(@"USB\VID_046D", @"USB\VID_046D&PID_0001", true)]
+    [InlineData(@"ROOT\X", @"ROOT\X\0001", true)]
+    // Coincidental prefixes without a separator boundary do not match.
+    [InlineData(@"ROOT\X", @"ROOT\XYZ", false)]
+    [InlineData(@"PCI\VEN_10", @"PCI\VEN_1002", false)]
+    [InlineData(@"PCI\VEN_1022", @"ROOT\LGHUB_VBUS", false)]
+    [InlineData(@"HID\VID_046D", @"PCI\VEN_046D", false)]
+    public void IsBoundaryPrefix_only_matches_when_remainder_starts_at_separator(string a, string b, bool expected)
+    {
+        DriverUpdater.App.ViewModels.MainViewModel.IsBoundaryPrefix(a, b).Should().Be(expected);
+    }
+
     [WpfFact]
     public async Task ScanAsync_does_not_replace_confirmed_update_with_vendor_advisory()
     {
