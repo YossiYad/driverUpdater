@@ -261,6 +261,168 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task UpdateAllAsync_installs_silent_and_opens_vendor_pages()
+    {
+        var installDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var installCandidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var advisory = NewCandidate(
+            "PCI\\VEN_10DE&DEV_0001",
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var opener = new RecordingUpdatePageOpener();
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { installDriver, vendorDriver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { installCandidate, advisory }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            opener);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(installCandidate.SourceUpdateId);
+        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
+        vm.StatusText.Should().Contain("Install completed for 1 drivers")
+            .And.Contain("Opened 1 vendor pages");
+    }
+
+    [WpfFact]
+    public async Task UpdateSelectedAsync_with_null_selection_writes_status_without_running()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new ThrowingInstallPipeline(),
+            new ThrowingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSelectedCommand.ExecuteAsync(null);
+
+        vm.StatusText.Should().Be("No rows selected.");
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+    }
+
+    [WpfFact]
+    public async Task UpdateSelectedAsync_with_empty_selection_writes_status_without_running()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new ThrowingInstallPipeline(),
+            new ThrowingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSelectedCommand.ExecuteAsync(new System.Collections.ArrayList());
+
+        vm.StatusText.Should().Be("No rows selected.");
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+    }
+
+    [WpfFact]
+    public async Task UpdateSelectedAsync_installs_only_provided_rows()
+    {
+        var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidateA = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var candidateB = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidateA, candidateB }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        var selection = new System.Collections.ArrayList { vm.Drivers[1] };
+        await vm.UpdateSelectedCommand.ExecuteAsync(selection);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(candidateB.SourceUpdateId);
+    }
+
+    [WpfFact]
+    public async Task UpdateSingleAsync_installs_only_that_row()
+    {
+        var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidateA = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var candidateB = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidateA, candidateB }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(candidateA.SourceUpdateId);
+    }
+
+    [WpfFact]
+    public async Task UpdateSingleAsync_with_vendor_page_opens_url_without_installing()
+    {
+        var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            "PCI\\VEN_10DE&DEV_0001",
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var opener = new RecordingUpdatePageOpener();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new NullOemDetectionService(),
+            new ThrowingInstallPipeline(),
+            new ThrowingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            opener);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+
+        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
+    }
+
+    [WpfFact]
     public async Task OpenVendorChecksCommand_opens_only_vendor_pages()
     {
         var confirmedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
@@ -515,6 +677,27 @@ public class MainViewModelUpdateSourceTests
             IProgress<UpdateOperation>? progress = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("install should not be called");
+    }
+
+    private sealed class RecordingInstallPipeline : IInstallPipeline
+    {
+        public List<UpdateOperation> Operations { get; } = new();
+
+        public Task<UpdateOperation> ExecuteAsync(
+            UpdateOperation operation,
+            InstallOptions options,
+            IProgress<UpdateOperation>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Operations.Add(operation);
+            var finished = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = DateTimeOffset.UtcNow
+            };
+            progress?.Report(finished);
+            return Task.FromResult(finished);
+        }
     }
 
     private sealed class ThrowingInstallConfirmation : IInstallConfirmation

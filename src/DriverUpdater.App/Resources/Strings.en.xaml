@@ -10,6 +10,8 @@
     <sys:String x:Key="Toolbar.Scan">Scan now</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.Clear">Clear</sys:String>
+    <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
+    <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.UpdateOutdated">Update outdated</sys:String>
     <sys:String x:Key="Toolbar.InstallConfirmed">Install confirmed</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">Open vendor checks</sys:String>
@@ -29,6 +31,7 @@
     <sys:String x:Key="Grid.Available">Available</sys:String>
     <sys:String x:Key="Grid.AvailableDate">Available date</sys:String>
     <sys:String x:Key="Grid.Source">Source</sys:String>
+    <sys:String x:Key="Grid.Update">Update</sys:String>
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
 
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>

@@ -10,6 +10,8 @@
     <sys:String x:Key="Toolbar.Scan">סרוק עכשיו</sys:String>
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.Clear">נקה</sys:String>
+    <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
+    <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.UpdateOutdated">עדכן לא מעודכנים</sys:String>
     <sys:String x:Key="Toolbar.InstallConfirmed">התקן ודאיים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">פתח בדיקות יצרן</sys:String>
@@ -29,6 +31,7 @@
     <sys:String x:Key="Grid.Available">זמין</sys:String>
     <sys:String x:Key="Grid.AvailableDate">תאריך זמין</sys:String>
     <sys:String x:Key="Grid.Source">מקור</sys:String>
+    <sys:String x:Key="Grid.Update">עדכון</sys:String>
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
 
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>

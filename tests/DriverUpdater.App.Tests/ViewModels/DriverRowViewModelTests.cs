@@ -106,6 +106,46 @@ public class DriverRowViewModelTests
         notified.Should().Contain(nameof(DriverRowViewModel.SourceText));
         notified.Should().Contain(nameof(DriverRowViewModel.UpdateActionText));
         notified.Should().Contain(nameof(DriverRowViewModel.ConfidenceText));
+        notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
+    }
+
+    [Fact]
+    public void CanUpdate_is_true_only_when_outdated_with_available_update()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        row.CanUpdate.Should().BeFalse();
+
+        row.AvailableUpdate = new UpdateCandidate(
+            ForHardwareId: row.HardwareId,
+            Source: UpdateSource.MicrosoftCatalog,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/x.cab"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "abc",
+            SupersededIds: Array.Empty<string>());
+        row.CanUpdate.Should().BeFalse();
+
+        row.Status = DriverStatus.Outdated;
+        row.CanUpdate.Should().BeTrue();
+
+        row.AvailableUpdate = null;
+        row.CanUpdate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Status_change_notifies_can_update()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        var notified = new List<string?>();
+        row.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        row.Status = DriverStatus.Outdated;
+
+        notified.Should().Contain(nameof(DriverRowViewModel.Status));
+        notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
     }
 
     private static DriverInfo NewSampleDriver() => new(
