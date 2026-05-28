@@ -112,15 +112,18 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
                 "cookie banner Accept",
                 quick: true);
 
-            // Top-level tab strip uses the Element UI .el-tabs__item role=tab pattern with
-            // dynamic IDs - match by text instead.
+            // Gigabyte's product page uses custom .men-tab-item links inside
+            // .base-info-tabs for the top-level tabs (Key Features / Specifications /
+            // Support / News & Awards / ...). Diagnostic HTML captured live confirmed
+            // the link text shows up as the trailing text of .men-tab-item-link.
             await ClickFirstMatchAsync(page,
-                [".el-tabs__item[role='tab']:has-text(\"Support\")", "[role='tab']:has-text(\"Support\")"],
+                [".men-tab-item-link:has-text(\"Support\")", ".men-tab-item:has-text(\"Support\")"],
                 "Support tab");
 
-            // Inside Support, the Driver subtab is rendered as a sidebar item.
+            // Inside the Support pane the Driver subtab is rendered as another
+            // .men-tab-item-link (the sidebar shows "Driver (+16)" etc.).
             await ClickFirstMatchAsync(page,
-                [".el-tabs__item[role='tab']:has-text(\"Driver\")", "a:has-text(\"Driver\"):visible", "[role='tab']:has-text(\"Driver\")"],
+                [".men-tab-item-link:has-text(\"Driver\")", ".men-tab-item:has-text(\"Driver\")", "a:has-text(\"Driver\"):visible"],
                 "Driver subtab");
 
             await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
