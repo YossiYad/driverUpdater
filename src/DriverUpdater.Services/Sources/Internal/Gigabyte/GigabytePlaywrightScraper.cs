@@ -116,15 +116,12 @@ public sealed class GigabytePlaywrightScraper : IGigabyteScraper, IAsyncDisposab
             // .base-info-tabs for the top-level tabs (Key Features / Specifications /
             // Support / News & Awards / ...). Diagnostic HTML captured live confirmed
             // the link text shows up as the trailing text of .men-tab-item-link.
+            // Clicking the Support tab is enough on its own - the #Support-Driver hash
+            // in the URL already preselects the Driver sub-section under Support, so a
+            // second click does nothing but burn the per-selector wait budget.
             await ClickFirstMatchAsync(page,
                 [".men-tab-item-link:has-text(\"Support\")", ".men-tab-item:has-text(\"Support\")"],
                 "Support tab");
-
-            // Inside the Support pane the Driver subtab is rendered as another
-            // .men-tab-item-link (the sidebar shows "Driver (+16)" etc.).
-            await ClickFirstMatchAsync(page,
-                [".men-tab-item-link:has-text(\"Driver\")", ".men-tab-item:has-text(\"Driver\")", "a:has-text(\"Driver\"):visible"],
-                "Driver subtab");
 
             await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
                 new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
