@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using DriverUpdater.Core.Abstractions;
@@ -125,7 +126,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
 
     internal static UpdateCandidate BuildCandidate(DriverInfo driver, Uri supportUri, AmdReleaseInfo release)
     {
-        if (release.DirectInstallerUrl is { } installerUrl)
+        if (release.DirectInstallerUrl is { } installerUrl && !IsWebStub(installerUrl))
         {
             return new UpdateCandidate(
                 ForHardwareId: driver.HardwareId,
@@ -153,6 +154,21 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             SourceUpdateId: $"{supportUri}#{release.Revision}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorPage);
+    }
+
+    // The Adrenalin "minimal setup" / "_web" stub is a tiny downloader that always opens
+    // its own GUI - /S does not actually run silent. Demote it to VendorPage so the user
+    // opens AMD's support page and runs the installer themselves rather than waiting on
+    // a silent install that never finishes (we previously saw exit 2 from Setup.exe).
+    internal static bool IsWebStub(Uri installerUrl)
+    {
+        var fileName = Path.GetFileName(installerUrl.LocalPath);
+        if (string.IsNullOrEmpty(fileName))
+        {
+            return false;
+        }
+        return fileName.Contains("_web", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("minimalsetup", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool IsSupportedAmdDisplayDriver(DriverInfo driver) =>
