@@ -91,6 +91,37 @@ public class AmdGraphicsSourceTests
     }
 
     [Fact]
+    public void TryParseLatestWindowsRelease_prefers_full_installer_over_web_stub_when_both_present()
+    {
+        // When AMD lists both options on the same support page, pick the full installer
+        // so the silent-install path actually runs end-to-end. The stub URL comes first
+        // in the HTML, mirroring how amd.com tends to lay out the "Download" sections.
+        var ok = AmdGraphicsSource.TryParseLatestWindowsRelease("""
+            <p>Revision Number</p><p>Adrenalin 26.5.2 (WHQL Recommended)</p>
+            <p>Release Date</p><p>2026-05-14</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-minimalsetup-260514_web.exe">Minimal Setup</a>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-fullinstall-260514.exe">Full Install</a>
+            """, out var release);
+
+        ok.Should().BeTrue();
+        release.DirectInstallerUrl!.AbsoluteUri.Should().Be(
+            "https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-fullinstall-260514.exe");
+    }
+
+    [Fact]
+    public void TryParseLatestWindowsRelease_falls_back_to_stub_when_only_stub_available()
+    {
+        var ok = AmdGraphicsSource.TryParseLatestWindowsRelease("""
+            <p>Revision Number</p><p>Adrenalin 26.5.2 (WHQL Recommended)</p>
+            <p>Release Date</p><p>2026-05-14</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.5.2-minimalsetup-260514_web.exe">Download</a>
+            """, out var release);
+
+        ok.Should().BeTrue();
+        release.DirectInstallerUrl!.AbsoluteUri.Should().EndWith("_web.exe");
+    }
+
+    [Fact]
     public async Task SearchAsync_demotes_minimalsetup_web_stub_to_vendor_page()
     {
         // The AMD download links are typically labeled "Minimal Setup" / *_web.exe -
