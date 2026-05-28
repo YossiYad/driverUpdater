@@ -76,19 +76,51 @@ public sealed class OemSupportSource : IUpdateSource
             return false;
         }
 
-        if (driver.Provider.Equals("Microsoft", StringComparison.OrdinalIgnoreCase)
-            && driver.Category is not (DriverCategory.Chipset or DriverCategory.System or DriverCategory.Storage or DriverCategory.Network or DriverCategory.Audio or DriverCategory.Bluetooth))
-        {
-            return false;
-        }
-
-        return driver.Category is DriverCategory.Chipset
+        if (driver.Category is not (DriverCategory.Chipset
             or DriverCategory.System
             or DriverCategory.Storage
             or DriverCategory.Network
             or DriverCategory.Audio
             or DriverCategory.Bluetooth
             or DriverCategory.Usb
-            or DriverCategory.Security;
+            or DriverCategory.Security))
+        {
+            return false;
+        }
+
+        if (Contains(driver.Provider, "Microsoft")
+            || Contains(driver.Manufacturer, "Microsoft"))
+        {
+            return false;
+        }
+
+        if (Contains(driver.DeviceName, "Hyper-V")
+            || Contains(driver.DeviceName, "Virtual")
+            || Contains(driver.DeviceName, "ACPI")
+            || Contains(driver.DeviceName, "Microsoft")
+            || Contains(driver.DeviceName, "Generic ")
+            || Contains(driver.DeviceName, "Composite ")
+            || Contains(driver.DeviceName, "PCI standard")
+            || Contains(driver.DeviceName, "PCI Express")
+            || Contains(driver.DeviceName, "Motherboard resources")
+            || Contains(driver.DeviceName, "System board")
+            || Contains(driver.DeviceName, "System timer")
+            || Contains(driver.DeviceName, "System speaker")
+            || Contains(driver.DeviceName, "System CMOS")
+            || Contains(driver.DeviceName, "High precision event timer")
+            || Contains(driver.DeviceName, "Direct memory access controller")
+            || Contains(driver.DeviceName, "Programmable interrupt controller")
+            || Contains(driver.DeviceName, "Resource Hub")
+            || Contains(driver.DeviceName, "UMBus")
+            || Contains(driver.DeviceName, "Volume")
+            || Contains(driver.DeviceName, "Nefarius"))
+        {
+            return false;
+        }
+
+        return true;
     }
+
+    private static bool Contains(string haystack, string needle) =>
+        haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 }

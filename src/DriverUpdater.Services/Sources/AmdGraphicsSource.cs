@@ -39,6 +39,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             .Select(g => g.First())
             .ToArray();
 
+        _logger.LogInformation("AMD Radeon source matched {Count} display drivers", amdDisplays.Length);
         if (amdDisplays.Length == 0)
         {
             yield break;
@@ -49,13 +50,17 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             cancellationToken.ThrowIfCancellationRequested();
             if (!TryResolveSupportPage(driver, out var supportUri))
             {
+                _logger.LogInformation("AMD: could not resolve a model-specific support page for {Device}; skipping", driver.DeviceName);
                 continue;
             }
 
+            _logger.LogInformation("AMD: fetching support page for {Device}: {Uri}", driver.DeviceName, supportUri);
             AmdReleaseInfo? parsedRelease = null;
+            int htmlLength = 0;
             try
             {
                 var html = await _httpClient.GetStringAsync(supportUri, cancellationToken).ConfigureAwait(false);
+                htmlLength = html.Length;
                 parsedRelease = TryParseLatestWindowsRelease(html, out var parsed) ? parsed : null;
             }
             catch (Exception ex)
@@ -63,12 +68,30 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 _logger.LogWarning(ex, "AMD driver check failed for {Device}", driver.DeviceName);
             }
 
-            if (parsedRelease is not { } release || driver.CurrentDate is { } currentDate && release.ReleaseDate <= currentDate)
+            if (parsedRelease is null)
             {
+                _logger.LogWarning("AMD: parser found no release in {Length}-byte page for {Device} - HTML layout may have changed", htmlLength, driver.DeviceName);
                 continue;
             }
 
-            yield return BuildCandidate(driver, supportUri, release);
+            var release = parsedRelease.Value;
+            _logger.LogInformation(
+                "AMD: parsed release for {Device}: revision={Revision}, date={ReleaseDate}, sizeBytes={Size}, directInstaller={HasInstaller}",
+                driver.DeviceName, release.Revision, release.ReleaseDate, release.SizeBytes ?? 0, release.DirectInstallerUrl is not null);
+
+            if (driver.CurrentDate is { } currentDate && release.ReleaseDate <= currentDate)
+            {
+                _logger.LogInformation(
+                    "AMD: local driver for {Device} dated {CurrentDate} is already at or newer than upstream {ReleaseDate}; skipping",
+                    driver.DeviceName, currentDate, release.ReleaseDate);
+                continue;
+            }
+
+            var candidate = BuildCandidate(driver, supportUri, release);
+            _logger.LogInformation(
+                "AMD: yielding {InstallKind} candidate for {Device} -> {Url}",
+                candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
+            yield return candidate;
         }
     }
 

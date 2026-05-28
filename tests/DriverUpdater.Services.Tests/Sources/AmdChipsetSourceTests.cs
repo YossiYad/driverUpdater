@@ -9,46 +9,24 @@ namespace DriverUpdater.Services.Tests.Sources;
 public class AmdChipsetSourceTests
 {
     [Fact]
-    public async Task SearchAsync_yields_vendor_installer_candidate_for_amd_chipset_driver()
+    public async Task SearchAsync_yields_vendor_page_for_amd_chipset_driver()
     {
-        var source = NewSource("""
-            <p>AMD Chipset Drivers 7.04.09.545</p>
-            <p>File Size</p><p>34 MB</p>
-            <p>Release Date</p><p>2026-04-22</p>
-            <a href="https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe">Download</a>
-            """);
+        var source = NewSource(new DateOnly(2026, 5, 28));
         var driver = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2025, 9, 9));
 
         var results = await source.SearchAsync(new[] { driver }).ToListAsync();
 
         results.Should().ContainSingle();
-        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:amd-chipset:");
-        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe");
-    }
-
-    [Fact]
-    public async Task SearchAsync_falls_back_to_vendor_page_when_no_direct_url()
-    {
-        var source = NewSource("""
-            <p>AMD Chipset Driver 7.04.09.545</p>
-            <p>Release Date</p><p>2026-04-22</p>
-            """);
-        var driver = NewAmdChipsetDriver("AMD Provisioning Packages", new DateOnly(2025, 11, 17));
-
-        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
-
-        results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        results[0].Confidence.Should().Be(UpdateConfidence.Advisory);
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://www.amd.com/en/support/chipsets");
+        results[0].SourceUpdateId.Should().StartWith("amd-chipset-page:");
     }
 
     [Fact]
-    public async Task SearchAsync_skips_when_local_driver_already_newer()
+    public async Task SearchAsync_skips_when_local_driver_within_advisory_window()
     {
-        var source = NewSource("""
-            <p>AMD Chipset Drivers 7.04.09.545</p>
-            <p>Release Date</p><p>2026-04-22</p>
-            """);
+        var source = NewSource(new DateOnly(2026, 5, 28));
         var driver = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2026, 5, 1));
 
         var results = await source.SearchAsync(new[] { driver }).ToListAsync();
@@ -59,10 +37,7 @@ public class AmdChipsetSourceTests
     [Fact]
     public async Task SearchAsync_skips_amd_display_drivers()
     {
-        var source = NewSource("""
-            <p>AMD Chipset Drivers 7.04.09.545</p>
-            <p>Release Date</p><p>2026-04-22</p>
-            """);
+        var source = NewSource(new DateOnly(2026, 5, 28));
         var displayDriver = new DriverInfo(
             DeviceId: "PCI\\VEN_1002&DEV_747E",
             HardwareId: "PCI\\VEN_1002&DEV_747E",
@@ -83,43 +58,49 @@ public class AmdChipsetSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_skips_microsoft_hyper_v_virtual_devices()
+    {
+        var source = NewSource(new DateOnly(2026, 5, 28));
+        var hyperv = new DriverInfo(
+            DeviceId: "ROOT\\VMBUS",
+            HardwareId: "ROOT\\VMBUS",
+            DeviceName: "Microsoft Hyper-V Virtual Machine Bus Provider",
+            Category: DriverCategory.System,
+            Provider: "Microsoft",
+            Manufacturer: "Microsoft",
+            CurrentVersion: new Version(10, 0, 0, 0),
+            CurrentDate: new DateOnly(2025, 1, 1),
+            InfName: "vmbus.inf",
+            InfPath: null,
+            IsSigned: true,
+            DeviceClass: "SYSTEM");
+
+        var results = await source.SearchAsync(new[] { hyperv }).ToListAsync();
+
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
     public void IsSupportedAmdChipsetDriver_matches_amd_chipset_and_system_categories()
     {
         var chipset = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2026, 1, 1));
         var system = chipset with { Category = DriverCategory.System, DeviceName = "AMD-Vulkan User Mode Driver" };
         var display = chipset with { Category = DriverCategory.Display, DeviceName = "AMD Radeon RX 7700 XT" };
         var nonAmd = chipset with { Provider = "Intel Corporation", Manufacturer = "Intel", DeviceName = "Intel I2C Controller" };
+        var virt = chipset with { DeviceName = "AMD Virtual Bus" };
 
         AmdChipsetSource.IsSupportedAmdChipsetDriver(chipset).Should().BeTrue();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(system).Should().BeTrue();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(display).Should().BeFalse();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(nonAmd).Should().BeFalse();
+        AmdChipsetSource.IsSupportedAmdChipsetDriver(virt).Should().BeFalse();
     }
 
-    [Fact]
-    public void TryParseLatestRelease_reads_version_date_and_size()
+    private static AmdChipsetSource NewSource(DateOnly today)
     {
-        var ok = AmdChipsetSource.TryParseLatestRelease("""
-            <p>AMD Chipset Drivers 7.04.09.545</p>
-            <p>File Size</p><p>34 MB</p>
-            <p>Release Date</p><p>2026-04-22</p>
-            <a href="https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe">Download</a>
-            """, out var release);
-
-        ok.Should().BeTrue();
-        release.Version.Should().Be("7.04.09.545");
-        release.ReleaseDate.Should().Be(new DateOnly(2026, 4, 22));
-        release.SizeBytes.Should().Be(35651584);
-        release.DirectInstallerUrl.Should().NotBeNull();
-    }
-
-    private static AmdChipsetSource NewSource(string html)
-    {
-        var client = new HttpClient(new StaticHtmlHandler(html))
-        {
-            BaseAddress = new Uri("https://www.amd.com/")
-        };
-        return new AmdChipsetSource(client, NullLogger<AmdChipsetSource>.Instance);
+        var client = new HttpClient(new StaticHtmlHandler()) { BaseAddress = new Uri("https://www.amd.com/") };
+        var clock = new TestTimeProvider(new DateTimeOffset(today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero));
+        return new AmdChipsetSource(client, NullLogger<AmdChipsetSource>.Instance, clock);
     }
 
     private static DriverInfo NewAmdChipsetDriver(string deviceName, DateOnly currentDate) => new(
@@ -138,17 +119,17 @@ public class AmdChipsetSourceTests
 
     private sealed class StaticHtmlHandler : HttpMessageHandler
     {
-        private readonly string _html;
-
-        public StaticHtmlHandler(string html)
-        {
-            _html = html;
-        }
-
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(_html)
+                Content = new StringContent(string.Empty)
             });
+    }
+
+    private sealed class TestTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _now;
+        public TestTimeProvider(DateTimeOffset now) { _now = now; }
+        public override DateTimeOffset GetUtcNow() => _now;
     }
 }
