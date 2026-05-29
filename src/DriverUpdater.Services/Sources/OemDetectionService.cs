@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Sources;
@@ -266,7 +267,7 @@ public sealed class OemDetectionService : IOemDetectionService
             OemVendor.Acer when query is not null => new Uri($"https://www.acer.com/us-en/search?q={Uri.EscapeDataString(query)}"),
             OemVendor.Razer when query is not null => new Uri($"https://mysupport.razer.com/app/answers/list/kw/{Uri.EscapeDataString(query)}"),
             OemVendor.Samsung when query is not null => new Uri($"https://www.samsung.com/us/search/searchMain/?searchTerm={Uri.EscapeDataString(query)}"),
-            OemVendor.Gigabyte when query is not null => new Uri($"https://www.gigabyte.com/Search?kw={Uri.EscapeDataString(query)}"),
+            OemVendor.Gigabyte when query is not null => new Uri($"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(GigabyteApiScraper.NormalizeModel(query))}/support#Support-Driver"),
             OemVendor.ASRock when query is not null => new Uri($"https://www.asrock.com/search/index.asp?q={Uri.EscapeDataString(query)}"),
             OemVendor.Biostar when query is not null => new Uri($"https://www.biostar.com.tw/app/en/search/search.php?keyword={Uri.EscapeDataString(query)}"),
             _ => null

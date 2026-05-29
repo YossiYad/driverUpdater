@@ -110,7 +110,6 @@ public class OemDetectionServiceTests
     }
 
     [Theory]
-    [InlineData(OemVendor.Gigabyte, "Z790 AORUS ELITE AX", "gigabyte.com", "Z790%20AORUS%20ELITE%20AX")]
     [InlineData(OemVendor.Asus, "ROG Strix B650", "asus.com", "ROG%20Strix%20B650")]
     [InlineData(OemVendor.Msi, "MAG B650 TOMAHAWK", "msi.com", "MAG%20B650%20TOMAHAWK")]
     [InlineData(OemVendor.Dell, "XPS 13 9340", "dell.com", "XPS%2013%209340")]
@@ -125,6 +124,20 @@ public class OemDetectionServiceTests
         url.Should().NotBeNull();
         url!.Host.Should().Contain(expectedHost);
         url.AbsoluteUri.Should().Contain(expectedQuery);
+    }
+
+    [Theory]
+    // Gigabyte gets the model-specific support page rather than the global Search?kw=
+    // URL, because Search is sometimes down for maintenance and the per-board page is
+    // also where the actual drivers list lives.
+    [InlineData("B850M GAMING X WIFI6E", "https://www.gigabyte.com/Motherboard/B850M-GAMING-X-WIFI6E/support#Support-Driver")]
+    [InlineData("Z790 AORUS ELITE AX (rev. 1.0)", "https://www.gigabyte.com/Motherboard/Z790-AORUS-ELITE-AX-rev-10/support#Support-Driver")]
+    public void ResolveVendorSupportUrl_for_gigabyte_uses_model_specific_support_page(string model, string expectedUrl)
+    {
+        var url = OemDetectionService.ResolveVendorSupportUrl(OemVendor.Gigabyte, model);
+
+        url.Should().NotBeNull();
+        url!.AbsoluteUri.Should().Be(expectedUrl);
     }
 
     [Fact]
