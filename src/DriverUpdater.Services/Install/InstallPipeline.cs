@@ -625,30 +625,36 @@ public sealed class InstallPipeline : IInstallPipeline
 
     // When a silent installer exits non-zero with empty stdout/stderr (AMD and most
     // wrapper installers do this) the only real evidence is in log files the installer
-    // leaves under %TEMP%, %LOCALAPPDATA%, or %WINDIR%\Logs. Scan those dirs for files
-    // created since the install started, and pull the tail of each so the user sees
-    // the actual cause in the app log instead of a bare "exit 2, <empty>".
+    // leaves behind. Scan known locations for *.log files written since the install
+    // started, and pull the tail of each so the user sees the actual cause in the app
+    // log instead of a bare "exit 2, <empty>".
+    //
+    // The generic temp/Logs folders are searched top-level only (fast). The AMD folders
+    // are searched recursively because the chipset installer drops its real log a few
+    // levels deep (e.g. C:\AMD\amd_chipset_software_X.Y.Z\Logs\*.log) - top-level alone
+    // never captured it, which is why "exit 2" had no explanation.
     internal static string TryHarvestInstallerLogTails(DateTimeOffset installStart, string sourceUpdateId)
     {
-        var search = new List<string>();
-        TryAddIfExists(search, Path.GetTempPath());
-        TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"));
+        var search = new List<(string Dir, bool Recursive)>();
+        TryAddIfExists(search, Path.GetTempPath(), recursive: false);
+        TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), recursive: false);
+        TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"), recursive: false);
 
-        // Per-vendor hint folders.
+        // Per-vendor hint folders, searched recursively (AMD nests its logs).
         if (sourceUpdateId.Contains("amd", StringComparison.OrdinalIgnoreCase))
         {
-            TryAddIfExists(search, @"C:\AMD");
-            TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"));
+            TryAddIfExists(search, @"C:\AMD", recursive: true);
+            TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"), recursive: true);
         }
 
         var sb = new System.Text.StringBuilder();
         var cutoff = installStart.UtcDateTime.AddSeconds(-2);
-        foreach (var dir in search)
+        foreach (var (dir, recursive) in search)
         {
             try
             {
-                var hits = Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly)
+                var option = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                var hits = SafeEnumerateLogs(dir, option)
                     .Where(p =>
                     {
                         try { return File.GetLastWriteTimeUtc(p) >= cutoff; }
@@ -659,7 +665,7 @@ public sealed class InstallPipeline : IInstallPipeline
                         try { return File.GetLastWriteTimeUtc(p); }
                         catch { return DateTime.MinValue; }
                     })
-                    .Take(3);
+                    .Take(5);
 
                 foreach (var path in hits)
                 {
@@ -675,13 +681,55 @@ public sealed class InstallPipeline : IInstallPipeline
         return sb.ToString();
     }
 
-    private static void TryAddIfExists(List<string> list, string path)
+    // Directory.EnumerateFiles with AllDirectories throws on the first unreadable
+    // subdirectory and aborts the whole walk. Recurse manually so one locked folder
+    // (common under C:\AMD mid-install) does not lose every other log.
+    internal static IEnumerable<string> SafeEnumerateLogs(string root, SearchOption option)
+    {
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(root, "*.log");
+        }
+        catch
+        {
+            yield break;
+        }
+        foreach (var file in files)
+        {
+            yield return file;
+        }
+
+        if (option != SearchOption.AllDirectories)
+        {
+            yield break;
+        }
+
+        IEnumerable<string> subdirs;
+        try
+        {
+            subdirs = Directory.EnumerateDirectories(root);
+        }
+        catch
+        {
+            yield break;
+        }
+        foreach (var sub in subdirs)
+        {
+            foreach (var file in SafeEnumerateLogs(sub, option))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    private static void TryAddIfExists(List<(string Dir, bool Recursive)> list, string path, bool recursive)
     {
         try
         {
             if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             {
-                list.Add(path);
+                list.Add((path, recursive));
             }
         }
         catch { /* skip */ }

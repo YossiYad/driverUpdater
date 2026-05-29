@@ -573,4 +573,40 @@ public class InstallPipelineTests
         arguments.Should().Be(expectedArgs);
         skipReason.Should().BeEmpty();
     }
+
+    [Fact]
+    public void SafeEnumerateLogs_recursive_finds_nested_amd_log_top_level_does_not()
+    {
+        // Mirrors the real AMD chipset layout: C:\AMD\<package>\Logs\*.log. The harvest
+        // must recurse into the AMD hint folders, otherwise "exit 2" stays unexplained.
+        var testRoot = Path.Combine(Path.GetTempPath(), "DriverUpdaterHarvestTests", Guid.NewGuid().ToString("N"));
+        var nested = Path.Combine(testRoot, "amd_chipset_software_8.05.04.516", "Logs");
+        Directory.CreateDirectory(nested);
+        var nestedLog = Path.Combine(nested, "InstallLog.log");
+        File.WriteAllText(nestedLog, "ERROR: a required reboot is pending; aborting chipset install");
+
+        try
+        {
+            var recursive = InstallPipeline.SafeEnumerateLogs(testRoot, SearchOption.AllDirectories).ToList();
+            var topLevel = InstallPipeline.SafeEnumerateLogs(testRoot, SearchOption.TopDirectoryOnly).ToList();
+
+            recursive.Should().ContainSingle().Which.Should().Be(nestedLog);
+            topLevel.Should().BeEmpty("the log lives several folders deep, which top-level enumeration cannot reach");
+        }
+        finally
+        {
+            try { Directory.Delete(testRoot, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SafeEnumerateLogs_returns_empty_for_missing_directory_without_throwing()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "DriverUpdaterHarvestTests", Guid.NewGuid().ToString("N"), "nope");
+
+        var act = () => InstallPipeline.SafeEnumerateLogs(missing, SearchOption.AllDirectories).ToList();
+
+        act.Should().NotThrow();
+        act().Should().BeEmpty();
+    }
 }
