@@ -213,6 +213,45 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task UpdateOutdatedAsync_clears_dedup_rows_when_master_install_fails_keeps_master_for_retry()
+    {
+        // Simulates the AMD chipset scenario: 3 device rows (master + 2 dedup'd) all
+        // share the same vendor-installer:amd-chipset SourceUpdateId. The master
+        // install fails; we still want the dedup'd rows to leave the Installable
+        // filter (so the user does not see 17 ghost "more updates" rows), while the
+        // master keeps its candidate so the user can retry it explicitly.
+        var driverA = NewDriver("AMD Special Tools Driver", "ROOT\\SYSTEM\\0001", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD Crash Defender", "ROOT\\SYSTEM\\0002", new Version(1, 0, 0, 0));
+        var driverC = NewDriver("AMD Processor", "ROOT\\SYSTEM\\0003", new Version(1, 0, 0, 0));
+        const string sharedId = "vendor-installer:amd-chipset:8.05";
+        var candA = NewCandidate("ROOT\\SYSTEM\\0001", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller) with { SourceUpdateId = sharedId };
+        var candB = NewCandidate("ROOT\\SYSTEM\\0002", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller) with { SourceUpdateId = sharedId };
+        var candC = NewCandidate("ROOT\\SYSTEM\\0003", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller) with { SourceUpdateId = sharedId };
+        var pipeline = new FailingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB, driverC }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candA, candB, candC }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateOutdatedCommand.ExecuteAsync(null);
+
+        pipeline.Operations.Should().ContainSingle("only the master row should hit the pipeline; dedup'd rows are skipped");
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull("the master keeps its candidate so the user can retry it");
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Error);
+        vm.Drivers[1].AvailableUpdate.Should().BeNull("dedup'd rows leave the Installable filter once the install was attempted");
+        vm.Drivers[2].AvailableUpdate.Should().BeNull("dedup'd rows leave the Installable filter once the install was attempted");
+        vm.Drivers[1].Status.Should().Be(DriverStatus.Error, "the failure outcome is carried over so the user can see what happened");
+        vm.Drivers[2].Status.Should().Be(DriverStatus.Error);
+    }
+
+    [WpfFact]
     public async Task UpdateOutdatedAsync_switches_filter_to_installable_and_scrolls_to_each_row()
     {
         var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
@@ -745,6 +784,28 @@ public class MainViewModelUpdateSourceTests
             var finished = operation with
             {
                 Status = UpdateStatus.Succeeded,
+                CompletedAt = DateTimeOffset.UtcNow
+            };
+            progress?.Report(finished);
+            return Task.FromResult(finished);
+        }
+    }
+
+    private sealed class FailingInstallPipeline : IInstallPipeline
+    {
+        public List<UpdateOperation> Operations { get; } = new();
+
+        public Task<UpdateOperation> ExecuteAsync(
+            UpdateOperation operation,
+            InstallOptions options,
+            IProgress<UpdateOperation>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Operations.Add(operation);
+            var finished = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = "Vendor installer exit 2: ",
                 CompletedAt = DateTimeOffset.UtcNow
             };
             progress?.Report(finished);
