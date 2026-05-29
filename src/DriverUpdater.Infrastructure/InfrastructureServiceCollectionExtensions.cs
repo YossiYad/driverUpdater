@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Options;
+using DriverUpdater.Infrastructure.Cache;
 using DriverUpdater.Infrastructure.Catalog;
 using DriverUpdater.Infrastructure.History;
 using DriverUpdater.Infrastructure.PnPUtil;
@@ -29,6 +30,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();
         services.AddSingleton<ISettingsStore>(sp =>
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
+        services.AddSingleton<IDriverCacheStore>(sp =>
+            new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddMemoryCache();
 
         services.AddHttpClient<ICatalogHttpClient, CatalogHttpClient>(CatalogHttpClient.HttpClientName, (sp, client) =>

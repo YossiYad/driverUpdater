@@ -583,6 +583,130 @@ public class MainViewModelUpdateSourceTests
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "Current Display");
     }
 
+    [WpfFact]
+    public async Task InitializeAsync_loads_drivers_from_cache_without_querying_update_sources()
+    {
+        var outdated = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var current = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var snapshot = new DriverCacheSnapshot(new DateTimeOffset(2026, 5, 29, 22, 15, 0, TimeSpan.Zero), new[]
+        {
+            new CachedDriverEntry(outdated, DriverStatus.Outdated, candidate),
+            new CachedDriverEntry(current, DriverStatus.UpToDate, null)
+        });
+        var counting = new CountingUpdateSource();
+        var cache = new StubDriverCacheStore(snapshot);
+        var vm = new MainViewModel(
+            new FakeScanService(Array.Empty<DriverInfo>()),
+            new[] { (IUpdateSource)counting },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+
+        vm.Drivers.Should().HaveCount(2);
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+        vm.Drivers[1].AvailableUpdate.Should().BeNull();
+        vm.UpdatesFoundCount.Should().Be(1);
+        vm.ScannedCount.Should().Be(2);
+        counting.SearchInvocations.Should().Be(0, "loading from cache must be instant and not hit update sources");
+        vm.StatusText.Should().StartWith("Loaded 2 drivers from last scan");
+    }
+
+    [WpfFact]
+    public async Task InitializeAsync_with_empty_cache_leaves_grid_empty()
+    {
+        var cache = new StubDriverCacheStore(null);
+        var vm = new MainViewModel(
+            new FakeScanService(Array.Empty<DriverInfo>()),
+            new[] { (IUpdateSource)new CountingUpdateSource() },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+
+        vm.Drivers.Should().BeEmpty();
+        vm.ScannedCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_saves_snapshot_to_cache()
+    {
+        var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(null);
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        cache.Saved.Should().ContainSingle();
+        var saved = cache.Saved[0];
+        saved.Entries.Should().HaveCount(2);
+        saved.Entries.Should().ContainSingle(e => e.Driver.DeviceName == "Intel Display" && e.AvailableUpdate != null);
+        saved.Entries.Should().ContainSingle(e => e.Driver.DeviceName == "Realtek Audio" && e.AvailableUpdate == null);
+    }
+
+    private sealed class StubDriverCacheStore : IDriverCacheStore
+    {
+        private readonly DriverCacheSnapshot? _snapshot;
+
+        public StubDriverCacheStore(DriverCacheSnapshot? snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public List<DriverCacheSnapshot> Saved { get; } = new();
+
+        public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_snapshot);
+
+        public Task SaveAsync(DriverCacheSnapshot snapshot, CancellationToken cancellationToken = default)
+        {
+            Saved.Add(snapshot);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CountingUpdateSource : IUpdateSource
+    {
+        public int SearchInvocations { get; private set; }
+        public UpdateSource Kind => UpdateSource.WindowsUpdate;
+        public string DisplayName => "Counting";
+
+        public async IAsyncEnumerable<UpdateCandidate> SearchAsync(
+            IReadOnlyCollection<DriverInfo> drivers,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            SearchInvocations++;
+            await Task.Yield();
+            yield break;
+        }
+    }
+
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",
         HardwareId: hardwareId,
