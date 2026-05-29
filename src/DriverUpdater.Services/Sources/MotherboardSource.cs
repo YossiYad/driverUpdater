@@ -96,10 +96,28 @@ public sealed class MotherboardSource : IUpdateSource
             }
 
             matched++;
-            if (driver.CurrentDate is { } currentDate && match.ReleaseDate <= currentDate)
+
+            // Prefer comparing by version. The catalog version (entry.Version, e.g.
+            // "6.0.9927.1") is the same Realtek/Windows driver version reported by WMI,
+            // so a direct compare is meaningful. Comparing by date instead re-offers the
+            // same driver forever, because Gigabyte's publish date is always later than
+            // the installed INF date even when the version is identical. Fall back to the
+            // date only when one side has no parseable version.
+            var catalogVersion = TryParseEntryVersion(match.Version);
+            if (catalogVersion is not null && driver.CurrentVersion is not null)
+            {
+                if (catalogVersion <= driver.CurrentVersion)
+                {
+                    _logger.LogInformation(
+                        "{Vendor}: skipping {Device} - installed version {Installed} is at or newer than catalog version {Catalog}",
+                        oemInfo.Vendor, driver.DeviceName, driver.CurrentVersion, catalogVersion);
+                    continue;
+                }
+            }
+            else if (driver.CurrentDate is { } currentDate && match.ReleaseDate <= currentDate)
             {
                 _logger.LogInformation(
-                    "{Vendor}: skipping {Device} - local driver date {LocalDate} is at or newer than catalog {RemoteDate}",
+                    "{Vendor}: skipping {Device} - local driver date {LocalDate} is at or newer than catalog {RemoteDate} (no comparable version)",
                     oemInfo.Vendor, driver.DeviceName, currentDate, match.ReleaseDate);
                 continue;
             }
@@ -122,7 +140,7 @@ public sealed class MotherboardSource : IUpdateSource
         new(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,
-            NewVersion: DateToVersion(entry.ReleaseDate),
+            NewVersion: TryParseEntryVersion(entry.Version) ?? DateToVersion(entry.ReleaseDate),
             NewDate: entry.ReleaseDate,
             DownloadUrl: entry.DownloadUrl,
             SizeBytes: entry.SizeBytes ?? 0,
@@ -153,7 +171,7 @@ public sealed class MotherboardSource : IUpdateSource
         if (driver.Category == DriverCategory.Audio
             && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek")))
         {
-            var audio = entries.FirstOrDefault(e =>
+            var audio = BestByVersion(entries, e =>
                 (Contains(e.Category, "Audio") || Contains(e.Title, "Audio"))
                 && Contains(e.Title, "Realtek")
                 && !Contains(e.Title, "LE Audio"));
@@ -164,16 +182,14 @@ public sealed class MotherboardSource : IUpdateSource
             && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek"))
             && (Contains(deviceName, "Ethernet") || Contains(deviceName, "GbE") || Contains(deviceName, "LAN")))
         {
-            var lan = entries.Where(e => Contains(e.Category, "LAN") || Contains(e.Title, "LAN"))
-                .OrderByDescending(e => e.ReleaseDate)
-                .FirstOrDefault();
+            var lan = BestByVersion(entries, e => Contains(e.Category, "LAN") || Contains(e.Title, "LAN"));
             if (lan is not null) { return lan; }
         }
 
         if (driver.Category == DriverCategory.Bluetooth
             && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek")))
         {
-            var bt = entries.FirstOrDefault(e => Contains(e.Category, "Bluetooth") || Contains(e.Title, "Bluetooth"));
+            var bt = BestByVersion(entries, e => Contains(e.Category, "Bluetooth") || Contains(e.Title, "Bluetooth"));
             if (bt is not null) { return bt; }
         }
 
@@ -181,12 +197,27 @@ public sealed class MotherboardSource : IUpdateSource
             && (Contains(driver.Provider, "Realtek") || Contains(deviceName, "Realtek"))
             && (Contains(deviceName, "Wireless") || Contains(deviceName, "Wi-Fi") || Contains(deviceName, "WiFi")))
         {
-            var wifi = entries.FirstOrDefault(e => Contains(e.Category, "Wireless") || Contains(e.Title, "WiFi") || Contains(e.Title, "Wireless"));
+            var wifi = BestByVersion(entries, e => Contains(e.Category, "Wireless") || Contains(e.Title, "WiFi") || Contains(e.Title, "Wireless"));
             if (wifi is not null) { return wifi; }
         }
 
         return null;
     }
+
+    // From the entries matching a category, pick the one offering the highest version
+    // (date as tie-breaker). Comparing the installed driver against an arbitrary catalog
+    // entry could wrongly skip a real update or re-offer an old one; the best entry is
+    // the only meaningful thing to compare against.
+    private static MotherboardDriverEntry? BestByVersion(
+        IReadOnlyList<MotherboardDriverEntry> entries,
+        Func<MotherboardDriverEntry, bool> predicate) =>
+        entries.Where(predicate)
+            .OrderByDescending(e => TryParseEntryVersion(e.Version) ?? new Version(0, 0))
+            .ThenByDescending(e => e.ReleaseDate)
+            .FirstOrDefault();
+
+    private static Version? TryParseEntryVersion(string raw) =>
+        Version.TryParse(raw, out var version) ? version : null;
 
     private static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
 
