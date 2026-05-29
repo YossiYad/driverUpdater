@@ -23,6 +23,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IHistoryWindowOpener _historyWindowOpener;
     private readonly ISettingsWindowOpener _settingsWindowOpener;
     private readonly ILogsWindowOpener _logsWindowOpener;
+    private readonly IDriverCacheStore? _driverCacheStore;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -103,7 +104,8 @@ public partial class MainViewModel : ObservableObject
         ISettingsWindowOpener settingsWindowOpener,
         ILogsWindowOpener logsWindowOpener,
         ILogger<MainViewModel> logger,
-        IUpdatePageOpener? updatePageOpener = null)
+        IUpdatePageOpener? updatePageOpener = null,
+        IDriverCacheStore? driverCacheStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -123,6 +125,7 @@ public partial class MainViewModel : ObservableObject
         _historyWindowOpener = historyWindowOpener;
         _settingsWindowOpener = settingsWindowOpener;
         _logsWindowOpener = logsWindowOpener;
+        _driverCacheStore = driverCacheStore;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -142,6 +145,69 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "OEM detection failed");
+        }
+
+        await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task LoadDriverCacheAsync(CancellationToken cancellationToken)
+    {
+        if (_driverCacheStore is null || Drivers.Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshot = await _driverCacheStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            if (snapshot is null || snapshot.Entries.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var entry in snapshot.Entries)
+            {
+                var row = new DriverRowViewModel(entry.Driver)
+                {
+                    Status = entry.Status,
+                    AvailableUpdate = entry.AvailableUpdate
+                };
+                Drivers.Add(row);
+            }
+
+            ScannedCount = Drivers.Count;
+            RefreshUpdateCounts();
+            StatusText =
+                $"Loaded {Drivers.Count} drivers from last scan on {snapshot.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm}. " +
+                "Click Scan to refresh and check for updates.";
+            _logger.LogInformation(
+                "Loaded {Count} drivers from cache captured at {CapturedAt}",
+                Drivers.Count, snapshot.CapturedAt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load the driver cache");
+        }
+    }
+
+    private async Task SaveDriverCacheAsync(CancellationToken cancellationToken)
+    {
+        if (_driverCacheStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var entries = Drivers
+                .Select(r => new CachedDriverEntry(r.Driver, r.Status, r.AvailableUpdate))
+                .ToArray();
+            var snapshot = new DriverCacheSnapshot(DateTimeOffset.UtcNow, entries);
+            await _driverCacheStore.SaveAsync(snapshot, cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save the driver cache");
         }
     }
 
@@ -172,6 +238,7 @@ public partial class MainViewModel : ObservableObject
             await QueryUpdateSourcesAsync(cancellationToken);
 
             StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} vendor checks.";
+            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -585,6 +652,14 @@ public partial class MainViewModel : ObservableObject
             : includeVendorPages
                 ? $"Install completed for {installTargets.Length} drivers. Opened {pageTargets.Length} vendor pages."
                 : $"Install completed for {installTargets.Length} confirmed drivers.";
+
+        if (!dryRun)
+        {
+            // Persist the post-install state so the next launch's cached view reflects what
+            // was actually installed (succeeded rows now have AvailableUpdate cleared);
+            // otherwise the cache would keep showing them as Outdated until the next scan.
+            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+        }
     }
 
     private void LogRunSummary(
