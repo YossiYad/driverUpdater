@@ -518,7 +518,10 @@ public partial class MainViewModel : ObservableObject
         // visible at a glance.
         UpdateFilter = DriverUpdateFilter.Installable;
 
+        var runStartedAt = DateTimeOffset.UtcNow;
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var outcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
+        var skipped = new List<(DriverRowViewModel Row, string Reason)>();
         foreach (var row in installTargets)
         {
             if (row.AvailableUpdate is null)
@@ -527,6 +530,7 @@ public partial class MainViewModel : ObservableObject
             }
             if (!processedUpdateIds.Add(row.AvailableUpdate.SourceUpdateId))
             {
+                skipped.Add((row, $"deduplicated - same installer as a previous row ({row.AvailableUpdate.SourceUpdateId})"));
                 continue;
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -535,6 +539,10 @@ public partial class MainViewModel : ObservableObject
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
             ScrollToRowRequested?.Invoke(this, row);
+            _logger.LogInformation(
+                "Update run: starting {Device} (current version={CurrentVersion}, target version={TargetVersion}, source={Source}, kind={Kind}, url={Url})",
+                row.DeviceName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
+                row.AvailableUpdate.Source, row.AvailableUpdate.InstallKind, row.AvailableUpdate.DownloadUrl);
 
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
@@ -551,7 +559,11 @@ public partial class MainViewModel : ObservableObject
                 row.AvailableUpdate = null;
             }
             RefreshUpdateCounts();
-            _logger.LogInformation("Operation {Id} finished with {Status}", finished.OperationId, finished.Status);
+            outcomes.Add((row, finished));
+            _logger.LogInformation(
+                "Update run: {Device} finished with {Status} after {Duration}{Error}",
+                row.DeviceName, finished.Status, finished.Duration ?? TimeSpan.Zero,
+                string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
@@ -559,11 +571,76 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
+        LogRunSummary(runStartedAt, dryRun, pageTargets, installTargets, outcomes, skipped);
+
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
             : includeVendorPages
                 ? $"Install completed for {installTargets.Length} drivers. Opened {pageTargets.Length} vendor pages."
                 : $"Install completed for {installTargets.Length} confirmed drivers.";
+    }
+
+    private void LogRunSummary(
+        DateTimeOffset runStartedAt,
+        bool dryRun,
+        IReadOnlyList<DriverRowViewModel> pageTargets,
+        IReadOnlyList<DriverRowViewModel> installTargets,
+        IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes,
+        IReadOnlyList<(DriverRowViewModel Row, string Reason)> skipped)
+    {
+        var elapsed = DateTimeOffset.UtcNow - runStartedAt;
+        var succeeded = outcomes.Where(o => o.Operation.Status == UpdateStatus.Succeeded).ToArray();
+        var failed = outcomes.Where(o => o.Operation.Status == UpdateStatus.Failed).ToArray();
+        var pipelineSkipped = outcomes.Where(o => o.Operation.Status is UpdateStatus.Skipped or UpdateStatus.Cancelled).ToArray();
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Update run summary").Append(dryRun ? " (dry run)" : string.Empty)
+            .Append(" - elapsed ").Append(elapsed.ToString(@"mm\:ss"))
+            .Append(", install targets ").Append(installTargets.Count)
+            .Append(", vendor pages ").Append(pageTargets.Count)
+            .Append(", succeeded ").Append(succeeded.Length)
+            .Append(", failed ").Append(failed.Length)
+            .Append(", skipped ").Append(pipelineSkipped.Length + skipped.Count)
+            .AppendLine();
+
+        if (succeeded.Length > 0)
+        {
+            sb.AppendLine("  Succeeded:");
+            foreach (var (row, op) in succeeded)
+            {
+                sb.Append("    - ").Append(row.DeviceName).Append(" -> ").Append(op.Candidate.NewVersion).AppendLine();
+            }
+        }
+        if (failed.Length > 0)
+        {
+            sb.AppendLine("  Failed:");
+            foreach (var (row, op) in failed)
+            {
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(": ").Append(string.IsNullOrWhiteSpace(op.ErrorMessage) ? "(no error message)" : op.ErrorMessage)
+                    .AppendLine();
+            }
+        }
+        if (pipelineSkipped.Length > 0)
+        {
+            sb.AppendLine("  Skipped by pipeline:");
+            foreach (var (row, op) in pipelineSkipped)
+            {
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(": ").Append(string.IsNullOrWhiteSpace(op.ErrorMessage) ? op.Status.ToString() : op.ErrorMessage)
+                    .AppendLine();
+            }
+        }
+        if (skipped.Count > 0)
+        {
+            sb.AppendLine("  Skipped before pipeline:");
+            foreach (var (row, reason) in skipped)
+            {
+                sb.Append("    - ").Append(row.DeviceName).Append(": ").AppendLine(reason);
+            }
+        }
+
+        _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
     }
 
     private void ApplySharedVendorInstallerResult(UpdateOperation finished)

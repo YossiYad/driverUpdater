@@ -370,10 +370,24 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
+            _logger.LogInformation(
+                "Vendor installer for {Device}: starting \"{FileName}\" {Arguments} (current driver: version={CurrentVersion}, date={CurrentDate}; target: version={TargetVersion}, date={TargetDate})",
+                operation.TargetSnapshot.DeviceName, fileName, arguments,
+                operation.TargetSnapshot.CurrentVersion, operation.TargetSnapshot.CurrentDate,
+                operation.Candidate.NewVersion, operation.Candidate.NewDate);
+
+            var installStart = _clock.GetUtcNow();
             var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
+            var installElapsed = _clock.GetUtcNow() - installStart;
             if (!result.IsSuccess)
             {
-                _logger.LogError("Vendor installer failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
+                var harvestedLogs = TryHarvestInstallerLogTails(installStart, operation.Candidate.SourceUpdateId);
+                _logger.LogError(
+                    "Vendor installer for {Device} failed after {Elapsed}: exit {Code}\n  stdout: {Stdout}\n  stderr: {Stderr}{HarvestedLogs}",
+                    operation.TargetSnapshot.DeviceName, installElapsed, result.ExitCode,
+                    string.IsNullOrWhiteSpace(result.StandardOutput) ? "<empty>" : result.StandardOutput,
+                    string.IsNullOrWhiteSpace(result.StandardError) ? "<empty>" : result.StandardError,
+                    string.IsNullOrEmpty(harvestedLogs) ? string.Empty : "\n  vendor log tails:\n" + harvestedLogs);
                 operation = operation with
                 {
                     Status = UpdateStatus.Failed,
@@ -384,6 +398,9 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            _logger.LogInformation(
+                "Vendor installer for {Device} succeeded after {Elapsed}",
+                operation.TargetSnapshot.DeviceName, installElapsed);
             operation = operation with
             {
                 Status = UpdateStatus.Succeeded,
@@ -604,6 +621,95 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         var value = string.IsNullOrWhiteSpace(first) ? second : first;
         return value.Trim();
+    }
+
+    // When a silent installer exits non-zero with empty stdout/stderr (AMD and most
+    // wrapper installers do this) the only real evidence is in log files the installer
+    // leaves under %TEMP%, %LOCALAPPDATA%, or %WINDIR%\Logs. Scan those dirs for files
+    // created since the install started, and pull the tail of each so the user sees
+    // the actual cause in the app log instead of a bare "exit 2, <empty>".
+    internal static string TryHarvestInstallerLogTails(DateTimeOffset installStart, string sourceUpdateId)
+    {
+        var search = new List<string>();
+        TryAddIfExists(search, Path.GetTempPath());
+        TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"));
+
+        // Per-vendor hint folders.
+        if (sourceUpdateId.Contains("amd", StringComparison.OrdinalIgnoreCase))
+        {
+            TryAddIfExists(search, @"C:\AMD");
+            TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"));
+        }
+
+        var sb = new System.Text.StringBuilder();
+        var cutoff = installStart.UtcDateTime.AddSeconds(-2);
+        foreach (var dir in search)
+        {
+            try
+            {
+                var hits = Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly)
+                    .Where(p =>
+                    {
+                        try { return File.GetLastWriteTimeUtc(p) >= cutoff; }
+                        catch { return false; }
+                    })
+                    .OrderByDescending(p =>
+                    {
+                        try { return File.GetLastWriteTimeUtc(p); }
+                        catch { return DateTime.MinValue; }
+                    })
+                    .Take(3);
+
+                foreach (var path in hits)
+                {
+                    AppendTail(sb, path);
+                }
+            }
+            catch
+            {
+                // Best effort; skip unreadable directories.
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static void TryAddIfExists(List<string> list, string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            {
+                list.Add(path);
+            }
+        }
+        catch { /* skip */ }
+    }
+
+    private static void AppendTail(System.Text.StringBuilder sb, string path)
+    {
+        try
+        {
+            const int maxLines = 25;
+            string[] lines;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+            {
+                lines = reader.ReadToEnd().Split('\n');
+            }
+
+            var tail = lines.Length > maxLines ? lines[^maxLines..] : lines;
+            sb.AppendLine($"    -- {path} (mtime {File.GetLastWriteTime(path):yyyy-MM-dd HH:mm:ss}) --");
+            foreach (var line in tail)
+            {
+                sb.Append("      ").AppendLine(line.TrimEnd('\r'));
+            }
+        }
+        catch (Exception ex)
+        {
+            sb.AppendLine($"    -- {path} (unreadable: {ex.Message}) --");
+        }
     }
 
     private static string QuotePowerShellLiteral(string value) =>
