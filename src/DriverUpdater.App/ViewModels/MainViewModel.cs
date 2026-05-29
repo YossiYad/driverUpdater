@@ -523,10 +523,16 @@ public partial class MainViewModel : ObservableObject
         {
             if (row.AvailableUpdate is null)
             {
+                _logger.LogInformation(
+                    "Update run: skipping {Device} - candidate was already cleared by an earlier shared install",
+                    row.DeviceName);
                 continue;
             }
             if (!processedUpdateIds.Add(row.AvailableUpdate.SourceUpdateId))
             {
+                _logger.LogInformation(
+                    "Update run: skipping {Device} - deduplicated, same installer as a previous row ({SourceUpdateId})",
+                    row.DeviceName, row.AvailableUpdate.SourceUpdateId);
                 continue;
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -555,7 +561,7 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                ApplySharedVendorInstallerResult(finished);
+                ApplySharedVendorInstallerResult(finished, row);
             }
         }
 
@@ -566,13 +572,20 @@ public partial class MainViewModel : ObservableObject
                 : $"Install completed for {installTargets.Length} confirmed drivers.";
     }
 
-    private void ApplySharedVendorInstallerResult(UpdateOperation finished)
+    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow)
     {
+        // Every row that shares the SourceUpdateId is really the same install (think 18
+        // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
+        // the master row finishes, those duplicate rows have already been touched in the
+        // same way and should disappear from the grid: keeping them in the Installable
+        // filter makes it look like there is still work pending when there is not.
+        // The master row keeps its AvailableUpdate on failure so the user can retry it
+        // explicitly without having to rescan.
         foreach (var row in Drivers.Where(r => r.AvailableUpdate?.SourceUpdateId == finished.Candidate.SourceUpdateId))
         {
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;
-            if (finished.Status == UpdateStatus.Succeeded)
+            if (finished.Status == UpdateStatus.Succeeded || !ReferenceEquals(row, masterRow))
             {
                 row.AvailableUpdate = null;
             }
