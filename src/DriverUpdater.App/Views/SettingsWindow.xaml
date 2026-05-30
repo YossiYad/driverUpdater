@@ -143,6 +143,78 @@
                 </StackPanel>
             </TabItem>
 
+            <TabItem Header="{DynamicResource Settings.Tab.Ai}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="16">
+                        <TextBlock TextWrapping="Wrap"
+                                   Opacity="0.8"
+                                   FontSize="12"
+                                   Margin="0,0,0,12"
+                                   Text="{DynamicResource Settings.Ai.Intro}" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Width="120"
+                                       VerticalAlignment="Center"
+                                       Text="{DynamicResource Settings.Ai.Provider}" />
+                            <ComboBox Width="220"
+                                      ItemsSource="{Binding AvailableAiProviders}"
+                                      SelectedItem="{Binding SelectedAiProvider}" />
+                        </StackPanel>
+
+                        <Border Padding="14,12"
+                                CornerRadius="6"
+                                Margin="0,8,0,0"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Visibility="{Binding IsGeminiSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Google Gemini" />
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.ApiKey}" />
+                                    <PasswordBox x:Name="GeminiKeyBox"
+                                                 Width="320"
+                                                 PasswordChanged="OnGeminiKeyChanged" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.Model}" />
+                                    <TextBox Width="320" Text="{Binding GeminiModel}" />
+                                </StackPanel>
+                                <CheckBox Margin="0,10,0,0"
+                                          IsChecked="{Binding EnableAiWebSearch}"
+                                          Content="{DynamicResource Settings.Ai.WebSearch}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Padding="14,12"
+                                CornerRadius="6"
+                                Margin="0,8,0,0"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Visibility="{Binding IsOllamaSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Ollama (local)" />
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.OllamaUrl}" />
+                                    <TextBox Width="320" Text="{Binding OllamaBaseUrl}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.Model}" />
+                                    <TextBox Width="320" Text="{Binding OllamaModel}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Padding="14,10"
+                                CornerRadius="6"
+                                Margin="0,12,0,0"
+                                Background="#FFFFF4E5">
+                            <TextBlock TextWrapping="Wrap"
+                                       Foreground="#FF8B5A00"
+                                       FontSize="12"
+                                       Text="{DynamicResource Settings.Ai.KeyWarning}" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="About">
                 <StackPanel Margin="16">
                     <TextBlock Text="DriverUpdater 0.1.0" FontSize="18" FontWeight="SemiBold" />

@@ -33,6 +33,7 @@
     <sys:String x:Key="Grid.Source">Source</sys:String>
     <sys:String x:Key="Grid.Progress">Progress</sys:String>
     <sys:String x:Key="Grid.Update">Update</sys:String>
+    <sys:String x:Key="Grid.Ai">AI check</sys:String>
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
 
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
@@ -53,9 +54,17 @@
     <sys:String x:Key="Settings.Tab.Safety">Safety</sys:String>
     <sys:String x:Key="Settings.Tab.Schedule">Schedule</sys:String>
     <sys:String x:Key="Settings.Tab.Language">Language</sys:String>
+    <sys:String x:Key="Settings.Tab.Ai">AI</sys:String>
     <sys:String x:Key="Settings.Tab.About">About</sys:String>
     <sys:String x:Key="Settings.Language.Label">Language</sys:String>
     <sys:String x:Key="Settings.Language.Hint">Restart the app to fully apply the language change in every window.</sys:String>
+    <sys:String x:Key="Settings.Ai.Intro">After each scan, an AI assistant can verify that found updates are genuinely newer than what is installed and flag drivers that may cause problems. It is optional and best-effort: if it is off or unavailable, scans work exactly as before.</sys:String>
+    <sys:String x:Key="Settings.Ai.Provider">Provider</sys:String>
+    <sys:String x:Key="Settings.Ai.ApiKey">API key</sys:String>
+    <sys:String x:Key="Settings.Ai.Model">Model</sys:String>
+    <sys:String x:Key="Settings.Ai.WebSearch">Use live web search to check for the latest version and reported issues</sys:String>
+    <sys:String x:Key="Settings.Ai.OllamaUrl">Base URL</sys:String>
+    <sys:String x:Key="Settings.Ai.KeyWarning">The Gemini API key is stored in plain text in settings.json on this computer. Only enable this on a machine you trust.</sys:String>
 
     <sys:String x:Key="History.Title">DriverUpdater - History</sys:String>
     <sys:String x:Key="History.Heading">Update history</sys:String>

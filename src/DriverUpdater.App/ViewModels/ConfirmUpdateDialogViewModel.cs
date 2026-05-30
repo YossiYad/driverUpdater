@@ -35,6 +35,46 @@ public partial class ConfirmUpdateDialogViewModel : ObservableObject
     public bool ShowRiskWarning =>
         Operation.TargetSnapshot.Category is DriverCategory.Display or DriverCategory.Storage;
 
+    private AiVerdict? Verdict => Operation.Candidate.AiVerification;
+
+    public bool HasAiVerdict => Verdict is not null;
+
+    public string AiHeader => Verdict?.Risk switch
+    {
+        AiRiskLevel.Safe => "AI check: Safe",
+        AiRiskLevel.Caution => "AI check: Caution",
+        AiRiskLevel.HighRisk => "AI check: High risk",
+        AiRiskLevel.Unknown => "AI check: Risk unknown",
+        _ => "AI check"
+    };
+
+    public string AiSummary => Verdict?.Summary ?? string.Empty;
+
+    public string AiRationale => Verdict?.Rationale ?? string.Empty;
+
+    public string AiLatestVersionText =>
+        string.IsNullOrWhiteSpace(Verdict?.LatestKnownVersion)
+            ? string.Empty
+            : $"Latest known version: {Verdict.LatestKnownVersion}";
+
+    public bool HasAiLatestVersion => !string.IsNullOrWhiteSpace(Verdict?.LatestKnownVersion);
+
+    public string AiBackground => Verdict?.Risk switch
+    {
+        AiRiskLevel.Safe => "#FFE8F5E9",
+        AiRiskLevel.Caution => "#FFFFF4E5",
+        AiRiskLevel.HighRisk => "#FFFDECEA",
+        _ => "#FFF0F0F0"
+    };
+
+    public string AiForeground => Verdict?.Risk switch
+    {
+        AiRiskLevel.Safe => "#FF1B5E20",
+        AiRiskLevel.Caution => "#FF8B5A00",
+        AiRiskLevel.HighRisk => "#FFB71C1C",
+        _ => "#FF424242"
+    };
+
     public InstallOptions BuildOptions(bool dryRun = false) =>
         new(CreateRestorePoint: CreateRestorePoint,
             BackupCurrentDriver: BackupCurrentDriver,

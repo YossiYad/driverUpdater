@@ -21,6 +21,9 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SourceText))]
     [NotifyPropertyChangedFor(nameof(UpdateActionText))]
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
+    [NotifyPropertyChangedFor(nameof(AiRiskText))]
+    [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
+    [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
     private UpdateCandidate? _availableUpdate;
 
@@ -71,6 +74,42 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateConfidence.Advisory => "Check vendor",
         _ => string.Empty
     };
+
+    public bool HasAiVerdict => AvailableUpdate?.AiVerification is not null;
+
+    public string AiRiskText => AvailableUpdate?.AiVerification?.Risk switch
+    {
+        AiRiskLevel.Safe => "Safe",
+        AiRiskLevel.Caution => "Caution",
+        AiRiskLevel.HighRisk => "High risk",
+        _ => string.Empty
+    };
+
+    public string? AiRiskTooltip
+    {
+        get
+        {
+            var verdict = AvailableUpdate?.AiVerification;
+            if (verdict is null)
+            {
+                return null;
+            }
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(verdict.Summary))
+            {
+                parts.Add(verdict.Summary);
+            }
+            if (!string.IsNullOrWhiteSpace(verdict.Rationale))
+            {
+                parts.Add(verdict.Rationale);
+            }
+            if (!string.IsNullOrWhiteSpace(verdict.LatestKnownVersion))
+            {
+                parts.Add($"Latest known version: {verdict.LatestKnownVersion}");
+            }
+            return parts.Count == 0 ? null : string.Join(Environment.NewLine + Environment.NewLine, parts);
+        }
+    }
 
     public bool CanUpdate => Status == DriverStatus.Outdated && AvailableUpdate is not null;
 

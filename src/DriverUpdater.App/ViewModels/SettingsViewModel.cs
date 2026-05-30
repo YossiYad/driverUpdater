@@ -19,6 +19,7 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
+    public IReadOnlyList<AiProvider> AvailableAiProviders { get; } = Enum.GetValues<AiProvider>().ToArray();
 
     [ObservableProperty] private AppLanguage _selectedLanguage = AppLanguage.SystemDefault;
 
@@ -38,12 +39,26 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool _enablePlaywrightFallback;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
+    [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
+    private AiProvider _selectedAiProvider = AiProvider.Off;
+    [ObservableProperty] private string _geminiApiKey = string.Empty;
+    [ObservableProperty] private string _geminiModel = "gemini-2.0-flash";
+    [ObservableProperty] private bool _enableAiWebSearch = true;
+    [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
+    [ObservableProperty] private string _ollamaModel = "llama3.1";
+
     [ObservableProperty] private string _statusText = string.Empty;
     [ObservableProperty] private bool _isBusy;
 
     public string SettingsPath => _settingsStore.SettingsPath;
 
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
+
+    public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
+
+    public bool IsOllamaSelected => SelectedAiProvider == AiProvider.Ollama;
 
     public SettingsViewModel(
         ISettingsStore settingsStore,
@@ -166,6 +181,15 @@ public partial class SettingsViewModel : ObservableObject
         Scraper = new ScraperSettings
         {
             EnablePlaywrightFallback = EnablePlaywrightFallback
+        },
+        Ai = new AiSettings
+        {
+            Provider = SelectedAiProvider,
+            GeminiApiKey = GeminiApiKey,
+            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.0-flash" : GeminiModel.Trim(),
+            EnableWebSearch = EnableAiWebSearch,
+            OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
+            OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         }
     };
 
@@ -180,5 +204,11 @@ public partial class SettingsViewModel : ObservableObject
         SelectedLanguage = settings.Language.Language;
         AcceptedAutoUpdateRisk = settings.Schedule.Mode == ScheduleMode.ScanAndUpdate;
         EnablePlaywrightFallback = settings.Scraper.EnablePlaywrightFallback;
+        SelectedAiProvider = settings.Ai.Provider;
+        GeminiApiKey = settings.Ai.GeminiApiKey;
+        GeminiModel = settings.Ai.GeminiModel;
+        EnableAiWebSearch = settings.Ai.EnableWebSearch;
+        OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
+        OllamaModel = settings.Ai.OllamaModel;
     }
 }

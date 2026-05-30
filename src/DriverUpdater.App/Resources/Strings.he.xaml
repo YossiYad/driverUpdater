@@ -33,6 +33,7 @@
     <sys:String x:Key="Grid.Source">מקור</sys:String>
     <sys:String x:Key="Grid.Progress">התקדמות</sys:String>
     <sys:String x:Key="Grid.Update">עדכון</sys:String>
+    <sys:String x:Key="Grid.Ai">בדיקת AI</sys:String>
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
 
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
@@ -53,9 +54,17 @@
     <sys:String x:Key="Settings.Tab.Safety">בטיחות</sys:String>
     <sys:String x:Key="Settings.Tab.Schedule">תזמון</sys:String>
     <sys:String x:Key="Settings.Tab.Language">שפה</sys:String>
+    <sys:String x:Key="Settings.Tab.Ai">AI</sys:String>
     <sys:String x:Key="Settings.Tab.About">אודות</sys:String>
     <sys:String x:Key="Settings.Language.Label">שפה</sys:String>
     <sys:String x:Key="Settings.Language.Hint">הפעל מחדש את האפליקציה כדי להחיל את השפה בכל החלונות.</sys:String>
+    <sys:String x:Key="Settings.Ai.Intro">אחרי כל סריקה, עוזר AI יכול לאמת שהעדכונים שנמצאו באמת חדשים יותר מהמותקן ולסמן דרייברים שעלולים לגרום בעיות. זה אופציונלי ובמאמץ מיטבי: אם הוא כבוי או לא זמין, הסריקה עובדת בדיוק כמו קודם.</sys:String>
+    <sys:String x:Key="Settings.Ai.Provider">ספק</sys:String>
+    <sys:String x:Key="Settings.Ai.ApiKey">מפתח API</sys:String>
+    <sys:String x:Key="Settings.Ai.Model">מודל</sys:String>
+    <sys:String x:Key="Settings.Ai.WebSearch">השתמש בחיפוש אינטרנט חי כדי לבדוק את הגרסה האחרונה ובעיות מדווחות</sys:String>
+    <sys:String x:Key="Settings.Ai.OllamaUrl">כתובת בסיס</sys:String>
+    <sys:String x:Key="Settings.Ai.KeyWarning">מפתח ה-API של Gemini נשמר כטקסט גלוי בקובץ settings.json במחשב הזה. הפעל זאת רק במחשב שאתה סומך עליו.</sys:String>
 
     <sys:String x:Key="History.Title">DriverUpdater - היסטוריה</sys:String>
     <sys:String x:Key="History.Heading">היסטוריית עדכונים</sys:String>
