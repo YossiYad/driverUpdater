@@ -44,7 +44,7 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
     private AiProvider _selectedAiProvider = AiProvider.Off;
     [ObservableProperty] private string _geminiApiKey = string.Empty;
-    [ObservableProperty] private string _geminiModel = "gemini-2.0-flash";
+    [ObservableProperty] private string _geminiModel = "gemini-2.5-flash";
     [ObservableProperty] private bool _enableAiWebSearch = true;
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
     [ObservableProperty] private string _ollamaModel = "llama3.1";
@@ -186,7 +186,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             Provider = SelectedAiProvider,
             GeminiApiKey = GeminiApiKey,
-            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.0-flash" : GeminiModel.Trim(),
+            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.5-flash" : GeminiModel.Trim(),
             EnableWebSearch = EnableAiWebSearch,
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()

@@ -186,7 +186,7 @@ public class SettingsViewModelTests
 
         await vm.SaveAsync();
 
-        store.Saved!.Ai.GeminiModel.Should().Be("gemini-2.0-flash");
+        store.Saved!.Ai.GeminiModel.Should().Be("gemini-2.5-flash");
         store.Saved.Ai.OllamaBaseUrl.Should().Be("http://localhost:11434");
         store.Saved.Ai.OllamaModel.Should().Be("llama3.1");
     }
