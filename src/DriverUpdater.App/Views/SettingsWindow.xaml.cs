@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Navigation;
 using DriverUpdater.App.ViewModels;
 
 namespace DriverUpdater.App.Views;
@@ -35,6 +37,19 @@ public partial class SettingsWindow : Window
             return;
         }
         _viewModel.GeminiApiKey = GeminiKeyBox.Password;
+    }
+
+    private void OnHyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // Opening the browser is best-effort; the URL is still visible to copy.
+        }
+        e.Handled = true;
     }
 
     private void OnClose(object sender, RoutedEventArgs e)
