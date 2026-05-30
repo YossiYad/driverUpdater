@@ -36,6 +36,10 @@ public partial class App : Application
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
+            // Surface the full AI verification trail (prompt, payload, raw response,
+            // per-verdict detail) without turning on Debug for the whole app.
+            .MinimumLevel.Override("DriverUpdater.Services.Ai", Serilog.Events.LogEventLevel.Debug)
+            .MinimumLevel.Override("DriverUpdater.App.ViewModels.MainViewModel", Serilog.Events.LogEventLevel.Debug)
             .WriteTo.Debug()
             .WriteTo.File(
                 path: Path.Combine(logDirectory, "driverupdater-.log"),

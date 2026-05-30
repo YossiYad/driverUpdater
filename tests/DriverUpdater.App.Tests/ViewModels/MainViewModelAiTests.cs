@@ -92,6 +92,23 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_leaves_results_unchanged_when_ai_returns_no_verdicts()
+    {
+        var driver = NewDriver("AMD Radeon", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0), "amd-update");
+        var verifier = new StubAiVerifier(isConfigured: true);
+
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.WasCalled.Should().BeTrue();
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
+        vm.Drivers[0].AvailableUpdate!.AiVerification.Should().BeNull();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+        vm.UpdatesFoundCount.Should().Be(1);
+    }
+
+    [WpfFact]
     public async Task ScanAsync_does_not_verify_vendor_page_candidates()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));

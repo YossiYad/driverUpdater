@@ -1,6 +1,7 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Services.Ai;
@@ -16,11 +17,13 @@ public sealed class AiVerifierSelector : IAiVerifier
     private readonly GeminiAiVerifier _gemini;
     private readonly OllamaAiVerifier _ollama;
     private readonly IOptionsMonitor<AiSettings> _settings;
+    private readonly ILogger<AiVerifierSelector>? _logger;
 
     public AiVerifierSelector(
         GeminiAiVerifier gemini,
         OllamaAiVerifier ollama,
-        IOptionsMonitor<AiSettings> settings)
+        IOptionsMonitor<AiSettings> settings,
+        ILogger<AiVerifierSelector>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(gemini);
         ArgumentNullException.ThrowIfNull(ollama);
@@ -28,6 +31,7 @@ public sealed class AiVerifierSelector : IAiVerifier
         _gemini = gemini;
         _ollama = ollama;
         _settings = settings;
+        _logger = logger;
     }
 
     public AiProvider Provider => _settings.CurrentValue.Provider;
@@ -38,11 +42,22 @@ public sealed class AiVerifierSelector : IAiVerifier
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default)
     {
+        var provider = _settings.CurrentValue.Provider;
         var verifier = Current();
-        if (verifier is null || !verifier.IsConfigured)
+        if (verifier is null)
         {
+            _logger?.LogDebug("AI verification skipped: provider is {Provider}", provider);
             return Task.FromResult(Empty);
         }
+        if (!verifier.IsConfigured)
+        {
+            _logger?.LogWarning(
+                "AI verification skipped: provider {Provider} is selected but not fully configured", provider);
+            return Task.FromResult(Empty);
+        }
+
+        _logger?.LogDebug(
+            "AI verification routed to {Provider} for {Count} candidates", provider, requests.Count);
         return verifier.VerifyAsync(requests, cancellationToken);
     }
 

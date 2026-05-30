@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DriverUpdater.Core.Abstractions;
@@ -46,6 +47,8 @@ public sealed class OllamaAiVerifier : IAiVerifier
         }
 
         var settings = _settings.CurrentValue;
+        var url = $"{settings.OllamaBaseUrl.TrimEnd('/')}/api/chat";
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var prompt = AiVerificationProtocol.BuildPrompt(requests);
@@ -61,24 +64,60 @@ public sealed class OllamaAiVerifier : IAiVerifier
                 }
             };
 
+            _logger.LogInformation(
+                "Ollama verification starting: model={Model}, candidates={Count}, endpoint={Url}",
+                settings.OllamaModel, requests.Count, url);
+            _logger.LogDebug("Ollama prompt ({Length} chars):{NewLine}{Prompt}", prompt.Length, Environment.NewLine, prompt);
+
             var client = _httpClientFactory.CreateClient(GeminiAiVerifier.HttpClientName);
-            var url = $"{settings.OllamaBaseUrl.TrimEnd('/')}/api/chat";
             using var response = await client.PostAsJsonAsync(url, payload, cancellationToken).ConfigureAwait(false);
+            stopwatch.Stop();
+            _logger.LogInformation(
+                "Ollama HTTP {Status} ({StatusText}) in {ElapsedMs} ms",
+                (int)response.StatusCode, response.StatusCode, stopwatch.ElapsedMilliseconds);
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Ollama verification HTTP {Status}", (int)response.StatusCode);
+                _logger.LogWarning(
+                    "Ollama verification failed: HTTP {Status} after {ElapsedMs} ms. Body: {Body}",
+                    (int)response.StatusCode, stopwatch.ElapsedMilliseconds, GeminiAiVerifier.Truncate(json, 2000));
                 return empty;
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug("Ollama raw response ({Length} chars):{NewLine}{Body}",
+                json.Length, Environment.NewLine, GeminiAiVerifier.Truncate(json, 8000));
+
             var text = ExtractMessageContent(json);
+            _logger.LogDebug("Ollama extracted model text ({Length} chars):{NewLine}{Text}",
+                text?.Length ?? 0, Environment.NewLine, text ?? "(none)");
+
             var verdicts = AiVerificationProtocol.ParseVerdicts(text);
-            _logger.LogInformation("Ollama returned {Count} verdicts for {Requested} requests", verdicts.Count, requests.Count);
+            if (verdicts.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Ollama returned HTTP 200 but no verdicts could be parsed from the response (model text length {Length}). " +
+                    "The model output is logged at Debug above.", text?.Length ?? 0);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Ollama returned {Count} verdicts for {Requested} requests in {ElapsedMs} ms",
+                    verdicts.Count, requests.Count, stopwatch.ElapsedMilliseconds);
+                GeminiAiVerifier.LogVerdicts(_logger, "Ollama", verdicts);
+            }
             return verdicts;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Ollama verification cancelled after {ElapsedMs} ms", stopwatch.ElapsedMilliseconds);
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ollama verification failed; skipping AI verification");
+            _logger.LogWarning(ex,
+                "Ollama verification failed after {ElapsedMs} ms; skipping AI verification (scan continues unchanged)",
+                stopwatch.ElapsedMilliseconds);
             return empty;
         }
     }

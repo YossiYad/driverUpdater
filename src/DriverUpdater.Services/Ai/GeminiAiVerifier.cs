@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DriverUpdater.Core.Abstractions;
@@ -47,38 +48,99 @@ public sealed class GeminiAiVerifier : IAiVerifier
         }
 
         var settings = _settings.CurrentValue;
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{settings.GeminiModel}:generateContent";
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var prompt = AiVerificationProtocol.BuildPrompt(requests);
             var payload = BuildPayload(prompt, settings.EnableWebSearch);
 
+            _logger.LogInformation(
+                "Gemini verification starting: model={Model}, webSearch={WebSearch}, candidates={Count}, endpoint={Url}",
+                settings.GeminiModel, settings.EnableWebSearch, requests.Count, url);
+            _logger.LogDebug("Gemini prompt ({Length} chars):{NewLine}{Prompt}", prompt.Length, Environment.NewLine, prompt);
+            _logger.LogDebug("Gemini request payload (api key sent via header, not logged):{NewLine}{Payload}",
+                Environment.NewLine, SerializePayload(payload));
+
             var client = _httpClientFactory.CreateClient(HttpClientName);
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"https://generativelanguage.googleapis.com/v1beta/models/{settings.GeminiModel}:generateContent")
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = JsonContent.Create(payload)
             };
             request.Headers.Add("x-goog-api-key", settings.GeminiApiKey);
 
             using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            stopwatch.Stop();
+            _logger.LogInformation(
+                "Gemini HTTP {Status} ({StatusText}) in {ElapsedMs} ms",
+                (int)response.StatusCode, response.StatusCode, stopwatch.ElapsedMilliseconds);
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                _logger.LogWarning("Gemini verification HTTP {Status}: {Body}", (int)response.StatusCode, Truncate(body));
+                _logger.LogWarning(
+                    "Gemini verification failed: HTTP {Status} after {ElapsedMs} ms. Body: {Body}",
+                    (int)response.StatusCode, stopwatch.ElapsedMilliseconds, Truncate(json, 2000));
                 return empty;
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug("Gemini raw response ({Length} chars):{NewLine}{Body}",
+                json.Length, Environment.NewLine, Truncate(json, 8000));
+
             var text = ExtractText(json);
+            _logger.LogDebug("Gemini extracted model text ({Length} chars):{NewLine}{Text}",
+                text?.Length ?? 0, Environment.NewLine, text ?? "(none)");
+
             var verdicts = AiVerificationProtocol.ParseVerdicts(text);
-            _logger.LogInformation("Gemini returned {Count} verdicts for {Requested} requests", verdicts.Count, requests.Count);
+            if (verdicts.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Gemini returned HTTP 200 but no verdicts could be parsed from the response (model text length {Length}). " +
+                    "The model output is logged at Debug above.", text?.Length ?? 0);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Gemini returned {Count} verdicts for {Requested} requests in {ElapsedMs} ms",
+                    verdicts.Count, requests.Count, stopwatch.ElapsedMilliseconds);
+                LogVerdicts(_logger, "Gemini", verdicts);
+            }
             return verdicts;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Gemini verification cancelled after {ElapsedMs} ms", stopwatch.ElapsedMilliseconds);
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Gemini verification failed; skipping AI verification");
+            _logger.LogWarning(ex,
+                "Gemini verification failed after {ElapsedMs} ms; skipping AI verification (scan continues unchanged)",
+                stopwatch.ElapsedMilliseconds);
             return empty;
+        }
+    }
+
+    private static string SerializePayload(object payload)
+    {
+        try
+        {
+            return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception)
+        {
+            return "(payload could not be serialized for logging)";
+        }
+    }
+
+    internal static void LogVerdicts(ILogger logger, string provider, IReadOnlyDictionary<string, AiVerdict> verdicts)
+    {
+        foreach (var (id, verdict) in verdicts)
+        {
+            logger.LogDebug(
+                "{Provider} verdict {Id}: genuinelyNewer={GenuinelyNewer}, risk={Risk}, latestKnown={Latest}, summary={Summary}",
+                provider, id, verdict.IsGenuinelyNewer, verdict.Risk,
+                verdict.LatestKnownVersion ?? "(none)", verdict.Summary);
         }
     }
 
@@ -134,6 +196,6 @@ public sealed class GeminiAiVerifier : IAiVerifier
         }
     }
 
-    private static string Truncate(string value) =>
-        value.Length <= 500 ? value : value[..500];
+    internal static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength] + $"... (+{value.Length - maxLength} more chars)";
 }
