@@ -92,6 +92,29 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_sends_one_request_per_installer_and_applies_verdict_to_all_shared_rows()
+    {
+        // Three device rows that all share one installer (the AMD chipset case).
+        var driverA = NewDriver("AMD Chipset A", "ROOT\\SYSTEM\\0001", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD Chipset B", "ROOT\\SYSTEM\\0002", new Version(1, 0, 0, 0));
+        var driverC = NewDriver("AMD Chipset C", "ROOT\\SYSTEM\\0003", new Version(1, 0, 0, 0));
+        const string sharedId = "vendor-installer:amd-chipset:8.05";
+        var candA = NewCandidate("ROOT\\SYSTEM\\0001", new Version(2, 0, 0, 0), sharedId, UpdateInstallKind.VendorInstaller);
+        var candB = NewCandidate("ROOT\\SYSTEM\\0002", new Version(2, 0, 0, 0), sharedId, UpdateInstallKind.VendorInstaller);
+        var candC = NewCandidate("ROOT\\SYSTEM\\0003", new Version(2, 0, 0, 0), sharedId, UpdateInstallKind.VendorInstaller);
+        var verdict = new AiVerdict(true, AiRiskLevel.Caution, "ok", "fine", "2.0.0.0");
+        var verifier = new StubAiVerifier(isConfigured: true) { Verdicts = { [sharedId] = verdict } };
+
+        var vm = NewVm(new[] { driverA, driverB, driverC }, new[] { candA, candB, candC }, verifier);
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.LastRequests.Should().ContainSingle("the shared installer should be sent to the AI only once");
+        verifier.LastRequests[0].CorrelationId.Should().Be(sharedId);
+        vm.Drivers.Should().OnlyContain(r => r.AvailableUpdate != null && r.AvailableUpdate.AiVerification == verdict,
+            "every row sharing the installer should receive the same verdict");
+    }
+
+    [WpfFact]
     public async Task ScanAsync_leaves_results_unchanged_when_ai_returns_no_verdicts()
     {
         var driver = NewDriver("AMD Radeon", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
@@ -186,12 +209,14 @@ public class MainViewModelAiTests
         public bool IsConfigured { get; }
         public bool Throws { get; set; }
         public bool WasCalled { get; private set; }
+        public IReadOnlyList<AiVerificationRequest> LastRequests { get; private set; } = Array.Empty<AiVerificationRequest>();
         public Dictionary<string, AiVerdict> Verdicts { get; } = new();
 
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
             IReadOnlyList<AiVerificationRequest> requests, CancellationToken cancellationToken = default)
         {
             WasCalled = true;
+            LastRequests = requests;
             if (Throws)
             {
                 throw new InvalidOperationException("ai failed");

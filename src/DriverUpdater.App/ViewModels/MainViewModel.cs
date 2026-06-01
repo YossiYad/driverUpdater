@@ -339,7 +339,12 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Many rows can share one installer (e.g. an AMD chipset package that drives 18
+        // device rows, all with the same SourceUpdateId). Send each installer to the AI
+        // once - the verdict is attached back to every row that shares the id below.
         var requests = targets
+            .GroupBy(r => r.AvailableUpdate!.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
             .Select(r => new AiVerificationRequest(
                 CorrelationId: r.AvailableUpdate!.SourceUpdateId,
                 DeviceName: r.DeviceName,
@@ -353,8 +358,8 @@ public partial class MainViewModel : ObservableObject
             .ToArray();
 
         _logger.LogInformation(
-            "AI verification: provider={Provider}, sending {Count} candidate(s) ({VendorPageSkipped} vendor-page advisories excluded)",
-            _aiVerifier.Provider, requests.Length, vendorPageSkipped);
+            "AI verification: provider={Provider}, sending {Count} unique installer(s) from {Rows} row(s) ({VendorPageSkipped} vendor-page advisories excluded)",
+            _aiVerifier.Provider, requests.Length, targets.Length, vendorPageSkipped);
         foreach (var request in requests)
         {
             _logger.LogDebug(
