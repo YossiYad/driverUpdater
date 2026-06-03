@@ -122,6 +122,76 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_ai_settings_from_store()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Ai = new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKey = "abc123",
+                GeminiModel = "gemini-2.0-flash",
+                EnableWebSearch = false,
+                OllamaBaseUrl = "http://host:1234",
+                OllamaModel = "mistral"
+            }
+        });
+        var scheduler = new FakeScheduler();
+        var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.SelectedAiProvider.Should().Be(AiProvider.Gemini);
+        vm.GeminiApiKey.Should().Be("abc123");
+        vm.GeminiModel.Should().Be("gemini-2.0-flash");
+        vm.EnableAiWebSearch.Should().BeFalse();
+        vm.OllamaBaseUrl.Should().Be("http://host:1234");
+        vm.OllamaModel.Should().Be("mistral");
+        vm.IsGeminiSelected.Should().BeTrue();
+        vm.IsOllamaSelected.Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_writes_ai_settings_to_store()
+    {
+        var store = new FakeStore(new AppSettings());
+        var scheduler = new FakeScheduler();
+        var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.SelectedAiProvider = AiProvider.Ollama;
+        vm.OllamaBaseUrl = "http://localhost:11434";
+        vm.OllamaModel = "llama3.1";
+
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Ai.Provider.Should().Be(AiProvider.Ollama);
+        store.Saved.Ai.OllamaBaseUrl.Should().Be("http://localhost:11434");
+        store.Saved.Ai.OllamaModel.Should().Be("llama3.1");
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_falls_back_to_defaults_for_blank_ai_fields()
+    {
+        var store = new FakeStore(new AppSettings());
+        var scheduler = new FakeScheduler();
+        var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.SelectedAiProvider = AiProvider.Gemini;
+        vm.GeminiModel = "   ";
+        vm.OllamaBaseUrl = "";
+        vm.OllamaModel = "";
+
+        await vm.SaveAsync();
+
+        store.Saved!.Ai.GeminiModel.Should().Be("gemini-2.5-flash");
+        store.Saved.Ai.OllamaBaseUrl.Should().Be("http://localhost:11434");
+        store.Saved.Ai.OllamaModel.Should().Be("llama3.1");
+    }
+
+    [WpfFact]
     public async Task SaveAsync_reports_failure_when_scheduler_fails()
     {
         var store = new FakeStore(new AppSettings());

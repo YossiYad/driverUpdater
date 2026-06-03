@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISettingsWindowOpener _settingsWindowOpener;
     private readonly ILogsWindowOpener _logsWindowOpener;
     private readonly IDriverCacheStore? _driverCacheStore;
+    private readonly IAiVerifier? _aiVerifier;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -105,7 +106,8 @@ public partial class MainViewModel : ObservableObject
         ILogsWindowOpener logsWindowOpener,
         ILogger<MainViewModel> logger,
         IUpdatePageOpener? updatePageOpener = null,
-        IDriverCacheStore? driverCacheStore = null)
+        IDriverCacheStore? driverCacheStore = null,
+        IAiVerifier? aiVerifier = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -126,6 +128,7 @@ public partial class MainViewModel : ObservableObject
         _settingsWindowOpener = settingsWindowOpener;
         _logsWindowOpener = logsWindowOpener;
         _driverCacheStore = driverCacheStore;
+        _aiVerifier = aiVerifier;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -301,6 +304,146 @@ public partial class MainViewModel : ObservableObject
                 StatusText = $"{source.DisplayName} failed: {ex.Message}";
             }
         }
+
+        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    // Best-effort post-scan pass. When an AI provider is configured it reviews every
+    // installable candidate in one batched call to (1) suppress updates that are not
+    // genuinely newer than what is installed and (2) annotate the rest with a risk
+    // assessment. Any failure leaves the scan results exactly as they were.
+    private async Task VerifyCandidatesWithAiAsync(CancellationToken cancellationToken)
+    {
+        if (_aiVerifier is null)
+        {
+            _logger.LogDebug("AI verification skipped: no verifier is registered");
+            return;
+        }
+        if (!_aiVerifier.IsConfigured)
+        {
+            _logger.LogInformation(
+                "AI verification skipped: provider {Provider} is not configured", _aiVerifier.Provider);
+            return;
+        }
+
+        var allWithUpdates = Drivers.Count(r => r.AvailableUpdate is not null);
+        var targets = Drivers
+            .Where(r => r.AvailableUpdate is { InstallKind: not UpdateInstallKind.VendorPage })
+            .ToArray();
+        var vendorPageSkipped = allWithUpdates - targets.Length;
+        if (targets.Length == 0)
+        {
+            _logger.LogInformation(
+                "AI verification skipped: no installable candidates to verify ({VendorPageSkipped} vendor-page advisories were not eligible)",
+                vendorPageSkipped);
+            return;
+        }
+
+        // Many rows can share one installer (e.g. an AMD chipset package that drives 18
+        // device rows, all with the same SourceUpdateId). Send each installer to the AI
+        // once - the verdict is attached back to every row that shares the id below.
+        var requests = targets
+            .GroupBy(r => r.AvailableUpdate!.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(r => new AiVerificationRequest(
+                CorrelationId: r.AvailableUpdate!.SourceUpdateId,
+                DeviceName: r.DeviceName,
+                HardwareId: r.HardwareId,
+                InstalledVersion: r.Driver.CurrentVersion?.ToString(),
+                InstalledDate: r.Driver.CurrentDate,
+                CandidateVersion: r.AvailableUpdate.NewVersion.ToString(),
+                CandidateDate: r.AvailableUpdate.NewDate,
+                Source: r.AvailableUpdate.Source,
+                DownloadUrl: r.AvailableUpdate.DownloadUrl.AbsoluteUri))
+            .ToArray();
+
+        _logger.LogInformation(
+            "AI verification: provider={Provider}, sending {Count} unique installer(s) from {Rows} row(s) ({VendorPageSkipped} vendor-page advisories excluded)",
+            _aiVerifier.Provider, requests.Length, targets.Length, vendorPageSkipped);
+        foreach (var request in requests)
+        {
+            _logger.LogDebug(
+                "AI candidate -> id={Id}, device={Device}, hardwareId={HardwareId}, installed={Installed} ({InstalledDate}), candidate={Candidate} ({CandidateDate}), source={Source}, url={Url}",
+                request.CorrelationId, request.DeviceName, request.HardwareId,
+                request.InstalledVersion ?? "unknown",
+                request.InstalledDate?.ToString("yyyy-MM-dd") ?? "unknown",
+                request.CandidateVersion, request.CandidateDate.ToString("yyyy-MM-dd"),
+                request.Source, request.DownloadUrl);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        IReadOnlyDictionary<string, AiVerdict> verdicts;
+        try
+        {
+            StatusText = "Verifying updates with AI...";
+            verdicts = await _aiVerifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(true);
+            stopwatch.Stop();
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("AI verification cancelled after {ElapsedMs} ms", stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger.LogWarning(ex,
+                "AI verification failed after {ElapsedMs} ms; leaving scan results unchanged",
+                stopwatch.ElapsedMilliseconds);
+            return;
+        }
+
+        if (verdicts.Count == 0)
+        {
+            _logger.LogWarning(
+                "AI verification returned no verdicts after {ElapsedMs} ms; leaving all {Count} candidate(s) unchanged",
+                stopwatch.ElapsedMilliseconds, requests.Length);
+            StatusText = "AI verification returned no usable result; scan results unchanged.";
+            return;
+        }
+
+        var suppressed = 0;
+        var annotated = 0;
+        var withoutVerdict = 0;
+        foreach (var row in targets)
+        {
+            var candidate = row.AvailableUpdate;
+            if (candidate is null)
+            {
+                continue;
+            }
+            if (!verdicts.TryGetValue(candidate.SourceUpdateId, out var verdict))
+            {
+                withoutVerdict++;
+                _logger.LogDebug(
+                    "AI returned no verdict for {Device} (id={Id}); leaving it as-is",
+                    row.DeviceName, candidate.SourceUpdateId);
+                continue;
+            }
+
+            if (!verdict.IsGenuinelyNewer)
+            {
+                _logger.LogInformation(
+                    "AI suppressed {Device}: not genuinely newer than installed {Installed} (risk={Risk}). {Summary}",
+                    row.DeviceName, row.Driver.CurrentVersion?.ToString() ?? "unknown", verdict.Risk, verdict.Summary);
+                row.AvailableUpdate = null;
+                row.Status = DriverStatus.UpToDate;
+                suppressed++;
+                continue;
+            }
+
+            _logger.LogInformation(
+                "AI confirmed {Device} as newer (risk={Risk}, latestKnown={Latest}). {Summary}",
+                row.DeviceName, verdict.Risk, verdict.LatestKnownVersion ?? "unknown", verdict.Summary);
+            row.AvailableUpdate = candidate with { AiVerification = verdict };
+            annotated++;
+        }
+
+        RefreshUpdateCounts();
+        _logger.LogInformation(
+            "AI verification applied in {ElapsedMs} ms: {Suppressed} suppressed, {Annotated} annotated, {WithoutVerdict} left untouched (no verdict)",
+            stopwatch.ElapsedMilliseconds, suppressed, annotated, withoutVerdict);
+        StatusText = $"AI verification complete. {suppressed} suppressed, {annotated} annotated.";
     }
 
     private Dictionary<string, List<DriverRowViewModel>> BuildHardwareIdIndex()

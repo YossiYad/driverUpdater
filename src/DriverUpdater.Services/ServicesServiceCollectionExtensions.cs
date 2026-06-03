@@ -1,6 +1,7 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
+using DriverUpdater.Services.Ai;
 using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
@@ -75,7 +76,23 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRestorePointService, RestorePointService>();
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
+
+        ConfigureAiHttpClient(services);
+        services.AddSingleton<GeminiAiVerifier>();
+        services.AddSingleton<OllamaAiVerifier>();
+        services.AddSingleton<IAiVerifier, AiVerifierSelector>();
+
         return services;
+    }
+
+    private static void ConfigureAiHttpClient(IServiceCollection services)
+    {
+        services.AddHttpClient(GeminiAiVerifier.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(90);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        });
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)

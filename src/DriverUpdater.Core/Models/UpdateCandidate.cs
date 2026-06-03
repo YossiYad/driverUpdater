@@ -12,7 +12,8 @@ public sealed record UpdateCandidate(
     string SourceUpdateId,
     IReadOnlyList<string> SupersededIds,
     UpdateInstallKind InstallKind = UpdateInstallKind.WindowsUpdate,
-    UpdateConfidence Confidence = UpdateConfidence.Confirmed)
+    UpdateConfidence Confidence = UpdateConfidence.Confirmed,
+    AiVerdict? AiVerification = null)
 {
     public bool IsNewerThan(DriverInfo current)
     {

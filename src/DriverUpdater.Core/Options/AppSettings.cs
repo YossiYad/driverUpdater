@@ -9,4 +9,5 @@ public sealed class AppSettings
     public LanguageSettings Language { get; set; } = new();
     public UpdaterSettings Updater { get; set; } = new();
     public ScraperSettings Scraper { get; set; } = new();
+    public AiSettings Ai { get; set; } = new();
 }

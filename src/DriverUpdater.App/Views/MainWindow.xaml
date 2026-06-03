@@ -261,6 +261,35 @@
                 <DataGridTextColumn Header="Confidence"
                                     Binding="{Binding ConfidenceText}"
                                     Width="110" />
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       FontSize="12"
+                                       Text="{Binding AiRiskText}"
+                                       ToolTipService.ShowDuration="30000"
+                                       ToolTip="{Binding AiRiskTooltip}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AiRiskText}" Value="Safe">
+                                                <Setter Property="Foreground" Value="#FF2E7D32" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AiRiskText}" Value="Caution">
+                                                <Setter Property="Foreground" Value="#FFE08600" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AiRiskText}" Value="High risk">
+                                                <Setter Property="Foreground" Value="#FFC62828" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Provider"
                                     Binding="{Binding Provider}"
                                     Width="160" />
