@@ -30,6 +30,6 @@ public class WuApiClientTests
             return;
         }
 
-        records.Should().OnlyContain(r => !string.IsNullOrEmpty(r.UpdateId));
+        records.Where(r => string.IsNullOrEmpty(r.UpdateId)).Should().BeEmpty();
     }
 }

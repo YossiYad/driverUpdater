@@ -8,6 +8,7 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RootNamespace>DriverUpdater.App</RootNamespace>
     <AssemblyName>DriverUpdater</AssemblyName>
+    <StartupObject>DriverUpdater.App.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>

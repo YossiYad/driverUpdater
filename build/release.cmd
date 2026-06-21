@@ -21,21 +21,22 @@ echo Restoring solution...
 dotnet restore "%REPO_ROOT%\DriverUpdater.slnx" || goto :error
 
 echo Publishing app...
-dotnet publish "%APP_PROJECT%" -c %CONFIG% -r %RID% --self-contained false -p:PublishSingleFile=false -p:IncludeNativeLibrariesForSelfExtract=true || goto :error
+dotnet publish "%APP_PROJECT%" -c %CONFIG% -r %RID% --self-contained true -p:PublishSingleFile=false -p:IncludeNativeLibrariesForSelfExtract=true || goto :error
 
 echo Ensuring vpk tool...
-dotnet tool restore || dotnet tool install --global vpk
+dotnet tool restore || goto :error
 
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
 echo Packaging with Velopack...
-vpk pack ^
+dotnet vpk pack ^
     --packId DriverUpdater ^
     --packTitle DriverUpdater ^
     --packAuthors "Yossi Yadgar" ^
     --packVersion %VERSION% ^
     --packDir "%PUBLISH_DIR%" ^
     --mainExe DriverUpdater.exe ^
+    --icon "%REPO_ROOT%\src\DriverUpdater.App\Assets\app.ico" ^
     --outputDir "%OUTPUT_DIR%" ^
     --runtime %RID% || goto :error
 
