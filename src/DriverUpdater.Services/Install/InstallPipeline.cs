@@ -327,6 +327,17 @@ public sealed class InstallPipeline : IInstallPipeline
             if (Path.GetExtension(installerPath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
                 var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out var extractionError);
+                var extractedRoot = Path.Combine(workDir, "extracted");
+                if (Directory.Exists(extractedRoot)
+                    && Directory.EnumerateFiles(extractedRoot, "*.inf", SearchOption.AllDirectories).Any())
+                {
+                    return await StepInstallExtractedInfPackageAsync(
+                        operation,
+                        extractedRoot,
+                        progress,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 if (locatedInstaller is null)
                 {
                     operation = operation with
@@ -367,6 +378,22 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            var trustFailure = await VerifyVendorBinaryTrustAsync(
+                operation.Candidate,
+                fileName,
+                cancellationToken).ConfigureAwait(false);
+            if (trustFailure is not null)
+            {
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = trustFailure,
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
@@ -379,7 +406,7 @@ public sealed class InstallPipeline : IInstallPipeline
             var installStart = _clock.GetUtcNow();
             var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
             var installElapsed = _clock.GetUtcNow() - installStart;
-            if (!result.IsSuccess)
+            if (!IsSuccessfulInstallerExitCode(result.ExitCode))
             {
                 var harvestedLogs = TryHarvestInstallerLogTails(installStart, operation.Candidate.SourceUpdateId);
                 _logger.LogError(
@@ -404,6 +431,9 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with
             {
                 Status = UpdateStatus.Succeeded,
+                ErrorMessage = result.ExitCode is 1641 or 3010
+                    ? "Reboot required to complete installation."
+                    : null,
                 CompletedAt = _clock.GetUtcNow()
             };
             progress?.Report(operation);
@@ -413,6 +443,57 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             TryDeleteWorkDirectory(workDir);
         }
+    }
+
+    private async Task<UpdateOperation> StepInstallExtractedInfPackageAsync(
+        UpdateOperation operation,
+        string extractedRoot,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_pnputil is null)
+        {
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = "pnputil is not configured for the extracted vendor driver package.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
+        progress?.Report(operation);
+
+        var arguments = $"/add-driver \"{Path.Combine(extractedRoot, "*.inf")}\" /subdirs /install";
+        _logger.LogInformation(
+            "Vendor package for {Device}: installing signed INF files from {Root}",
+            operation.TargetSnapshot.DeviceName,
+            extractedRoot);
+        var result = await _pnputil.RunAsync(arguments, cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = $"pnputil vendor package exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Succeeded,
+            ErrorMessage = ContainsRebootMessage(result.StandardOutput, result.StandardError)
+                ? "Reboot may be required to complete installation."
+                : null,
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
     }
 
     private async Task<UpdateOperation> StepInstallPnPUtilPackageAsync(
@@ -852,13 +933,12 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
-        // AMD's chipset bundle reports itself as NSIS but the inner installer is an
-        // InstallAware wrapper that ignores /S and exits 2. Per AMD's own KB article
-        // ("Silent Installation of AMD Chipset Drivers") the documented unattended
-        // flag is -INSTALL.
+        // AMD's published chipset release notes document /S for unattended install.
+        // The previously used -INSTALL switch belongs to an extracted Setup.exe flow
+        // and exits 2 when passed to the current outer chipset bundle.
         if (sourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase))
         {
-            arguments = "-INSTALL";
+            arguments = "/S";
             return true;
         }
 
@@ -901,6 +981,87 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         return false;
+    }
+
+    private static bool ContainsRebootMessage(params string[] values) =>
+        values.Any(value =>
+            value.Contains("reboot", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("restart", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool IsSuccessfulInstallerExitCode(int exitCode) =>
+        exitCode is 0 or 1641 or 3010;
+
+    private async Task<string?> VerifyVendorBinaryTrustAsync(
+        UpdateCandidate candidate,
+        string executablePath,
+        CancellationToken cancellationToken)
+    {
+        if (_powerShell is null
+            || !Path.GetExtension(executablePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var script =
+            $"$s = Get-AuthenticodeSignature -LiteralPath {QuotePowerShellLiteral(executablePath)}; " +
+            "Write-Output ($s.Status.ToString() + '|' + $(if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { '' }))";
+        var result = await _powerShell.InvokeAsync(script, cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return $"Could not verify the vendor installer's digital signature: {FirstNonEmpty(result.StandardError, result.StandardOutput)}";
+        }
+
+        var signature = result.StandardOutput
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault();
+        if (!TryValidateVendorSignature(candidate.SourceUpdateId, signature, out var error))
+        {
+            return error;
+        }
+
+        _logger.LogInformation(
+            "Verified Authenticode signature for {Installer}: {Signature}",
+            executablePath,
+            signature);
+        return null;
+    }
+
+    internal static bool TryValidateVendorSignature(
+        string sourceUpdateId,
+        string? signatureOutput,
+        out string error)
+    {
+        if (string.IsNullOrWhiteSpace(signatureOutput)
+            || !signatureOutput.StartsWith("Valid|", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "The downloaded vendor installer does not have a valid Authenticode signature.";
+            return false;
+        }
+
+        var expectedPublishers = sourceUpdateId.ToLowerInvariant() switch
+        {
+            var id when id.Contains("amd") => new[] { "Advanced Micro Devices", "AMD" },
+            var id when id.Contains("nvidia") => new[] { "NVIDIA" },
+            var id when id.Contains("gigabyte") => new[] { "GIGA-BYTE", "Gigabyte" },
+            var id when id.Contains("asus") => new[] { "ASUSTeK", "ASUS" },
+            var id when id.Contains("asrock") => new[] { "ASRock" },
+            var id when id.Contains("msi") => new[] { "Micro-Star", "MSI" },
+            var id when id.Contains("dell") => new[] { "Dell" },
+            var id when id.Contains("lenovo") => new[] { "Lenovo" },
+            var id when id.Contains("hp-") => new[] { "HP Inc", "Hewlett-Packard" },
+            _ => Array.Empty<string>()
+        };
+
+        if (expectedPublishers.Length > 0
+            && !expectedPublishers.Any(publisher =>
+                signatureOutput.Contains(publisher, StringComparison.OrdinalIgnoreCase)))
+        {
+            error = $"The installer signature is valid but its publisher does not match the expected vendor: {signatureOutput}.";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
     }
 
     internal static string BuildDryRunSummary(UpdateOperation operation, InstallOptions options)

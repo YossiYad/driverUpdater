@@ -45,6 +45,7 @@ _ReSharper*/
 
 Releases/
 build/output/
+artifacts/
 
 ## Test results
 

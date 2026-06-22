@@ -71,6 +71,11 @@ public sealed class OemSupportSource : IUpdateSource
 
     internal static bool IsMotherboardDriverCandidate(DriverInfo driver)
     {
+        if (IsSoftwareOrVirtualDevice(driver))
+        {
+            return false;
+        }
+
         if (driver.Category is DriverCategory.Display or DriverCategory.Printer or DriverCategory.Camera)
         {
             return false;
@@ -125,6 +130,18 @@ public sealed class OemSupportSource : IUpdateSource
         }
 
         return true;
+    }
+
+    private static bool IsSoftwareOrVirtualDevice(DriverInfo driver)
+    {
+        var deviceId = driver.DeviceId.TrimStart();
+        var hardwareId = driver.HardwareId.TrimStart();
+        return deviceId.StartsWith("ROOT\\", StringComparison.OrdinalIgnoreCase)
+            || deviceId.StartsWith("SWD\\", StringComparison.OrdinalIgnoreCase)
+            || hardwareId.StartsWith("ROOT\\", StringComparison.OrdinalIgnoreCase)
+            || hardwareId.StartsWith("SWD\\", StringComparison.OrdinalIgnoreCase)
+            || Contains(driver.DeviceClass, "SoftwareComponent")
+            || Contains(driver.DeviceClass, "SoftwareDevice");
     }
 
     private static bool HasDedicatedComponentVendor(DriverInfo driver)

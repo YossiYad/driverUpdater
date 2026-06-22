@@ -17,12 +17,14 @@ public sealed partial class AmdChipsetSource : IUpdateSource
     private readonly IAmdSocketDetector _socketDetector;
     private readonly TimeProvider _clock;
     private readonly ILogger<AmdChipsetSource> _logger;
+    private readonly Func<string?> _installedPackageVersion;
 
     public AmdChipsetSource(
         HttpClient httpClient,
         IAmdSocketDetector socketDetector,
         ILogger<AmdChipsetSource> logger,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        Func<string?>? installedPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(socketDetector);
@@ -31,6 +33,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         _socketDetector = socketDetector;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
+        _installedPackageVersion = installedPackageVersion ?? AmdInstalledPackageDetector.GetChipsetPackageVersion;
     }
 
     public UpdateSource Kind => UpdateSource.Oem;
@@ -86,6 +89,16 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         _logger.LogInformation(
             "AMD Chipset: parsed release version={Version}, date={Date}, sizeBytes={Size}, directInstaller={HasInstaller}",
             resolved.Version, resolved.ReleaseDate, resolved.SizeBytes ?? 0, resolved.DirectInstallerUrl is not null);
+
+        var installedPackage = _installedPackageVersion();
+        if (InstalledPackageInventory.IsInstalledPackageCurrent(installedPackage, resolved.Version))
+        {
+            _logger.LogInformation(
+                "AMD Chipset: installed package {InstalledVersion} is at or newer than upstream {ReleaseVersion}; no update is required",
+                installedPackage,
+                resolved.Version);
+            yield break;
+        }
 
         foreach (var driver in matched)
         {

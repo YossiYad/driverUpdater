@@ -9,11 +9,15 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:LogsViewModel}"
         Title="DriverUpdater - Logs"
-        Icon="pack://application:,,,/Assets/app.ico"
         Width="1100" Height="650"
         MinWidth="820" MinHeight="400"
         ui:WindowHelper.UseModernWindowStyle="True"
+        Background="#FF0F172A"
+        Foreground="#FFF1F5F9"
         WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -23,7 +27,7 @@
 
         <Border Grid.Row="0"
                 Padding="20,12"
-                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                Background="#FF1E293B">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Live logs" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
 
@@ -64,6 +68,11 @@
                         Content="Open log folder"
                         Command="{Binding OpenLogFolderCommand}" />
 
+                <Button Margin="8,0,0,0"
+                        Padding="14,4"
+                        Content="Open test logs"
+                        Command="{Binding OpenTestResultsFolderCommand}" />
+
                 <TextBlock Margin="24,0,8,0" VerticalAlignment="Center" Text="Level:" />
                 <ComboBox MinWidth="120"
                           ItemsSource="{Binding AvailableLevels}"
@@ -87,24 +96,53 @@
                   HeadersVisibility="Column"
                   IsReadOnly="True"
                   SelectionMode="Extended"
-                  RowHeight="26"
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   FontFamily="Consolas, Cascadia Mono, Courier New, monospace"
                   FontSize="12"
+                  Background="#FF0F172A"
+                  Foreground="#FFE2E8F0"
+                  BorderBrush="#FF334155"
+                  HorizontalGridLinesBrush="#FF1E293B"
+                  VerticalGridLinesBrush="#FF1E293B"
+                  RowBackground="#FF0F172A"
+                  AlternatingRowBackground="#FF111C30"
+                  SelectionUnit="FullRow"
                   ItemsSource="{Binding Entries}">
+            <DataGrid.Resources>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#FF1E293B" />
+                    <Setter Property="Foreground" Value="#FFF8FAFC" />
+                    <Setter Property="BorderBrush" Value="#FF334155" />
+                    <Setter Property="Padding" Value="8,6" />
+                </Style>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridRow}}" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Padding" Value="6,3" />
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="#FF1D4ED8" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.Resources>
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                    <Setter Property="Foreground" Value="#FFE2E8F0" />
+                    <Setter Property="Background" Value="Transparent" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding Level}" Value="Warning">
-                            <Setter Property="Foreground" Value="#D18B00" />
+                            <Setter Property="Foreground" Value="#FFFBBF24" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding Level}" Value="Error">
-                            <Setter Property="Foreground" Value="#D13438" />
+                            <Setter Property="Foreground" Value="#FFF87171" />
                             <Setter Property="FontWeight" Value="SemiBold" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding Level}" Value="Fatal">
-                            <Setter Property="Foreground" Value="#A4262C" />
+                            <Setter Property="Foreground" Value="#FFFF6B6B" />
                             <Setter Property="FontWeight" Value="Bold" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding Level}" Value="Debug">
@@ -126,15 +164,28 @@
                 <DataGridTextColumn Header="Category"
                                     Binding="{Binding Category}"
                                     Width="180" />
-                <DataGridTextColumn Header="Message"
-                                    Binding="{Binding Message}"
-                                    Width="*" />
+                <DataGridTemplateColumn Header="Message / exception" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Message}"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=DataGridRow}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Exception}"
+                                           Margin="0,4,0,0"
+                                           Foreground="#FFFCA5A5"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding HasException, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
 
         <Border Grid.Row="2"
                 Padding="20,8"
-                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                Background="#FF1E293B">
             <TextBlock Text="{Binding StatusText}" Opacity="0.85" FontSize="12" />
         </Border>
     </Grid>

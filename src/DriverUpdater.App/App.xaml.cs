@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
@@ -12,7 +13,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Velopack;
 
 namespace DriverUpdater.App;
 
@@ -20,12 +20,35 @@ public partial class App : Application
 {
     private IHost? _host;
 
+    public App()
+    {
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        VelopackApp.Build().Run();
+        try
+        {
+            await InitializeApplicationAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Fatal(ex, "Application startup failed");
+            MessageBox.Show(
+                "DriverUpdater could not finish starting. See the log under ProgramData\\DriverUpdater\\Logs for details.",
+                "DriverUpdater",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(-1);
+        }
+    }
 
+    private async Task InitializeApplicationAsync()
+    {
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "DriverUpdater",
@@ -117,12 +140,48 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
-        if (_host is not null)
+        try
         {
-            await _host.StopAsync(TimeSpan.FromSeconds(5));
-            _host.Dispose();
+            if (_host is not null)
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(5));
+                _host.Dispose();
+            }
         }
-        Log.CloseAndFlush();
-        base.OnExit(e);
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Application host shutdown failed");
+        }
+        finally
+        {
+            DispatcherUnhandledException -= OnDispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException -= OnCurrentDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+            Log.CloseAndFlush();
+            base.OnExit(e);
+        }
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        Log.Fatal(e.Exception, "Unhandled UI exception");
+        e.Handled = true;
+        MessageBox.Show(
+            "DriverUpdater encountered an unexpected error and must close. Details were written to the log.",
+            "DriverUpdater",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+        Shutdown(-1);
+    }
+
+    private static void OnCurrentDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        Log.Fatal(e.ExceptionObject as Exception, "Unhandled application-domain exception; terminating={IsTerminating}", e.IsTerminating);
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Error(e.Exception, "Unobserved background task exception");
+        e.SetObserved();
     }
 }

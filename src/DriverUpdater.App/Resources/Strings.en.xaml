@@ -3,14 +3,14 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.0</sys:String>
+    <sys:String x:Key="App.Version">v0.1.3</sys:String>
     <sys:String x:Key="App.Admin">Administrator</sys:String>
     <sys:String x:Key="App.NotElevated">Not elevated</sys:String>
 
     <sys:String x:Key="Toolbar.Scan">Scan now</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.Clear">Clear</sys:String>
-    <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
+    <sys:String x:Key="Toolbar.UpdateAll">Install automatic updates</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.UpdateOutdated">Update outdated</sys:String>
     <sys:String x:Key="Toolbar.InstallConfirmed">Install confirmed</sys:String>

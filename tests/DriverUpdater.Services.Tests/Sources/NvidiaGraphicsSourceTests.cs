@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Services.Sources;
 using FluentAssertions;
@@ -139,12 +140,29 @@ public class NvidiaGraphicsSourceTests
     }
 
     [Fact]
-    public void BuildApiUri_produces_relative_uri_with_expected_params()
+    public void BuildApiUri_produces_windows_11_relative_uri_with_expected_params()
     {
-        var uri = NvidiaGraphicsSource.BuildApiUri();
+        var uri = NvidiaGraphicsSource.BuildApiUri(isWindows11OrLater: true);
 
         uri.IsAbsoluteUri.Should().BeFalse();
-        uri.OriginalString.Should().Contain("psid=131").And.Contain("pfid=1066").And.Contain("osID=57").And.Contain("dch=1").And.Contain("isWHQL=1");
+        uri.OriginalString.Should().Contain("psid=131").And.Contain("pfid=1066").And.Contain("osID=135").And.Contain("dch=1").And.Contain("isWHQL=1");
+    }
+
+    [Fact]
+    public void BuildApiUri_uses_windows_10_id_for_windows_10()
+    {
+        NvidiaGraphicsSource.BuildApiUri(isWindows11OrLater: false)
+            .OriginalString.Should().Contain("osID=57");
+    }
+
+    [Theory]
+    [InlineData(Architecture.X64, true)]
+    [InlineData(Architecture.X86, false)]
+    [InlineData(Architecture.Arm64, false)]
+    [InlineData(Architecture.Arm, false)]
+    public void SupportsArchitecture_only_accepts_x64(Architecture architecture, bool expected)
+    {
+        NvidiaGraphicsSource.SupportsArchitecture(architecture).Should().Be(expected);
     }
 
     private static NvidiaGraphicsSource NewSource(string json)

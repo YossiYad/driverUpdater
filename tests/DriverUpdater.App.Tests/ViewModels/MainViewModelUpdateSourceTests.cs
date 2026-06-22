@@ -11,6 +11,36 @@ namespace DriverUpdater.App.Tests.ViewModels;
 
 public class MainViewModelUpdateSourceTests
 {
+    [Theory]
+    [InlineData("vendor-installer:amd-chipset:8.05", true)]
+    [InlineData("vendor-installer:nullsoft:amd-radeon:26.6.2", true)]
+    [InlineData("vendor-installer:nullsoft:gigabyte:b850:lan", true)]
+    [InlineData("vendor-installer:nvidia:610.62", true)]
+    [InlineData("vendor-installer:inno:unrelated", false)]
+    public void RequiresPostInstallVerification_identifies_wrappers_that_can_outlive_parent(
+        string sourceUpdateId,
+        bool expected)
+    {
+        MainViewModel.RequiresPostInstallVerification(sourceUpdateId).Should().Be(expected);
+    }
+
+    [Fact]
+    public void HasDriverChanged_detects_version_date_or_inf_replacement()
+    {
+        var before = NewDriver("AMD Driver", "PCI\\AMD", new Version(1, 0, 0, 0));
+
+        MainViewModel.HasDriverChanged(before, before).Should().BeFalse();
+        MainViewModel.HasDriverChanged(
+            before,
+            before with { CurrentVersion = new Version(2, 0, 0, 0) }).Should().BeTrue();
+        MainViewModel.HasDriverChanged(
+            before,
+            before with { CurrentDate = before.CurrentDate?.AddDays(1) }).Should().BeTrue();
+        MainViewModel.HasDriverChanged(
+            before,
+            before with { InfName = "oem-new.inf" }).Should().BeTrue();
+    }
+
     [WpfFact]
     public async Task ScanAsync_assigns_update_candidate_to_matching_row()
     {
@@ -213,13 +243,11 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateOutdatedAsync_clears_dedup_rows_when_master_install_fails_keeps_master_for_retry()
+    public async Task UpdateOutdatedAsync_keeps_all_shared_candidates_when_master_install_fails()
     {
         // Simulates the AMD chipset scenario: 3 device rows (master + 2 dedup'd) all
         // share the same vendor-installer:amd-chipset SourceUpdateId. The master
-        // install fails; we still want the dedup'd rows to leave the Installable
-        // filter (so the user does not see 17 ghost "more updates" rows), while the
-        // master keeps its candidate so the user can retry it explicitly.
+        // install fails; no device was updated, so every row must retain the candidate.
         var driverA = NewDriver("AMD Special Tools Driver", "ROOT\\SYSTEM\\0001", new Version(1, 0, 0, 0));
         var driverB = NewDriver("AMD Crash Defender", "ROOT\\SYSTEM\\0002", new Version(1, 0, 0, 0));
         var driverC = NewDriver("AMD Processor", "ROOT\\SYSTEM\\0003", new Version(1, 0, 0, 0));
@@ -245,10 +273,47 @@ public class MainViewModelUpdateSourceTests
         pipeline.Operations.Should().ContainSingle("only the master row should hit the pipeline; dedup'd rows are skipped");
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull("the master keeps its candidate so the user can retry it");
         vm.Drivers[0].Status.Should().Be(DriverStatus.Error);
-        vm.Drivers[1].AvailableUpdate.Should().BeNull("dedup'd rows leave the Installable filter once the install was attempted");
-        vm.Drivers[2].AvailableUpdate.Should().BeNull("dedup'd rows leave the Installable filter once the install was attempted");
+        vm.Drivers[1].AvailableUpdate.Should().NotBeNull("the shared package failed and did not update this device");
+        vm.Drivers[2].AvailableUpdate.Should().NotBeNull("the shared package failed and did not update this device");
         vm.Drivers[1].Status.Should().Be(DriverStatus.Error, "the failure outcome is carried over so the user can see what happened");
         vm.Drivers[2].Status.Should().Be(DriverStatus.Error);
+    }
+
+    [WpfFact]
+    public async Task Vendor_installer_success_is_verified_by_a_real_driver_change_before_clearing_candidate()
+    {
+        var before = NewDriver("AMD Chipset Device", "PCI\\VEN_1022&DEV_14E8", new Version(1, 0, 0, 0));
+        var after = before with
+        {
+            CurrentVersion = new Version(2, 0, 0, 0),
+            CurrentDate = new DateOnly(2026, 6, 22),
+            InfName = "oem99.inf"
+        };
+        var candidate = NewCandidate(
+            before.HardwareId,
+            new Version(2026, 6, 22, 0),
+            UpdateInstallKind.VendorInstaller) with
+        {
+            Source = UpdateSource.Oem,
+            SourceUpdateId = "vendor-installer:amd-chipset:8.05"
+        };
+        var vm = new MainViewModel(
+            new SequencedScanService([before], [after]),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new SuccessfulInstallPipeline(),
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].Status.Should().Be(DriverStatus.UpToDate);
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.StatusText.Should().Contain("1 package(s) succeeded");
     }
 
     [WpfFact]
@@ -311,6 +376,8 @@ public class MainViewModelUpdateSourceTests
 
         opener.Opened.Should().BeEmpty();
         vm.StatusText.Should().Be("No confirmed updates to install.");
+        vm.UpdatesFoundCount.Should().Be(0);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.UpToDate);
         vm.ConfirmedUpdatesCount.Should().Be(0);
         vm.VendorChecksCount.Should().Be(1);
     }
@@ -346,11 +413,11 @@ public class MainViewModelUpdateSourceTests
         opener.Opened.Should().BeEmpty();
         vm.ConfirmedUpdatesCount.Should().Be(0);
         vm.VendorChecksCount.Should().Be(1);
-        vm.StatusText.Should().Contain("confirmed drivers");
+        vm.StatusText.Should().Contain("1 package(s) succeeded");
     }
 
     [WpfFact]
-    public async Task UpdateAllAsync_installs_silent_and_opens_vendor_pages()
+    public async Task UpdateAllAsync_installs_automatic_updates_without_opening_vendor_pages()
     {
         var installDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
@@ -379,9 +446,9 @@ public class MainViewModelUpdateSourceTests
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(installCandidate.SourceUpdateId);
-        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
-        vm.StatusText.Should().Contain("Install completed for 1 drivers")
-            .And.Contain("Opened 1 vendor pages");
+        opener.Opened.Should().BeEmpty();
+        vm.StatusText.Should().Contain("1 package(s) succeeded")
+            .And.Contain("1 vendor check(s) were left");
     }
 
     [WpfFact]
@@ -455,6 +522,35 @@ public class MainViewModelUpdateSourceTests
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(candidateB.SourceUpdateId);
+    }
+
+    [WpfFact]
+    public async Task UpdateSelectedAsync_does_not_open_selected_vendor_page()
+    {
+        var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 6, 1, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var opener = new RecordingUpdatePageOpener();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new NullOemDetectionService(),
+            new ThrowingInstallPipeline(),
+            new ThrowingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            opener);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSelectedCommand.ExecuteAsync(new System.Collections.ArrayList { vm.Drivers[0] });
+
+        opener.Opened.Should().BeEmpty();
+        vm.StatusText.Should().Be("No confirmed updates to install.");
     }
 
     [WpfFact]
@@ -576,6 +672,36 @@ public class MainViewModelUpdateSourceTests
         vm.UpdateOutdatedCommand.CanExecute(null).Should().BeTrue();
         vm.UpdateAllCommand.CanExecute(null).Should().BeTrue();
         vm.InstallConfirmedCommand.CanExecute(null).Should().BeTrue();
+        vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task Advisory_only_scan_does_not_enable_automatic_update_commands()
+    {
+        var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            new RecordingUpdatePageOpener());
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.UpdatesFoundCount.Should().Be(0);
+        vm.VendorChecksCount.Should().Be(1);
+        vm.UpdateOutdatedCommand.CanExecute(null).Should().BeFalse();
+        vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
         vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
     }
 
@@ -802,6 +928,34 @@ public class MainViewModelUpdateSourceTests
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             foreach (var driver in _drivers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+                yield return driver;
+            }
+        }
+    }
+
+    private sealed class SequencedScanService : IDriverScanService
+    {
+        private readonly Queue<IReadOnlyList<DriverInfo>> _scans;
+        private IReadOnlyList<DriverInfo> _last;
+
+        public SequencedScanService(params IReadOnlyList<DriverInfo>[] scans)
+        {
+            _scans = new Queue<IReadOnlyList<DriverInfo>>(scans);
+            _last = scans[^1];
+        }
+
+        public async IAsyncEnumerable<DriverInfo> ScanAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            if (_scans.Count > 0)
+            {
+                _last = _scans.Dequeue();
+            }
+
+            foreach (var driver in _last)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await Task.Yield();

@@ -195,6 +195,42 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_prefers_signed_inf_installation_for_vendor_zip()
+    {
+        var pnputil = new FakePnPUtilRunner();
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil: pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(CreateDriverZip()));
+
+        var op = NewOperation(
+            UpdateSource.Oem,
+            UpdateInstallKind.VendorInstaller,
+            new Uri("https://download.gigabyte.com/FileList/Driver/audio.zip"));
+        op = op with
+        {
+            Candidate = op.Candidate with
+            {
+                SourceUpdateId = "vendor-installer:installshield:gigabyte:b850:audio:1.0"
+            }
+        };
+
+        var result = await pipeline.ExecuteAsync(
+            op,
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        pnputil.Arguments.Should().ContainSingle()
+            .Which.Should().Contain("*.inf").And.Contain("/subdirs").And.Contain("/install");
+        vendorInstaller.Invocations.Should().BeEmpty("INF installation is safer and more deterministic than an opaque setup wrapper");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_fails_when_approved_vendor_exe_is_not_a_valid_pe()
     {
         var vendorInstaller = new FakeVendorInstallerRunner();
@@ -536,6 +572,27 @@ public class InstallPipelineTests
         new FakeWuApiClient(),
         NullLogger<InstallPipeline>.Instance);
 
+    private static byte[] CreateDriverZip()
+    {
+        using var memory = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(
+                   memory,
+                   System.IO.Compression.ZipArchiveMode.Create,
+                   leaveOpen: true))
+        {
+            var inf = archive.CreateEntry("Driver/realtek.inf");
+            using (var writer = new StreamWriter(inf.Open()))
+            {
+                writer.Write("[Version]");
+            }
+
+            var setup = archive.CreateEntry("Setup.exe");
+            using var setupStream = setup.Open();
+            setupStream.Write([0x4D, 0x5A]);
+        }
+        return memory.ToArray();
+    }
+
     private sealed class TempDir : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DriverUpdater.Tests", Guid.NewGuid().ToString("N"));
@@ -549,7 +606,7 @@ public class InstallPipelineTests
     [Theory]
     [InlineData("vendor-installer:nvidia:610.47", "C:\\Temp\\nvidia.exe", "-s -noeula -noreboot")]
     [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]
-    [InlineData("vendor-installer:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "-INSTALL")]
+    [InlineData("vendor-installer:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "/S")]
     [InlineData("vendor-installer:inno:bar", "C:\\Temp\\bar.exe", "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART")]
     public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
     {
@@ -572,5 +629,39 @@ public class InstallPipelineTests
         fileName.Should().Be(installerPath);
         arguments.Should().Be(expectedArgs);
         skipReason.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1641, true)]
+    [InlineData(3010, true)]
+    [InlineData(2, false)]
+    [InlineData(1603, false)]
+    public void IsSuccessfulInstallerExitCode_accepts_success_and_reboot_codes(int exitCode, bool expected)
+    {
+        InstallPipeline.IsSuccessfulInstallerExitCode(exitCode).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("vendor-installer:amd-chipset:8.05", "Valid|CN=Advanced Micro Devices, Inc.", true)]
+    [InlineData("vendor-installer:nullsoft:gigabyte:b850:lan", "Valid|CN=GIGA-BYTE TECHNOLOGY CO., LTD.", true)]
+    [InlineData("vendor-installer:nvidia:610.62", "NotSigned|", false)]
+    [InlineData("vendor-installer:amd-chipset:8.05", "Valid|CN=Unexpected Publisher", false)]
+    public void TryValidateVendorSignature_requires_valid_expected_publisher(
+        string sourceUpdateId,
+        string signatureOutput,
+        bool expected)
+    {
+        var valid = InstallPipeline.TryValidateVendorSignature(sourceUpdateId, signatureOutput, out var error);
+
+        valid.Should().Be(expected);
+        if (expected)
+        {
+            error.Should().BeEmpty();
+        }
+        else
+        {
+            error.Should().NotBeNullOrWhiteSpace();
+        }
     }
 }

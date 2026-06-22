@@ -3,14 +3,14 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.0</sys:String>
+    <sys:String x:Key="App.Version">v0.1.3</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>
     <sys:String x:Key="App.NotElevated">ללא הרשאות מנהל</sys:String>
 
     <sys:String x:Key="Toolbar.Scan">סרוק עכשיו</sys:String>
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.Clear">נקה</sys:String>
-    <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
+    <sys:String x:Key="Toolbar.UpdateAll">התקן עדכונים אוטומטיים</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.UpdateOutdated">עדכן לא מעודכנים</sys:String>
     <sys:String x:Key="Toolbar.InstallConfirmed">התקן ודאיים</sys:String>

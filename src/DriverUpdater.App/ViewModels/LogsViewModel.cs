@@ -159,6 +159,46 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         }
     }
 
+    [RelayCommand]
+    private void OpenTestResultsFolder()
+    {
+        var directory = FindTestResultsDirectory();
+        if (directory is null)
+        {
+            StatusText = "Test log folder was not found. Run build\\test.ps1 first.";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = directory, UseShellExecute = true });
+            StatusText = $"Opened test logs: {directory}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not open test log folder: {ex.Message}";
+        }
+    }
+
+    internal static string? FindTestResultsDirectory()
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(Environment.CurrentDirectory, "artifacts", "test-results"),
+            Path.Combine(AppContext.BaseDirectory, "artifacts", "test-results")
+        };
+
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && current is not null; i++, current = current.Parent)
+        {
+            candidates.Add(Path.Combine(current.FullName, "artifacts", "test-results"));
+        }
+
+        return candidates
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(Directory.Exists);
+    }
+
     public void Dispose()
     {
         if (_subscribed)

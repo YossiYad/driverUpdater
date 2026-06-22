@@ -13,10 +13,14 @@ Exits with code 1 on any hit.
 
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
+    [string]$RepoRoot
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+}
 
 $forbiddenPatterns = @(
     @{ Name = 'em-dash'; Pattern = [char]0x2014 },
@@ -29,7 +33,7 @@ $textExtensions = @('.cs', '.xaml', '.xml', '.csproj', '.props', '.targets', '.m
                     '.json', '.yml', '.yaml', '.ps1', '.cmd', '.bat', '.sh',
                     '.editorconfig', '.gitignore', '.gitattributes', '.txt')
 
-$skipFolders = @('bin', 'obj', '.git', '.vs', 'Releases', 'packages', 'node_modules')
+$skipFolders = @('bin', 'obj', '.git', '.vs', 'Releases', 'artifacts', 'output', 'packages', 'node_modules')
 $skipFileNames = @('lint-text.ps1')
 
 $hits = @()

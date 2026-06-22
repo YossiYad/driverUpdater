@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using DriverUpdater.Services.Sources.Internal.Motherboard;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using FluentAssertions;
@@ -76,6 +77,26 @@ public class GigabyteApiScraperTests
     public void NormalizeModel_collapses_spaces_and_handles_rev_suffix(string raw, string expected)
     {
         GigabyteApiScraper.NormalizeModel(raw).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(false, "Win10x64")]
+    [InlineData(true, "Win11x64")]
+    public void BuildRequestUri_selects_matching_windows_version(bool isWindows11OrLater, string expectedOs)
+    {
+        var uri = GigabyteApiScraper.BuildRequestUri("B850M-GAMING-X", isWindows11OrLater, Architecture.X64);
+
+        uri.OriginalString.Should().Contain($"os={expectedOs}");
+    }
+
+    [Theory]
+    [InlineData(Architecture.X86)]
+    [InlineData(Architecture.Arm64)]
+    public void BuildRequestUri_rejects_architectures_without_vendor_packages(Architecture architecture)
+    {
+        var act = () => GigabyteApiScraper.BuildRequestUri("B850M-GAMING-X", true, architecture);
+
+        act.Should().Throw<ScraperUnavailableException>();
     }
 
     [Theory]

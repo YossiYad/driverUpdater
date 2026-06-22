@@ -71,6 +71,25 @@ public class OemSupportSourceTests
             .Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("ROOT\\PAWNIO", "ROOT\\PAWNIO", "System")]
+    [InlineData("SWD\\DRIVERENUM\\STEELSERIES", "SWD\\DRIVERENUM\\STEELSERIES", "SoftwareComponent")]
+    public void IsMotherboardDriverCandidate_rejects_software_and_virtual_devices(
+        string deviceId,
+        string hardwareId,
+        string deviceClass)
+    {
+        var driver = NewDriver("Third-party component", DriverCategory.System, "Third Party", new DateOnly(2024, 1, 1))
+            with
+            {
+                DeviceId = deviceId,
+                HardwareId = hardwareId,
+                DeviceClass = deviceClass
+            };
+
+        OemSupportSource.IsMotherboardDriverCandidate(driver).Should().BeFalse();
+    }
+
     private static DriverInfo NewDriver(string deviceName, DriverCategory category, string provider, DateOnly currentDate) => new(
         DeviceId: $"ID\\{deviceName}",
         HardwareId: $"HW\\{deviceName}",

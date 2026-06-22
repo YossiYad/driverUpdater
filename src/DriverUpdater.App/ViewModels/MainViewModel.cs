@@ -14,6 +14,9 @@ namespace DriverUpdater.App.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
+    private const int VendorVerificationAttempts = 20;
+    private static readonly TimeSpan VendorVerificationInterval = TimeSpan.FromSeconds(3);
+
     private readonly IDriverScanService _scanService;
     private readonly IReadOnlyList<IUpdateSource> _updateSources;
     private readonly IOemDetectionService _oemDetectionService;
@@ -289,7 +292,12 @@ public partial class MainViewModel : ObservableObject
                                 source.DisplayName, candidate.ForHardwareId, row.DeviceName, row.HardwareId, candidate.DownloadUrl);
                         }
                         row.AvailableUpdate = candidate;
-                        row.Status = DriverStatus.Outdated;
+                        // A vendor page is only a manual lead, not evidence that the
+                        // installed driver is outdated. Keep it visible under the
+                        // dedicated Vendor checks filter without enabling Update All.
+                        row.Status = candidate.InstallKind == UpdateInstallKind.VendorPage
+                            ? DriverStatus.UpToDate
+                            : DriverStatus.Outdated;
                         RefreshUpdateCounts();
                     }
                 }
@@ -526,7 +534,11 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshUpdateCounts()
     {
-        UpdatesFoundCount = Drivers.Count(d => d.Status == DriverStatus.Outdated);
+        UpdatesFoundCount = Drivers.Count(d =>
+            d.Status == DriverStatus.Outdated
+            && d.AvailableUpdate?.InstallKind is UpdateInstallKind.WindowsUpdate
+                or UpdateInstallKind.PnPUtilPackage
+                or UpdateInstallKind.VendorInstaller);
         ConfirmedUpdatesCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
         VendorChecksCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
     }
@@ -602,7 +614,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
     private async Task UpdateAllAsync(CancellationToken cancellationToken)
     {
-        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -621,7 +633,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        await RunUpdatesAsync(rows, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+        await RunUpdatesAsync(rows, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -629,6 +641,13 @@ public partial class MainViewModel : ObservableObject
     {
         if (row is null)
         {
+            return;
+        }
+
+        if (row.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+        {
+            OpenVendorPages(new[] { row });
+            StatusText = "Opened 1 vendor check page.";
             return;
         }
 
@@ -651,8 +670,7 @@ public partial class MainViewModel : ObservableObject
     private void OpenVendorChecks()
     {
         var pageTargets = Drivers
-            .Where(r => r.Status == DriverStatus.Outdated
-                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
         if (pageTargets.Length == 0)
@@ -679,20 +697,21 @@ public partial class MainViewModel : ObservableObject
         bool includeVendorPages,
         CancellationToken cancellationToken)
     {
-        var targets = requested
-            .Where(r => r.Status == DriverStatus.Outdated && r.AvailableUpdate is not null)
+        var candidates = requested
+            .Where(r => r.AvailableUpdate is not null)
             .ToArray();
 
-        if (targets.Length == 0)
+        if (candidates.Length == 0)
         {
             StatusText = "No outdated drivers to update.";
             return;
         }
 
-        var installTargets = targets
-            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
+        var installTargets = candidates
+            .Where(r => r.Status == DriverStatus.Outdated
+                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
             .ToArray();
-        var pageTargets = targets
+        var pageTargets = candidates
             .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
@@ -768,6 +787,14 @@ public partial class MainViewModel : ObservableObject
                 StatusText = $"{report.Status}: {row.DeviceName}";
             }), cancellationToken).ConfigureAwait(true);
 
+            if (!dryRun
+                && finished.Status == UpdateStatus.Succeeded
+                && finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller
+                && RequiresPostInstallVerification(finished.Candidate.SourceUpdateId))
+            {
+                finished = await VerifyVendorInstallCompletedAsync(finished, cancellationToken).ConfigureAwait(true);
+            }
+
             row.ActiveOperation = null;
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;
@@ -784,17 +811,27 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                ApplySharedVendorInstallerResult(finished, row);
+                ApplySharedVendorInstallerResult(finished);
             }
         }
 
         LogRunSummary(runStartedAt, dryRun, pageTargets, installTargets, outcomes, skipped);
 
-        StatusText = dryRun
-            ? $"Dry run completed for {installTargets.Length} drivers."
-            : includeVendorPages
-                ? $"Install completed for {installTargets.Length} drivers. Opened {pageTargets.Length} vendor pages."
-                : $"Install completed for {installTargets.Length} confirmed drivers.";
+        if (dryRun)
+        {
+            StatusText = $"Dry run completed for {outcomes.Count} unique update packages.";
+        }
+        else
+        {
+            var succeededCount = outcomes.Count(o => o.Operation.Status == UpdateStatus.Succeeded);
+            var failedCount = outcomes.Count(o => o.Operation.Status == UpdateStatus.Failed);
+            var skippedCount = outcomes.Count - succeededCount - failedCount;
+            StatusText =
+                $"Update run finished: {succeededCount} package(s) succeeded, {failedCount} failed, {skippedCount} skipped."
+                + (pageTargets.Length > 0 && !includeVendorPages
+                    ? $" {pageTargets.Length} vendor check(s) were left for the separate vendor button."
+                    : string.Empty);
+        }
 
         if (!dryRun)
         {
@@ -868,20 +905,22 @@ public partial class MainViewModel : ObservableObject
         _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
     }
 
-    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow)
+    private void ApplySharedVendorInstallerResult(UpdateOperation finished)
     {
         // Every row that shares the SourceUpdateId is really the same install (think 18
         // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
         // the master row finishes, those duplicate rows have already been touched in the
         // same way and should disappear from the grid: keeping them in the Installable
         // filter makes it look like there is still work pending when there is not.
-        // The master row keeps its AvailableUpdate on failure so the user can retry it
-        // explicitly without having to rescan.
+        // A failed package did not update any of its devices. Keep every candidate so
+        // the user can retry after the underlying issue is fixed. Clearing duplicates
+        // on failure made most AMD chipset rows appear "handled" even though the shared
+        // installer exited before installing anything.
         foreach (var row in Drivers.Where(r => r.AvailableUpdate?.SourceUpdateId == finished.Candidate.SourceUpdateId))
         {
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;
-            if (finished.Status == UpdateStatus.Succeeded || !ReferenceEquals(row, masterRow))
+            if (finished.Status == UpdateStatus.Succeeded)
             {
                 row.AvailableUpdate = null;
             }
@@ -889,6 +928,100 @@ public partial class MainViewModel : ObservableObject
 
         RefreshUpdateCounts();
     }
+
+    private async Task<UpdateOperation> VerifyVendorInstallCompletedAsync(
+        UpdateOperation operation,
+        CancellationToken cancellationToken)
+    {
+        var sharedRows = Drivers
+            .Where(r => string.Equals(
+                r.AvailableUpdate?.SourceUpdateId,
+                operation.Candidate.SourceUpdateId,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var before = sharedRows.ToDictionary(
+            r => r.Driver.DeviceId,
+            r => r.Driver,
+            StringComparer.OrdinalIgnoreCase);
+
+        StatusText = $"Waiting for {operation.TargetSnapshot.DeviceName} installer to finish...";
+        _logger.LogInformation(
+            "Vendor installer {SourceUpdateId} returned success; waiting for an actual WMI driver change across {Count} affected row(s)",
+            operation.Candidate.SourceUpdateId,
+            before.Count);
+
+        for (var attempt = 1; attempt <= VendorVerificationAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (attempt > 1)
+            {
+                await Task.Delay(VendorVerificationInterval, cancellationToken).ConfigureAwait(true);
+            }
+
+            var affectedFound = 0;
+            var observed = new List<string>();
+            await foreach (var current in _scanService.ScanAsync(cancellationToken))
+            {
+                if (!before.TryGetValue(current.DeviceId, out var previous))
+                {
+                    continue;
+                }
+
+                affectedFound++;
+                observed.Add(
+                    $"{current.DeviceName}: {previous.CurrentVersion}/{previous.CurrentDate}/{previous.InfName} -> "
+                    + $"{current.CurrentVersion}/{current.CurrentDate}/{current.InfName}");
+                if (HasDriverChanged(previous, current))
+                {
+                    _logger.LogInformation(
+                        "Verified vendor install {SourceUpdateId} on attempt {Attempt}: {Device} changed from {OldVersion}/{OldDate} to {NewVersion}/{NewDate}",
+                        operation.Candidate.SourceUpdateId,
+                        attempt,
+                        current.DeviceName,
+                        previous.CurrentVersion,
+                        previous.CurrentDate,
+                        current.CurrentVersion,
+                        current.CurrentDate);
+                    return operation;
+                }
+            }
+
+            _logger.LogInformation(
+                "Vendor verification attempt {Attempt}/{MaxAttempts} for {SourceUpdateId}: found {Found}/{Expected} affected device(s), no change yet. Observed: {Observed}",
+                attempt,
+                VendorVerificationAttempts,
+                operation.Candidate.SourceUpdateId,
+                affectedFound,
+                before.Count,
+                observed.Count == 0 ? "<none>" : string.Join(" | ", observed));
+            StatusText =
+                $"Waiting for vendor installer to finish... ({attempt * VendorVerificationInterval.TotalSeconds:F0}s)";
+        }
+
+        _logger.LogError(
+            "Vendor installer {SourceUpdateId} exited successfully, but no affected driver changed after {Timeout}",
+            operation.Candidate.SourceUpdateId,
+            VendorVerificationAttempts * VendorVerificationInterval);
+        return operation with
+        {
+            Status = UpdateStatus.Failed,
+            ErrorMessage =
+                "The vendor installer process closed, but Windows did not report any updated driver. "
+                + "The installer may still require interaction, may have failed in a child process, or may require a reboot.",
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    internal static bool RequiresPostInstallVerification(string sourceUpdateId) =>
+        sourceUpdateId.Contains("amd-", StringComparison.OrdinalIgnoreCase)
+        || sourceUpdateId.Contains("amd:", StringComparison.OrdinalIgnoreCase)
+        || sourceUpdateId.Contains("gigabyte", StringComparison.OrdinalIgnoreCase)
+        || sourceUpdateId.Contains("nvidia", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool HasDriverChanged(DriverInfo before, DriverInfo after) =>
+        !Equals(before.CurrentVersion, after.CurrentVersion)
+        || before.CurrentDate != after.CurrentDate
+        || !string.Equals(before.InfName, after.InfName, StringComparison.OrdinalIgnoreCase);
 
     private void OpenVendorPages(IEnumerable<DriverRowViewModel> targets)
     {

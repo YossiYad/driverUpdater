@@ -27,7 +27,36 @@ jobs:
         run: dotnet build DriverUpdater.slnx --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test DriverUpdater.slnx --no-build --configuration Release --filter "Category!=Integration"
+        shell: pwsh
+        run: ./build/test.ps1 -Configuration Release -ResultsDirectory artifacts/test-results/ci -BaseOutputPath artifacts/test-bin
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-diagnostics
+          path: artifacts/test-results/**
+          if-no-files-found: warn
+
+      - name: Audit NuGet packages
+        run: dotnet list DriverUpdater.slnx package --vulnerable --include-transitive
+
+      - name: Publish runtime matrix
+        shell: pwsh
+        run: |
+          $runtimes = 'win-x64', 'win-arm64', 'win-x86'
+          foreach ($runtime in $runtimes) {
+            dotnet publish src/DriverUpdater.App/DriverUpdater.App.csproj `
+              --configuration Release `
+              --runtime $runtime `
+              --self-contained true `
+              --no-restore `
+              -p:PublishSingleFile=false `
+              --output "artifacts/publish/$runtime"
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
 
   lint-text:
     name: Forbidden text scan

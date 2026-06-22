@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Services.Sources.Internal;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Sources;
@@ -15,13 +16,18 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<AmdGraphicsSource> _logger;
+    private readonly Func<string?> _installedPackageVersion;
 
-    public AmdGraphicsSource(HttpClient httpClient, ILogger<AmdGraphicsSource> logger)
+    public AmdGraphicsSource(
+        HttpClient httpClient,
+        ILogger<AmdGraphicsSource> logger,
+        Func<string?>? installedPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClient = httpClient;
         _logger = logger;
+        _installedPackageVersion = installedPackageVersion ?? AmdInstalledPackageDetector.GetRadeonPackageVersion;
     }
 
     public UpdateSource Kind => UpdateSource.Oem;
@@ -99,6 +105,17 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             if (release is null)
             {
                 _logger.LogWarning("AMD: no release info available for {Device} (no cache, parser failed); skipping", driver.DeviceName);
+                continue;
+            }
+
+            var installedPackage = _installedPackageVersion();
+            if (InstalledPackageInventory.IsInstalledPackageCurrent(installedPackage, release.Value.Revision))
+            {
+                _logger.LogInformation(
+                    "AMD: installed Radeon package {InstalledVersion} is at or newer than upstream {ReleaseVersion}; skipping {Device}",
+                    installedPackage,
+                    release.Value.Revision,
+                    driver.DeviceName);
                 continue;
             }
 

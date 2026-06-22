@@ -22,8 +22,7 @@ public sealed class PnPUtilRunner : IPnPUtilRunner
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(arguments);
 
-        var system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        var pnputilPath = Path.Combine(system32, "pnputil.exe");
+        var pnputilPath = Path.Combine(WindowsSystemPathResolver.GetNativeSystemDirectory(), "pnputil.exe");
 
         var psi = new ProcessStartInfo
         {

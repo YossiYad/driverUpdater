@@ -8,6 +8,8 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <RootNamespace>DriverUpdater.App</RootNamespace>
     <AssemblyName>DriverUpdater</AssemblyName>
+    <StartupObject>DriverUpdater.App.Program</StartupObject>
+    <RuntimeIdentifiers>win-x64;win-arm64;win-x86</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,5 +32,12 @@
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Velopack" />
   </ItemGroup>
+
+  <Target Name="RemoveUnsupportedPlaywrightPayload"
+          AfterTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' != 'win-x64'">
+    <RemoveDir Directories="$(PublishDir).playwright" />
+    <Delete Files="$(PublishDir)playwright.ps1" />
+  </Target>
 
 </Project>

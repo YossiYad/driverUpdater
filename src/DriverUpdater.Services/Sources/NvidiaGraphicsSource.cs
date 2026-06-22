@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -15,7 +16,8 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
     // covers every consumer GeForce card from GTX 10 onwards in a single query.
     internal const int LatestGeForcePsid = 131;
     internal const int LatestGeForcePfid = 1066;
-    internal const int OsIdWin11x64 = 57;
+    internal const int OsIdWin10x64 = 57;
+    internal const int OsIdWin11x64 = 135;
 
     internal const string ApiPath = "/services_toolkit/services/com/nvidia/services/AjaxDriverService.php";
 
@@ -40,6 +42,14 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
     {
         ArgumentNullException.ThrowIfNull(drivers);
 
+        if (!SupportsArchitecture(RuntimeInformation.OSArchitecture))
+        {
+            _logger.LogInformation(
+                "NVIDIA GeForce vendor installer source is unavailable on {Architecture}; Windows Update remains available",
+                RuntimeInformation.OSArchitecture);
+            yield break;
+        }
+
         var nvidiaGpus = drivers
             .Where(IsSupportedNvidiaGpu)
             .GroupBy(d => d.HardwareId, StringComparer.OrdinalIgnoreCase)
@@ -52,7 +62,7 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
             yield break;
         }
 
-        var requestUri = BuildApiUri();
+        var requestUri = BuildApiUri(OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000));
         _logger.LogInformation("NVIDIA: fetching driver metadata from {Uri}", requestUri);
 
         NvidiaRelease? release = null;
@@ -99,13 +109,15 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
         }
     }
 
-    internal static Uri BuildApiUri() => new(
+    internal static Uri BuildApiUri(bool isWindows11OrLater) => new(
         $"{ApiPath}?func=DriverManualLookup"
         + $"&psid={LatestGeForcePsid}"
         + $"&pfid={LatestGeForcePfid}"
-        + $"&osID={OsIdWin11x64}"
+        + $"&osID={(isWindows11OrLater ? OsIdWin11x64 : OsIdWin10x64)}"
         + "&languageCode=1033&isWHQL=1&dch=1&sort1=0&numberOfResults=1",
         UriKind.Relative);
+
+    internal static bool SupportsArchitecture(Architecture architecture) => architecture == Architecture.X64;
 
     internal static UpdateCandidate BuildCandidate(DriverInfo driver, NvidiaRelease release) =>
         new(

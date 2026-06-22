@@ -68,6 +68,21 @@ public class AmdChipsetSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_skips_all_rows_when_same_chipset_package_is_installed()
+    {
+        var source = NewSource(SampleB850Html, ("am5", "b850"), installedVersion: "8.05.04.516");
+        var drivers = new[]
+        {
+            NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2025, 9, 9)),
+            NewAmdChipsetDriver("AMD GPIO Controller", new DateOnly(2025, 9, 9))
+        };
+
+        var results = await source.SearchAsync(drivers).ToListAsync();
+
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task SearchAsync_skips_amd_display_drivers()
     {
         var source = NewSource(SampleB850Html, ("am5", "b850"));
@@ -118,14 +133,21 @@ public class AmdChipsetSourceTests
         release.DirectInstallerUrl!.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe");
     }
 
-    private static AmdChipsetSource NewSource(string html, (string Socket, string Slug) detected)
+    private static AmdChipsetSource NewSource(
+        string html,
+        (string Socket, string Slug) detected,
+        string? installedVersion = null)
     {
         var client = new HttpClient(new StaticHtmlHandler(html))
         {
             BaseAddress = new Uri("https://www.amd.com/")
         };
         var detector = new StubSocketDetector(new AmdSocketInfo(detected.Socket, detected.Slug, IsFallback: false));
-        return new AmdChipsetSource(client, detector, NullLogger<AmdChipsetSource>.Instance);
+        return new AmdChipsetSource(
+            client,
+            detector,
+            NullLogger<AmdChipsetSource>.Instance,
+            installedPackageVersion: () => installedVersion);
     }
 
     private static DriverInfo NewAmdChipsetDriver(string deviceName, DateOnly currentDate) => new(

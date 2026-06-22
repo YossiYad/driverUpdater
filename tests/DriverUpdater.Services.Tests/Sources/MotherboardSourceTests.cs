@@ -20,7 +20,7 @@ public class MotherboardSourceTests
 
         results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:gigabyte:");
+        results[0].SourceUpdateId.Should().StartWith("vendor-installer:nullsoft:gigabyte:");
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://download.gigabyte.com/Drivers/audio.zip");
     }
 
@@ -124,6 +124,15 @@ public class MotherboardSourceTests
         results.Should().ContainSingle();
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://dlcdnets.asus.com/audio.zip");
         results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:asus:");
+    }
+
+    [Theory]
+    [InlineData("gigabyte", "nullsoft")]
+    [InlineData("asus", "installshield")]
+    [InlineData("msi", "installshield")]
+    public void ResolveInstallerFamily_maps_known_motherboard_wrappers(string vendor, string expected)
+    {
+        MotherboardSource.ResolveInstallerFamily(vendor).Should().Be(expected);
     }
 
     [Fact]

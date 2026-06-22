@@ -1,5 +1,6 @@
 using DriverUpdater.Services.Sources.Internal.Motherboard;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 
@@ -56,6 +57,12 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDispo
     public async Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
+        if (!SupportsArchitecture(RuntimeInformation.OSArchitecture))
+        {
+            throw new ScraperUnavailableException(
+                $"Gigabyte browser fallback is unavailable on Windows {RuntimeInformation.OSArchitecture}");
+        }
+
         await EnsureBrowserAsync(cancellationToken).ConfigureAwait(false);
 
         var normalized = GigabyteApiScraper.NormalizeModel(motherboardModel);
@@ -250,6 +257,8 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDispo
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return match.Success ? match.Groups["version"].Value : null;
     }
+
+    internal static bool SupportsArchitecture(Architecture architecture) => architecture == Architecture.X64;
 
     private async Task EnsureBrowserAsync(CancellationToken cancellationToken)
     {

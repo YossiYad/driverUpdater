@@ -65,8 +65,8 @@ public sealed class PowerShellInvoker : IPowerShellInvoker
 
     private static string ResolvePowerShellPath()
     {
-        var system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        var legacyPath = Path.Combine(system32, "WindowsPowerShell", "v1.0", "powershell.exe");
+        var systemDirectory = WindowsSystemPathResolver.GetNativeSystemDirectory();
+        var legacyPath = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
         return File.Exists(legacyPath) ? legacyPath : "powershell.exe";
     }
 }

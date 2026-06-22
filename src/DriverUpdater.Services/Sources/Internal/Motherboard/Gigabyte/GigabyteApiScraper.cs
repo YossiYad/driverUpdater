@@ -1,5 +1,6 @@
 using DriverUpdater.Services.Sources.Internal.Motherboard;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -36,7 +37,10 @@ public sealed class GigabyteApiScraper : IMotherboardScraper
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
 
         var normalized = NormalizeModel(motherboardModel);
-        var requestUri = new Uri($"{DriverListPath}?productid={Uri.EscapeDataString(normalized)}&os=Win11x64&type=driver", UriKind.Relative);
+        var requestUri = BuildRequestUri(
+            normalized,
+            OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000),
+            RuntimeInformation.OSArchitecture);
         _logger.LogInformation("GigabyteApi: fetching {Uri} for {Model}", requestUri, normalized);
 
         HttpResponseMessage response;
@@ -82,6 +86,21 @@ public sealed class GigabyteApiScraper : IMotherboardScraper
             m => "-rev-" + m.Groups["digits"].Value.Replace(".", "", StringComparison.Ordinal),
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return System.Text.RegularExpressions.Regex.Replace(withoutRev, @"\s+", "-");
+    }
+
+    internal static Uri BuildRequestUri(string normalizedModel, bool isWindows11OrLater, Architecture architecture)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(normalizedModel);
+        if (architecture != Architecture.X64)
+        {
+            throw new ScraperUnavailableException(
+                $"Gigabyte vendor driver packages are not offered for Windows {architecture}");
+        }
+
+        var os = isWindows11OrLater ? "Win11x64" : "Win10x64";
+        return new Uri(
+            $"{DriverListPath}?productid={Uri.EscapeDataString(normalizedModel)}&os={os}&type=driver",
+            UriKind.Relative);
     }
 
     internal static bool TryParseDriverList(string json, out IReadOnlyList<MotherboardDriverEntry> entries)

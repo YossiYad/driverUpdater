@@ -47,6 +47,20 @@ public class AmdGraphicsSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_skips_when_same_adrenalin_package_is_already_installed()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.6.2 (WHQL Recommended)</p>
+            <p>Release Date</p><p>2026-06-22</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.6.2-win11-b.exe">Download</a>
+            """, installedVersion: "26.6.2");
+
+        var results = await source.SearchAsync(new[] { NewAmdDriver(new DateOnly(2026, 2, 17)) }).ToListAsync();
+
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
     public void TryResolveSupportPage_builds_model_specific_rx_urls()
     {
         var driver = NewAmdDriver(new DateOnly(2026, 2, 18)) with
@@ -214,13 +228,16 @@ public class AmdGraphicsSourceTests
         uri.AbsoluteUri.Should().Be(AmdGraphicsSource.AmdSupportUrl);
     }
 
-    private static AmdGraphicsSource NewSource(string html)
+    private static AmdGraphicsSource NewSource(string html, string? installedVersion = null)
     {
         var client = new HttpClient(new StaticHtmlHandler(html))
         {
             BaseAddress = new Uri("https://www.amd.com/")
         };
-        return new AmdGraphicsSource(client, NullLogger<AmdGraphicsSource>.Instance);
+        return new AmdGraphicsSource(
+            client,
+            NullLogger<AmdGraphicsSource>.Instance,
+            () => installedVersion);
     }
 
     private static DriverInfo NewAmdDriver(DateOnly currentDate) => new(

@@ -146,9 +146,14 @@ public sealed class MotherboardSource : IUpdateSource
             SizeBytes: entry.SizeBytes ?? 0,
             KbArticle: null,
             IsSuperseded: false,
-            SourceUpdateId: $"vendor-installer:installshield:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
+            SourceUpdateId: $"vendor-installer:{ResolveInstallerFamily(vendorTag)}:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorInstaller);
+
+    internal static string ResolveInstallerFamily(string vendorTag) =>
+        vendorTag.Equals("gigabyte", StringComparison.OrdinalIgnoreCase)
+            ? "nullsoft"
+            : "installshield";
 
     internal static MotherboardDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<MotherboardDriverEntry> entries)
     {

@@ -5,4 +5,7 @@ public sealed record LogEntry(
     string Level,
     string Category,
     string Message,
-    string? Exception);
+    string? Exception)
+{
+    public bool HasException => !string.IsNullOrWhiteSpace(Exception);
+}
