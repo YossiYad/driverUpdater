@@ -2,17 +2,13 @@ using System.IO;
 using System.Windows;
 using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
-using DriverUpdater.App.ViewModels;
 using DriverUpdater.App.Views;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Options;
-using DriverUpdater.Infrastructure;
-using DriverUpdater.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Velopack;
 
 namespace DriverUpdater.App;
 
@@ -23,8 +19,6 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
-        VelopackApp.Build().Run();
 
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -71,24 +65,7 @@ public partial class App : Application
                 services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
                 services.Configure<ScraperSettings>(context.Configuration.GetSection(ScraperSettings.SectionName));
                 services.Configure<AiSettings>(context.Configuration.GetSection(AiSettings.SectionName));
-                services.AddDriverUpdaterInfrastructure();
-                services.AddDriverUpdaterServices();
-                services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
-                services.AddSingleton<ILocalizationService, LocalizationService>();
-                services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
-                services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
-                services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
-                services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
-                services.AddSingleton<ILogsWindowOpener, LogsWindowOpener>();
-                services.AddSingleton(inMemoryLogSink);
-                services.AddSingleton<MainViewModel>();
-                services.AddTransient<HistoryViewModel>();
-                services.AddTransient<HistoryWindow>();
-                services.AddTransient<SettingsViewModel>();
-                services.AddTransient<SettingsWindow>();
-                services.AddTransient<LogsViewModel>();
-                services.AddTransient<LogsWindow>();
-                services.AddSingleton<MainWindow>();
+                services.AddDriverUpdaterApp(inMemoryLogSink);
             })
             .Build();
 

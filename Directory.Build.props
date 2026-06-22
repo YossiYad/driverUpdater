@@ -20,4 +20,10 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- No upstream-patched SQLitePCLRaw release exists yet (fix is in SQLite 3.50.2+).
+         The database is local and written only by the app, so this advisory is not reachable here. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+
 </Project>
