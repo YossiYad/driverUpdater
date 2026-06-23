@@ -43,8 +43,8 @@ internal static class AiVerificationProtocol
         return sb.ToString();
     }
 
-    // Tolerant parse: providers with web grounding wrap the JSON in prose or markdown
-    // fences, so extract the outermost JSON object before deserializing.
+    // Tolerant parse: providers with web grounding can wrap JSON in prose or markdown
+    // fences, so scan for balanced JSON objects and parse the first valid verdict payload.
     public static IReadOnlyDictionary<string, AiVerdict> ParseVerdicts(string? rawText)
     {
         var result = new Dictionary<string, AiVerdict>(StringComparer.OrdinalIgnoreCase);
@@ -53,52 +53,101 @@ internal static class AiVerificationProtocol
             return result;
         }
 
-        var json = ExtractJsonObject(rawText);
-        if (json is null)
-        {
-            return result;
-        }
-
         VerdictsEnvelope? envelope;
-        try
+        foreach (var json in ExtractJsonObjects(rawText))
         {
-            envelope = JsonSerializer.Deserialize<VerdictsEnvelope>(json, ParseOptions);
-        }
-        catch (JsonException)
-        {
-            return result;
-        }
-
-        if (envelope?.Verdicts is null)
-        {
-            return result;
-        }
-
-        foreach (var v in envelope.Verdicts)
-        {
-            if (string.IsNullOrWhiteSpace(v.Id))
+            try
+            {
+                envelope = JsonSerializer.Deserialize<VerdictsEnvelope>(json, ParseOptions);
+            }
+            catch (JsonException)
             {
                 continue;
             }
-            result[v.Id] = new AiVerdict(
-                IsGenuinelyNewer: v.IsGenuinelyNewer,
-                Risk: ParseRisk(v.Risk),
-                Summary: v.Summary ?? string.Empty,
-                Rationale: v.Rationale ?? string.Empty,
-                LatestKnownVersion: string.IsNullOrWhiteSpace(v.LatestKnownVersion) ? null : v.LatestKnownVersion);
+
+            if (envelope?.Verdicts is null)
+            {
+                continue;
+            }
+
+            foreach (var v in envelope.Verdicts)
+            {
+                if (string.IsNullOrWhiteSpace(v.Id))
+                {
+                    continue;
+                }
+                result[v.Id] = new AiVerdict(
+                    IsGenuinelyNewer: v.IsGenuinelyNewer,
+                    Risk: ParseRisk(v.Risk),
+                    Summary: v.Summary ?? string.Empty,
+                    Rationale: v.Rationale ?? string.Empty,
+                    LatestKnownVersion: string.IsNullOrWhiteSpace(v.LatestKnownVersion) ? null : v.LatestKnownVersion);
+            }
+
+            if (result.Count > 0)
+            {
+                return result;
+            }
         }
+
         return result;
     }
 
-    private static string? ExtractJsonObject(string text)
+    private static IEnumerable<string> ExtractJsonObjects(string text)
     {
-        var start = text.IndexOf('{');
-        var end = text.LastIndexOf('}');
-        if (start < 0 || end <= start)
+        var start = -1;
+        var depth = 0;
+        var inString = false;
+        var isEscaped = false;
+
+        for (var i = 0; i < text.Length; i++)
         {
-            return null;
+            var c = text[i];
+            if (isEscaped)
+            {
+                isEscaped = false;
+                continue;
+            }
+
+            if (inString && c == '\\')
+            {
+                isEscaped = true;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString)
+            {
+                continue;
+            }
+
+            if (c == '{')
+            {
+                if (depth == 0)
+                {
+                    start = i;
+                }
+                depth++;
+                continue;
+            }
+
+            if (c != '}' || depth == 0)
+            {
+                continue;
+            }
+
+            depth--;
+            if (depth == 0 && start >= 0)
+            {
+                yield return text.Substring(start, i - start + 1);
+                start = -1;
+            }
         }
-        return text.Substring(start, end - start + 1);
     }
 
     private static AiRiskLevel ParseRisk(string? raw) => raw?.Trim().ToLowerInvariant() switch

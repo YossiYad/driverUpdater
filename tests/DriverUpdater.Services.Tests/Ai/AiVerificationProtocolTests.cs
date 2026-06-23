@@ -47,13 +47,13 @@ public class AiVerificationProtocolTests
     public void ParseVerdicts_extracts_json_wrapped_in_prose_and_markdown_fences()
     {
         const string raw = """
-            Sure, here is my assessment based on the latest information:
+            Sure, here is my assessment based on the latest information: {not the JSON payload}
 
             ```json
             {"verdicts":[{"id":"corr-1","isGenuinelyNewer":true,"risk":"HighRisk","summary":"Known black screen bug","rationale":"Multiple reports.","latestKnownVersion":"2.1.0.0"}]}
             ```
 
-            Let me know if you need anything else.
+            Let me know if you need anything else. {also not JSON}
             """;
 
         var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
@@ -61,6 +61,19 @@ public class AiVerificationProtocolTests
         verdicts.Should().ContainKey("corr-1");
         verdicts["corr-1"].Risk.Should().Be(AiRiskLevel.HighRisk);
         verdicts["corr-1"].Summary.Should().Be("Known black screen bug");
+    }
+
+    [Fact]
+    public void ParseVerdicts_preserves_braces_inside_json_strings()
+    {
+        const string raw = """
+            {"verdicts":[{"id":"corr-1","isGenuinelyNewer":true,"risk":"Caution","summary":"Check release notes","rationale":"The vendor page mentions {optional} firmware tooling.","latestKnownVersion":null}]}
+            """;
+
+        var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
+
+        verdicts.Should().ContainKey("corr-1");
+        verdicts["corr-1"].Rationale.Should().Be("The vendor page mentions {optional} firmware tooling.");
     }
 
     [Theory]
