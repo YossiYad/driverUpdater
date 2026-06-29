@@ -80,6 +80,14 @@ public partial class App : Application
             Log.Warning(ex, "History repository initialization failed; install history will not be recorded");
         }
 
+        var scheduledMode = ScheduledLaunch.FromCommandLine();
+        if (scheduledMode != ScheduledLaunchMode.None)
+        {
+            await RunScheduledAsync(scheduledMode);
+            Shutdown();
+            return;
+        }
+
         var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
         var localization = _host.Services.GetRequiredService<ILocalizationService>();
         localization.ApplyLanguage(languageSettings.Language);
@@ -90,6 +98,23 @@ public partial class App : Application
 
         var updater = _host.Services.GetRequiredService<IAppUpdater>();
         _ = updater.CheckAndApplyAsync();
+    }
+
+    private async Task RunScheduledAsync(ScheduledLaunchMode mode)
+    {
+        // Launched by the Windows scheduled task (--scheduled-scan / --scheduled-update):
+        // run headless, never show the main window, then exit.
+        try
+        {
+            Log.Information("Starting scheduled run in {Mode} mode", mode);
+            var runner = _host!.Services.GetRequiredService<IScheduledScanRunner>();
+            await runner.RunAsync(installUpdates: mode == ScheduledLaunchMode.ScanAndUpdate);
+            Log.Information("Scheduled run finished");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Scheduled run failed");
+        }
     }
 
     protected override async void OnExit(ExitEventArgs e)

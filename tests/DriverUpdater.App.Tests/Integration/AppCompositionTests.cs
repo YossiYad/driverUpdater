@@ -29,6 +29,7 @@ public class AppCompositionTests
         provider.GetRequiredService<LogsViewModel>().Should().NotBeNull();
         provider.GetRequiredService<IAppUpdater>().Should().NotBeNull();
         provider.GetRequiredService<IHistoryRepository>().Should().NotBeNull();
+        provider.GetRequiredService<IScheduledScanRunner>().Should().NotBeNull();
         provider.GetServices<IUpdateSource>().Should().NotBeEmpty();
     }
 }
