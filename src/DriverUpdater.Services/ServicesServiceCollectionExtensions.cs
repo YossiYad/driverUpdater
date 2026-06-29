@@ -76,6 +76,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRestorePointService, RestorePointService>();
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
+        services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 
         ConfigureAiHttpClient(services);
         services.AddSingleton<GeminiAiVerifier>();

@@ -9,6 +9,7 @@ using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
+using DriverUpdater.Services.Scanning;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -523,25 +524,10 @@ public partial class MainViewModel : ObservableObject
         return false;
     }
 
-    // True when one of the IDs is a clean prefix of the other, where "clean" means the
-    // next character after the prefix is a Windows hardware-ID separator (\ or &). Without
-    // that boundary, IDs like ROOT\X and ROOT\XYZ would match each other coincidentally,
-    // which has caused cross-vendor confusion (an AMD chipset candidate landing on a
-    // Logitech row, for example).
-    internal static bool IsBoundaryPrefix(string a, string b)
-    {
-        if (a.Length == b.Length)
-        {
-            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-        }
-        var (shorter, longer) = a.Length < b.Length ? (a, b) : (b, a);
-        if (!longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        var nextChar = longer[shorter.Length];
-        return nextChar == '\\' || nextChar == '&';
-    }
+    // Delegates to the shared matcher so the interactive scan and the headless scheduled
+    // scan agree on hardware-ID matching. Kept here as the tested entry point.
+    internal static bool IsBoundaryPrefix(string a, string b) =>
+        DriverUpdateMatcher.IsBoundaryPrefix(a, b);
 
     private void RefreshUpdateCounts()
     {
@@ -550,36 +536,8 @@ public partial class MainViewModel : ObservableObject
         VendorChecksCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
     }
 
-    private static bool ShouldAcceptCandidate(DriverRowViewModel row, UpdateCandidate candidate)
-    {
-        var current = row.AvailableUpdate;
-        if (current is null)
-        {
-            return true;
-        }
-
-        var currentPriority = CandidatePriority(current);
-        var newPriority = CandidatePriority(candidate);
-        if (newPriority < currentPriority)
-        {
-            return false;
-        }
-        if (newPriority > currentPriority)
-        {
-            return true;
-        }
-
-        var versionComparison = candidate.NewVersion.CompareTo(current.NewVersion);
-        if (versionComparison != 0)
-        {
-            return versionComparison > 0;
-        }
-
-        return candidate.NewDate > current.NewDate;
-    }
-
-    private static int CandidatePriority(UpdateCandidate candidate) =>
-        candidate.Confidence == UpdateConfidence.Confirmed ? 2 : 1;
+    private static bool ShouldAcceptCandidate(DriverRowViewModel row, UpdateCandidate candidate) =>
+        DriverUpdateMatcher.ShouldReplace(row.AvailableUpdate, candidate);
 
     private bool CanScan() => !IsScanning;
 
