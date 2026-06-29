@@ -63,6 +63,42 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_source_toggles_from_store()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Catalog = new CatalogSettings { Enabled = false },
+            Updater = new UpdaterSettings { WindowsUpdateEnabled = false, OemSourcesEnabled = false }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.EnableWindowsUpdate.Should().BeFalse();
+        vm.EnableMicrosoftCatalog.Should().BeFalse();
+        vm.EnableOemHints.Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_source_toggles()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.EnableWindowsUpdate = false;
+        vm.EnableMicrosoftCatalog = false;
+        vm.EnableOemHints = false;
+
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Updater.WindowsUpdateEnabled.Should().BeFalse();
+        store.Saved.Catalog.Enabled.Should().BeFalse();
+        store.Saved.Updater.OemSourcesEnabled.Should().BeFalse();
+    }
+
+    [WpfFact]
     public void Save_command_is_disabled_for_scan_and_update_until_risk_accepted()
     {
         var store = new FakeStore(new AppSettings());

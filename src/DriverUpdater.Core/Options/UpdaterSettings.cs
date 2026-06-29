@@ -9,4 +9,8 @@ public sealed class UpdaterSettings
     public string? FeedUrl { get; set; }
 
     public bool AutoApply { get; set; }
+
+    public bool WindowsUpdateEnabled { get; set; } = true;
+
+    public bool OemSourcesEnabled { get; set; } = true;
 }

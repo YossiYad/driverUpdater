@@ -167,6 +167,11 @@ public partial class SettingsViewModel : ObservableObject
             RetentionDays = BackupRetentionDays
         },
         History = new HistorySettings(),
+        Updater = new UpdaterSettings
+        {
+            WindowsUpdateEnabled = EnableWindowsUpdate,
+            OemSourcesEnabled = EnableOemHints
+        },
         Schedule = new ScheduleSettings
         {
             Mode = ScheduleMode,
@@ -195,7 +200,9 @@ public partial class SettingsViewModel : ObservableObject
 
     internal void ApplyFromSettings(AppSettings settings)
     {
+        EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
         EnableMicrosoftCatalog = settings.Catalog.Enabled;
+        EnableOemHints = settings.Updater.OemSourcesEnabled;
         BackupRetentionDays = settings.Backup.RetentionDays;
         ScheduleMode = settings.Schedule.Mode;
         ScheduleCadence = settings.Schedule.Cadence;

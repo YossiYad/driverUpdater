@@ -8,7 +8,9 @@ using CommunityToolkit.Mvvm.Input;
 using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.App.ViewModels;
 
@@ -25,6 +27,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ILogsWindowOpener _logsWindowOpener;
     private readonly IDriverCacheStore? _driverCacheStore;
     private readonly IAiVerifier? _aiVerifier;
+    private readonly IOptionsMonitor<UpdaterSettings>? _updaterSettings;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -107,7 +110,8 @@ public partial class MainViewModel : ObservableObject
         ILogger<MainViewModel> logger,
         IUpdatePageOpener? updatePageOpener = null,
         IDriverCacheStore? driverCacheStore = null,
-        IAiVerifier? aiVerifier = null)
+        IAiVerifier? aiVerifier = null,
+        IOptionsMonitor<UpdaterSettings>? updaterSettings = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -129,6 +133,7 @@ public partial class MainViewModel : ObservableObject
         _logsWindowOpener = logsWindowOpener;
         _driverCacheStore = driverCacheStore;
         _aiVerifier = aiVerifier;
+        _updaterSettings = updaterSettings;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -269,8 +274,15 @@ public partial class MainViewModel : ObservableObject
         var index = BuildHardwareIdIndex();
         var driverSnapshots = Drivers.Select(d => d.Driver).ToArray();
 
+        var settings = _updaterSettings?.CurrentValue;
         foreach (var source in _updateSources)
         {
+            if (settings is not null && IsSourceDisabled(source, settings))
+            {
+                _logger.LogInformation("Skipping {Source}: disabled in settings", source.DisplayName);
+                continue;
+            }
+
             try
             {
                 StatusText = $"Querying {source.DisplayName}...";
@@ -307,6 +319,13 @@ public partial class MainViewModel : ObservableObject
 
         await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
     }
+
+    private static bool IsSourceDisabled(IUpdateSource source, UpdaterSettings settings) => source.Kind switch
+    {
+        UpdateSource.WindowsUpdate => !settings.WindowsUpdateEnabled,
+        UpdateSource.Oem => !settings.OemSourcesEnabled,
+        _ => false
+    };
 
     // Best-effort post-scan pass. When an AI provider is configured it reviews every
     // installable candidate in one batched call to (1) suppress updates that are not

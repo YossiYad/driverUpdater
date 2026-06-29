@@ -130,6 +130,8 @@ public class NvidiaGraphicsSourceTests
     [InlineData("Tue May 26, 2026", 2026, 5, 26)]
     [InlineData("Fri Apr 4, 2025", 2025, 4, 4)]
     [InlineData("Wed Jan 15, 2025", 2025, 1, 15)]
+    [InlineData("May 26, 2026", 2026, 5, 26)]
+    [InlineData("Apr 4, 2025", 2025, 4, 4)]
     public void TryParseNvidiaDate_handles_short_weekday_prefix(string raw, int year, int month, int day)
     {
         var ok = NvidiaGraphicsSource.TryParseNvidiaDate(raw, out var date);

@@ -4,8 +4,10 @@ using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.App.Tests.ViewModels;
 
@@ -744,6 +746,116 @@ public class MainViewModelUpdateSourceTests
             await Task.Yield();
             yield break;
         }
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_skips_windows_update_source_when_disabled_in_settings()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var source = new CountingUpdateSource();
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)source },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            updaterSettings: new StubOptionsMonitor<UpdaterSettings>(
+                new UpdaterSettings { WindowsUpdateEnabled = false }));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        source.SearchInvocations.Should().Be(0);
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_skips_oem_sources_when_disabled_in_settings()
+    {
+        var driver = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var oemSource = new FakeOemUpdateSource(new[] { candidate });
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)oemSource },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            updaterSettings: new StubOptionsMonitor<UpdaterSettings>(
+                new UpdaterSettings { OemSourcesEnabled = false }));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_queries_sources_when_settings_enable_them()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            updaterSettings: new StubOptionsMonitor<UpdaterSettings>(new UpdaterSettings()));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
+        vm.UpdatesFoundCount.Should().Be(1);
+    }
+
+    private sealed class FakeOemUpdateSource : IUpdateSource
+    {
+        private readonly IEnumerable<UpdateCandidate> _candidates;
+
+        public FakeOemUpdateSource(IEnumerable<UpdateCandidate> candidates)
+        {
+            _candidates = candidates;
+        }
+
+        public UpdateSource Kind => UpdateSource.Oem;
+        public string DisplayName => "Fake OEM";
+
+        public async IAsyncEnumerable<UpdateCandidate> SearchAsync(
+            IReadOnlyCollection<DriverInfo> drivers,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            foreach (var candidate in _candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+                yield return candidate;
+            }
+        }
+    }
+
+    private sealed class StubOptionsMonitor<T> : IOptionsMonitor<T>
+    {
+        public StubOptionsMonitor(T value) { CurrentValue = value; }
+        public T CurrentValue { get; }
+        public T Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(

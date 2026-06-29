@@ -193,15 +193,23 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
 
     internal static bool TryParseNvidiaDate(string raw, out DateOnly date)
     {
-        // NVIDIA returns "Tue May 26, 2026" - day-of-week is locale-fragile so strip it.
+        string[] formats = ["MMM d, yyyy", "MMM dd, yyyy"];
         var trimmed = raw.Trim();
-        var commaIdx = trimmed.IndexOf(',');
-        var firstSpace = trimmed.IndexOf(' ');
-        if (firstSpace > 0 && firstSpace < commaIdx)
+        if (DateOnly.TryParseExact(trimmed, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
         {
-            trimmed = trimmed[(firstSpace + 1)..].Trim();
+            return true;
         }
-        return DateOnly.TryParseExact(trimmed, ["MMM d, yyyy", "MMM dd, yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+
+        // NVIDIA returns "Tue May 26, 2026" - the day-of-week prefix is locale-fragile, so
+        // strip the leading token and retry. Only done as a fallback so a weekday-less
+        // "May 26, 2026" still parses via the direct attempt above.
+        var firstSpace = trimmed.IndexOf(' ');
+        if (firstSpace <= 0)
+        {
+            return false;
+        }
+        var withoutWeekday = trimmed[(firstSpace + 1)..].Trim();
+        return DateOnly.TryParseExact(withoutWeekday, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
     }
 
     internal static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
