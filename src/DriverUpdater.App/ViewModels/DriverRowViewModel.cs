@@ -22,10 +22,16 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(UpdateActionText))]
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
     [NotifyPropertyChangedFor(nameof(AiRiskText))]
+    [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
     [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(CanAskAi))]
     private UpdateCandidate? _availableUpdate;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAskAi))]
+    private bool _isAiChecking;
 
     [ObservableProperty]
     private UpdateOperation? _lastOperation;
@@ -103,6 +109,22 @@ public partial class DriverRowViewModel : ObservableObject
             {
                 parts.Add(verdict.Rationale);
             }
+            if (!string.IsNullOrWhiteSpace(verdict.InstalledSuitability))
+            {
+                parts.Add($"Installed driver: {verdict.InstalledSuitability}");
+            }
+            if (!string.IsNullOrWhiteSpace(verdict.CandidateSuitability))
+            {
+                parts.Add($"Candidate/latest driver: {verdict.CandidateSuitability}");
+            }
+            if (!string.IsNullOrWhiteSpace(verdict.RecommendedVersion))
+            {
+                parts.Add($"Recommended version for this PC: {verdict.RecommendedVersion}");
+            }
+            if (!string.IsNullOrWhiteSpace(verdict.AdvisorNote))
+            {
+                parts.Add($"AI advice: {verdict.AdvisorNote}");
+            }
             if (!string.IsNullOrWhiteSpace(verdict.LatestKnownVersion))
             {
                 parts.Add($"Latest known version: {verdict.LatestKnownVersion}");
@@ -111,7 +133,33 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool CanUpdate => Status == DriverStatus.Outdated && AvailableUpdate is not null;
+    public string AiRecommendationText
+    {
+        get
+        {
+            var verdict = AvailableUpdate?.AiVerification;
+            if (verdict is null)
+            {
+                return string.Empty;
+            }
+            if (!verdict.IsGenuinelyNewer)
+            {
+                return "Do not install";
+            }
+            return verdict.Risk switch
+            {
+                AiRiskLevel.Safe => "Recommended",
+                AiRiskLevel.Caution => "Use caution",
+                AiRiskLevel.HighRisk => "Avoid for now",
+                _ => "Not enough evidence"
+            };
+        }
+    }
+
+    public bool CanUpdate => AvailableUpdate is not null
+        && (Status == DriverStatus.Outdated || AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage);
+
+    public bool CanAskAi => !IsAiChecking;
 
     public bool IsBusy => ActiveOperation is { } op
         && !op.IsTerminal

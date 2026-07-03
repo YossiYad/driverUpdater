@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections;
 using System.Runtime.CompilerServices;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -11,7 +12,7 @@ public sealed class DriverScanService : IDriverScanService
     private const string CimV2Scope = "\\\\.\\root\\CIMV2";
     private const string SignedDriverQuery =
         "SELECT DeviceID, DeviceName, DriverVersion, DriverDate, DriverProviderName, " +
-        "InfName, IsSigned, Manufacturer, DeviceClass FROM Win32_PnPSignedDriver";
+        "InfName, IsSigned, Manufacturer, DeviceClass, HardWareID, CompatID FROM Win32_PnPSignedDriver";
 
     private readonly IWmiQueryRunner _wmi;
     private readonly ILogger<DriverScanService> _logger;
@@ -54,9 +55,16 @@ public sealed class DriverScanService : IDriverScanService
 
         var deviceClass = ReadString(row, "DeviceClass") ?? string.Empty;
 
+        var primaryHardwareId = ExtractHardwareId(deviceId);
+        var hardwareIds = BuildHardwareIds(
+            primaryHardwareId,
+            ReadStringList(row, "HardWareID"),
+            ReadStringList(row, "HardwareID"),
+            ReadStringList(row, "CompatID"));
+
         driver = new DriverInfo(
             DeviceId: deviceId,
-            HardwareId: ExtractHardwareId(deviceId),
+            HardwareId: primaryHardwareId,
             DeviceName: ReadString(row, "DeviceName") ?? string.Empty,
             Category: MapCategory(deviceClass),
             Provider: ReadString(row, "DriverProviderName") ?? string.Empty,
@@ -66,9 +74,44 @@ public sealed class DriverScanService : IDriverScanService
             InfName: ReadString(row, "InfName"),
             InfPath: null,
             IsSigned: ReadBool(row, "IsSigned") ?? false,
-            DeviceClass: deviceClass);
+            DeviceClass: deviceClass)
+        {
+            HardwareIds = hardwareIds
+        };
 
         return true;
+    }
+
+    internal static IReadOnlyList<string> BuildHardwareIds(
+        string primaryHardwareId,
+        params IEnumerable<string>[] additionalIds)
+    {
+        var ids = new List<string>();
+        AddIfUseful(ids, primaryHardwareId);
+
+        foreach (var source in additionalIds)
+        {
+            foreach (var id in source)
+            {
+                AddIfUseful(ids, id);
+            }
+        }
+
+        return ids;
+    }
+
+    private static void AddIfUseful(List<string> ids, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var trimmed = value.Trim();
+        if (!ids.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+        {
+            ids.Add(trimmed);
+        }
     }
 
     internal static string ExtractHardwareId(string deviceId)
@@ -150,6 +193,31 @@ public sealed class DriverScanService : IDriverScanService
 
     private static string? ReadString(IReadOnlyDictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) ? value?.ToString() : null;
+
+    private static IReadOnlyList<string> ReadStringList(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        if (!row.TryGetValue(key, out var value) || value is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (value is string single)
+        {
+            return string.IsNullOrWhiteSpace(single) ? Array.Empty<string>() : new[] { single };
+        }
+
+        if (value is IEnumerable enumerable)
+        {
+            return enumerable
+                .Cast<object?>()
+                .Select(item => item?.ToString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .ToArray();
+        }
+
+        return Array.Empty<string>();
+    }
 
     private static bool? ReadBool(IReadOnlyDictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) && value is bool b ? b : null;

@@ -32,7 +32,39 @@ public class DriverScanServiceTests
         collected[0].CurrentVersion.Should().Be(new Version(10, 0, 19041, 4291));
         collected[0].CurrentDate.Should().Be(new DateOnly(2024, 3, 6));
         collected[0].HardwareId.Should().Be("PCI\\VEN_8086&DEV_1234&REV_01");
+        collected[0].HardwareIds.Should().Contain("PCI\\VEN_8086&DEV_1234&REV_01");
         collected[1].Category.Should().Be(DriverCategory.Usb);
+    }
+
+    [Fact]
+    public void TryProject_captures_hardware_and_compatible_ids_for_update_searches()
+    {
+        var row = Row(
+            "PCI\\VEN_8086&DEV_1234&REV_01\\3&11&0&A0",
+            "Intel Device",
+            "System",
+            "1.0.0.0",
+            "20240306000000.******+***",
+            "Intel",
+            "Intel Corporation",
+            "oem1.inf",
+            true);
+        var mutable = row.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        mutable["HardWareID"] = new[]
+        {
+            "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000&REV_01",
+            "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000"
+        };
+        mutable["CompatID"] = new[] { "PCI\\VEN_8086&DEV_1234" };
+
+        DriverScanService.TryProject(mutable, out var driver).Should().BeTrue();
+
+        driver.HardwareIds.Should().BeEquivalentTo([
+            "PCI\\VEN_8086&DEV_1234&REV_01",
+            "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000&REV_01",
+            "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000",
+            "PCI\\VEN_8086&DEV_1234"
+        ], options => options.WithStrictOrdering());
     }
 
     [Fact]

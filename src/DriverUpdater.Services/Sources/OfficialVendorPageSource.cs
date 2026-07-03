@@ -1,27 +1,36 @@
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Sources;
 
-public sealed class OfficialVendorPageSource : IUpdateSource
+public sealed partial class OfficialVendorPageSource : IUpdateSource
 {
+    public const string HttpClientName = "OfficialVendorPages";
+
     private static readonly TimeSpan DefaultAdvisoryAge = TimeSpan.FromDays(180);
     private static readonly TimeSpan DisplayAdvisoryAge = TimeSpan.FromDays(14);
 
     private readonly TimeProvider _clock;
     private readonly Func<string, bool> _fileExists;
+    private readonly HttpClient? _httpClient;
     private readonly ILogger<OfficialVendorPageSource> _logger;
     private readonly Lazy<bool> _gHubInstalled;
 
-    public OfficialVendorPageSource(ILogger<OfficialVendorPageSource> logger, TimeProvider? clock = null, Func<string, bool>? fileExists = null)
+    public OfficialVendorPageSource(
+        ILogger<OfficialVendorPageSource> logger,
+        TimeProvider? clock = null,
+        Func<string, bool>? fileExists = null,
+        HttpClient? httpClient = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
         _fileExists = fileExists ?? File.Exists;
+        _httpClient = httpClient;
         _gHubInstalled = new Lazy<bool>(DetectGHub);
     }
 
@@ -61,6 +70,12 @@ public sealed class OfficialVendorPageSource : IUpdateSource
 
             _logger.LogInformation("Offering official vendor check page for {Device}", driver.DeviceName);
             var advisoryDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
+            if (await TryBuildInstallerCandidateAsync(driver, vendorName, page, advisoryDate, cancellationToken).ConfigureAwait(false) is { } installer)
+            {
+                yield return installer;
+                continue;
+            }
+
             yield return new UpdateCandidate(
                 ForHardwareId: driver.HardwareId,
                 Source: UpdateSource.Oem,
@@ -75,6 +90,90 @@ public sealed class OfficialVendorPageSource : IUpdateSource
                 InstallKind: UpdateInstallKind.VendorPage,
                 Confidence: UpdateConfidence.Advisory);
         }
+    }
+
+    private async Task<UpdateCandidate?> TryBuildInstallerCandidateAsync(
+        DriverInfo driver,
+        string vendorName,
+        Uri page,
+        DateOnly candidateDate,
+        CancellationToken cancellationToken)
+    {
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var html = await _httpClient.GetStringAsync(page, cancellationToken).ConfigureAwait(false);
+            if (!TryFindAppInstallablePackage(page, html, out var packageUrl, out var installerKind))
+            {
+                return null;
+            }
+
+            _logger.LogInformation(
+                "Resolved official vendor installer for {Device}: {Url}",
+                driver.DeviceName,
+                packageUrl);
+            return new UpdateCandidate(
+                ForHardwareId: driver.HardwareId,
+                Source: UpdateSource.Oem,
+                NewVersion: new Version(candidateDate.Year, candidateDate.Month, candidateDate.Day, 0),
+                NewDate: candidateDate,
+                DownloadUrl: packageUrl,
+                SizeBytes: 0,
+                KbArticle: null,
+                IsSuperseded: false,
+                SourceUpdateId: $"vendor-installer:{installerKind}:{vendorName}:{driver.HardwareId}",
+                SupersededIds: Array.Empty<string>(),
+                InstallKind: UpdateInstallKind.VendorInstaller,
+                Confidence: UpdateConfidence.Confirmed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve a direct vendor installer from {Page}", page);
+            return null;
+        }
+    }
+
+    internal static bool TryFindAppInstallablePackage(
+        Uri page,
+        string html,
+        out Uri packageUrl,
+        out string installerKind)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(html);
+
+        foreach (Match match in HrefPattern().Matches(html))
+        {
+            var raw = match.Groups["url"].Value;
+            if (!Uri.TryCreate(page, raw, out var resolved)
+                || resolved.Scheme is not ("http" or "https"))
+            {
+                continue;
+            }
+
+            var extension = Path.GetExtension(resolved.LocalPath);
+            if (extension.Equals(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                packageUrl = resolved;
+                installerKind = "msi-wrapper";
+                return true;
+            }
+
+            if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                packageUrl = resolved;
+                installerKind = "zip-inf";
+                return true;
+            }
+        }
+
+        packageUrl = null!;
+        installerKind = string.Empty;
+        return false;
     }
 
     internal static bool TryResolveVendorPage(DriverInfo driver, out string vendorName, out Uri page)
@@ -172,4 +271,7 @@ public sealed class OfficialVendorPageSource : IUpdateSource
 
         return false;
     }
+
+    [GeneratedRegex(@"href\s*=\s*[""'](?<url>[^""'#?]+\.(?:msi|zip)(?:\?[^""']*)?)[""']", RegexOptions.IgnoreCase)]
+    private static partial Regex HrefPattern();
 }

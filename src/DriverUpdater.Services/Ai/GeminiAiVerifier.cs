@@ -137,10 +137,21 @@ public sealed class GeminiAiVerifier : IAiVerifier
     {
         foreach (var (id, verdict) in verdicts)
         {
-            logger.LogDebug(
-                "{Provider} verdict {Id}: genuinelyNewer={GenuinelyNewer}, risk={Risk}, latestKnown={Latest}, summary={Summary}",
+            logger.LogInformation(
+                "{Provider} verdict {Id}: genuinelyNewer={GenuinelyNewer}, risk={Risk}, latestKnown={Latest}, recommended={Recommended}, summary={Summary}",
                 provider, id, verdict.IsGenuinelyNewer, verdict.Risk,
-                verdict.LatestKnownVersion ?? "(none)", verdict.Summary);
+                verdict.LatestKnownVersion ?? "(none)",
+                verdict.RecommendedVersion ?? "(none)",
+                verdict.Summary);
+            logger.LogDebug(
+                "{Provider} advisor {Id}: installedSuitability={InstalledSuitability}; candidateSuitability={CandidateSuitability}; advisorNote={AdvisorNote}; latestDate={LatestDate}; latestUrl={LatestUrl}; rationale={Rationale}",
+                provider, id,
+                verdict.InstalledSuitability ?? "(none)",
+                verdict.CandidateSuitability ?? "(none)",
+                verdict.AdvisorNote ?? "(none)",
+                verdict.LatestKnownDate?.ToString("yyyy-MM-dd") ?? "(none)",
+                verdict.LatestKnownUrl ?? "(none)",
+                verdict.Rationale);
         }
     }
 

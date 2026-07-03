@@ -104,7 +104,9 @@ public sealed class MotherboardSource : IUpdateSource
             // the installed INF date even when the version is identical. Fall back to the
             // date only when one side has no parseable version.
             var catalogVersion = TryParseEntryVersion(match.Version);
-            if (catalogVersion is not null && driver.CurrentVersion is not null)
+            if (catalogVersion is not null
+                && driver.CurrentVersion is not null
+                && AreComparableDriverVersions(driver.CurrentVersion, catalogVersion))
             {
                 if (catalogVersion <= driver.CurrentVersion)
                 {
@@ -140,15 +142,33 @@ public sealed class MotherboardSource : IUpdateSource
         new(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,
-            NewVersion: TryParseEntryVersion(entry.Version) ?? DateToVersion(entry.ReleaseDate),
+            NewVersion: BuildCandidateVersion(driver, entry),
             NewDate: entry.ReleaseDate,
             DownloadUrl: entry.DownloadUrl,
             SizeBytes: entry.SizeBytes ?? 0,
             KbArticle: null,
             IsSuperseded: false,
-            SourceUpdateId: $"vendor-installer:installshield:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
+            SourceUpdateId: $"vendor-installer:{ResolveInstallerFamily(vendorTag)}:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorInstaller);
+
+    private static Version BuildCandidateVersion(DriverInfo driver, MotherboardDriverEntry entry)
+    {
+        var catalogVersion = TryParseEntryVersion(entry.Version);
+        if (catalogVersion is null)
+        {
+            return DateToVersion(entry.ReleaseDate);
+        }
+
+        return driver.CurrentVersion is not null && !AreComparableDriverVersions(driver.CurrentVersion, catalogVersion)
+            ? DateToVersion(entry.ReleaseDate)
+            : catalogVersion;
+    }
+
+    internal static string ResolveInstallerFamily(string vendorTag) =>
+        vendorTag.Equals("gigabyte", StringComparison.OrdinalIgnoreCase)
+            ? "nullsoft"
+            : "installshield";
 
     internal static MotherboardDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<MotherboardDriverEntry> entries)
     {
@@ -218,6 +238,25 @@ public sealed class MotherboardSource : IUpdateSource
 
     private static Version? TryParseEntryVersion(string raw) =>
         Version.TryParse(raw, out var version) ? version : null;
+
+    internal static bool AreComparableDriverVersions(Version installed, Version catalog)
+    {
+        if (installed.Major == catalog.Major)
+        {
+            return true;
+        }
+
+        // Some motherboard pages publish a package/display version that is not the
+        // WMI driver version. Example from Gigabyte Realtek LAN: package "11.29..."
+        // installs a driver reported by Windows as "1125.29...". Numeric comparison
+        // would treat every package as older; use date comparison instead.
+        if (installed.Major >= 1000 && catalog.Major < 100)
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     private static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
 

@@ -1,3 +1,4 @@
+using System.Net;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Services.Sources;
 using FluentAssertions;
@@ -36,6 +37,44 @@ public class OfficialVendorPageSourceTests
         results.Should().ContainSingle();
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
         results[0].DownloadUrl.Host.Should().Contain("realtek.com");
+    }
+
+    [Fact]
+    public async Task SearchAsync_yields_vendor_installer_when_vendor_page_has_direct_msi()
+    {
+        var source = new OfficialVendorPageSource(
+            NullLogger<OfficialVendorPageSource>.Instance,
+            new FakeTimeProvider(new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero)),
+            httpClient: new HttpClient(new StaticHtmlHandler("""
+                <html><body>
+                  <a href="https://downloads.example.com/realtek-driver-1.2.3.msi">Download driver</a>
+                </body></html>
+                """)));
+
+        var results = await source.SearchAsync(new[]
+        {
+            NewDriver("Realtek PCIe 2.5GbE Family Controller", "Realtek", DriverCategory.Network, new DateOnly(2024, 1, 1))
+        }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        results[0].Confidence.Should().Be(UpdateConfidence.Confirmed);
+        results[0].SourceUpdateId.Should().StartWith("vendor-installer:msi-wrapper:Realtek:");
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://downloads.example.com/realtek-driver-1.2.3.msi");
+    }
+
+    [Fact]
+    public void TryFindAppInstallablePackage_resolves_relative_zip_links()
+    {
+        var ok = OfficialVendorPageSource.TryFindAppInstallablePackage(
+            new Uri("https://vendor.example.com/support/device"),
+            """<a href="/downloads/driver-pack.zip">Driver package</a>""",
+            out var packageUrl,
+            out var installerKind);
+
+        ok.Should().BeTrue();
+        packageUrl.AbsoluteUri.Should().Be("https://vendor.example.com/downloads/driver-pack.zip");
+        installerKind.Should().Be("zip-inf");
     }
 
     [Fact]
@@ -146,5 +185,21 @@ public class OfficialVendorPageSourceTests
         }
 
         public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    private sealed class StaticHtmlHandler : HttpMessageHandler
+    {
+        private readonly string _html;
+
+        public StaticHtmlHandler(string html)
+        {
+            _html = html;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_html)
+            });
     }
 }

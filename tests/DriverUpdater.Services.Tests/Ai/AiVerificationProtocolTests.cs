@@ -20,6 +20,8 @@ public class AiVerificationProtocolTests
         prompt.Should().Contain("id=corr-2");
         prompt.Should().Contain("isGenuinelyNewer");
         prompt.Should().Contain("risk");
+        prompt.Should().Contain("installedSuitability");
+        prompt.Should().Contain("recommendedVersion");
     }
 
     [Fact]
@@ -64,6 +66,20 @@ public class AiVerificationProtocolTests
     }
 
     [Fact]
+    public void ParseVerdicts_ignores_quotes_in_prose_before_json()
+    {
+        const string raw = """
+            The useful payload is "below", after this explanation:
+            {"verdicts":[{"id":"corr-1","isGenuinelyNewer":true,"risk":"Safe","summary":"Newer driver","rationale":"Version is newer.","latestKnownVersion":"2.0.0.0"}]}
+            """;
+
+        var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
+
+        verdicts.Should().ContainKey("corr-1");
+        verdicts["corr-1"].Risk.Should().Be(AiRiskLevel.Safe);
+    }
+
+    [Fact]
     public void ParseVerdicts_preserves_braces_inside_json_strings()
     {
         const string raw = """
@@ -74,6 +90,36 @@ public class AiVerificationProtocolTests
 
         verdicts.Should().ContainKey("corr-1");
         verdicts["corr-1"].Rationale.Should().Be("The vendor page mentions {optional} firmware tooling.");
+    }
+
+    [Fact]
+    public void ParseVerdicts_reads_driver_advisor_feedback_fields()
+    {
+        const string raw = """
+            {"verdicts":[{
+              "id":"corr-1",
+              "isGenuinelyNewer":true,
+              "risk":"Safe",
+              "summary":"Recommended",
+              "rationale":"The version matches the hardware family.",
+              "latestKnownVersion":"2.0.0.0",
+              "latestKnownDate":"2026-02-03",
+              "latestKnownUrl":"https://example.com/driver",
+              "installedSuitability":"The installed driver is compatible but old.",
+              "candidateSuitability":"The candidate is suitable for this adapter and Windows generation.",
+              "recommendedVersion":"2.0.0.0",
+              "advisorNote":"Install if you want the latest fixes; keep current if everything is stable."
+            }]}
+            """;
+
+        var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
+
+        verdicts["corr-1"].LatestKnownDate.Should().Be(new DateOnly(2026, 2, 3));
+        verdicts["corr-1"].LatestKnownUrl.Should().Be("https://example.com/driver");
+        verdicts["corr-1"].InstalledSuitability.Should().Be("The installed driver is compatible but old.");
+        verdicts["corr-1"].CandidateSuitability.Should().Be("The candidate is suitable for this adapter and Windows generation.");
+        verdicts["corr-1"].RecommendedVersion.Should().Be("2.0.0.0");
+        verdicts["corr-1"].AdvisorNote.Should().Contain("Install");
     }
 
     [Theory]

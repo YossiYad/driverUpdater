@@ -172,6 +172,7 @@ public class AiCompositionIntegrationTests
             using var ms = new MemoryStream();
             var contentLength = -1;
             var headerEnd = -1;
+            var isChunked = false;
 
             while (true)
             {
@@ -191,13 +192,18 @@ public class AiCompositionIntegrationTests
                         headerEnd = idx;
                         LastRequestTarget = ParseRequestTarget(text);
                         contentLength = ParseContentLength(text);
+                        isChunked = IsChunked(text);
                     }
                 }
 
                 if (headerEnd >= 0)
                 {
                     var bodyBytes = ms.Length - (headerEnd + 4);
-                    if (contentLength < 0 || bodyBytes >= contentLength)
+                    if (contentLength >= 0 && bodyBytes >= contentLength)
+                    {
+                        break;
+                    }
+                    if (isChunked && text.Contains("\r\n0\r\n\r\n", StringComparison.Ordinal))
                     {
                         break;
                     }
@@ -234,6 +240,19 @@ public class AiCompositionIntegrationTests
                 }
             }
             return -1;
+        }
+
+        private static bool IsChunked(string headerText)
+        {
+            foreach (var line in headerText.Split("\r\n", StringSplitOptions.None))
+            {
+                if (line.StartsWith("Transfer-Encoding:", StringComparison.OrdinalIgnoreCase)
+                    && line.Contains("chunked", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void Dispose()

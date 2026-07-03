@@ -56,8 +56,12 @@ public sealed class AiVerifierSelector : IAiVerifier
             return Task.FromResult(Empty);
         }
 
-        _logger?.LogDebug(
-            "AI verification routed to {Provider} for {Count} candidates", provider, requests.Count);
+        _logger?.LogInformation(
+            "AI request routed to {Provider}: total={Count}, discovery={DiscoveryCount}, candidateVerification={CandidateCount}",
+            provider,
+            requests.Count,
+            requests.Count(r => r.FindLatestWhenNoCandidate),
+            requests.Count(r => !r.FindLatestWhenNoCandidate));
         return verifier.VerifyAsync(requests, cancellationToken);
     }
 

@@ -107,10 +107,53 @@ public class DriverRowViewModelTests
         notified.Should().Contain(nameof(DriverRowViewModel.UpdateActionText));
         notified.Should().Contain(nameof(DriverRowViewModel.ConfidenceText));
         notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
+        notified.Should().Contain(nameof(DriverRowViewModel.CanAskAi));
     }
 
     [Fact]
-    public void CanUpdate_is_true_only_when_outdated_with_available_update()
+    public void Ai_recommendation_text_maps_verdict_to_user_facing_guidance()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate() with
+            {
+                AiVerification = new AiVerdict(
+                    true,
+                    AiRiskLevel.Caution,
+                    "Use caution",
+                    "Reported issues are mixed.",
+                    "2.0.0.0",
+                    InstalledSuitability: "The installed driver is stable but old.",
+                    CandidateSuitability: "The candidate matches this adapter.",
+                    RecommendedVersion: "2.0.0.0",
+                    AdvisorNote: "Install only if you need the fixes.")
+            }
+        };
+
+        row.HasAiVerdict.Should().BeTrue();
+        row.AiRiskText.Should().Be("Caution");
+        row.AiRecommendationText.Should().Be("Use caution");
+        row.AiRiskTooltip.Should().Contain("Reported issues are mixed.");
+        row.AiRiskTooltip.Should().Contain("The installed driver is stable but old.");
+        row.AiRiskTooltip.Should().Contain("Recommended version for this PC: 2.0.0.0");
+        row.AiRiskTooltip.Should().Contain("Install only if you need the fixes.");
+    }
+
+    [Fact]
+    public void CanAskAi_requires_only_that_ai_is_not_currently_checking()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+        row.CanAskAi.Should().BeTrue();
+
+        row.AvailableUpdate = NewCandidate();
+        row.CanAskAi.Should().BeTrue();
+
+        row.IsAiChecking = true;
+        row.CanAskAi.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CanUpdate_is_true_for_outdated_updates_and_vendor_page_checks()
     {
         var row = new DriverRowViewModel(NewSampleDriver());
         row.CanUpdate.Should().BeFalse();
@@ -133,6 +176,10 @@ public class DriverRowViewModelTests
 
         row.AvailableUpdate = null;
         row.CanUpdate.Should().BeFalse();
+
+        row.Status = DriverStatus.UpToDate;
+        row.AvailableUpdate = NewCandidate() with { InstallKind = UpdateInstallKind.VendorPage };
+        row.CanUpdate.Should().BeTrue();
     }
 
     [Fact]
@@ -221,6 +268,19 @@ public class DriverRowViewModelTests
             SupersededIds: Array.Empty<string>());
         return UpdateOperation.NewPending(candidate, driver);
     }
+
+    private static UpdateCandidate NewCandidate() =>
+        new(
+            ForHardwareId: "PCI\\VEN_8086&DEV_1234",
+            Source: UpdateSource.MicrosoftCatalog,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/x.cab"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "abc",
+            SupersededIds: Array.Empty<string>());
 
     [Fact]
     public void Status_change_notifies_can_update()

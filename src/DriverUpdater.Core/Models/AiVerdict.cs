@@ -5,4 +5,10 @@ public sealed record AiVerdict(
     AiRiskLevel Risk,
     string Summary,
     string Rationale,
-    string? LatestKnownVersion);
+    string? LatestKnownVersion,
+    DateOnly? LatestKnownDate = null,
+    string? LatestKnownUrl = null,
+    string? InstalledSuitability = null,
+    string? CandidateSuitability = null,
+    string? RecommendedVersion = null,
+    string? AdvisorNote = null);

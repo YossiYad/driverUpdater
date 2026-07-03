@@ -51,7 +51,8 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         }
 
         var hardwareIds = drivers
-            .SelectMany(d => ExpandHardwareIdQueries(d.HardwareId))
+            .SelectMany(d => d.HardwareIds.Count > 0 ? d.HardwareIds : new[] { d.HardwareId })
+            .SelectMany(ExpandHardwareIdQueries)
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
