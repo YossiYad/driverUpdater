@@ -60,6 +60,38 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_queries_catalog_for_alternate_hardware_ids()
+    {
+        var fakeClient = new FakeCatalogClient
+        {
+            HitsByQuery =
+            {
+                ["PCI\\VEN_8086&DEV_1234&SUBSYS_00000000"] =
+                    new[] { Hit("guid-alt", "Driver Alt", new Version(2, 0, 0, 0), new DateOnly(2026, 1, 1)) }
+            },
+            DownloadsById =
+            {
+                ["guid-alt"] = new CatalogDownloadInfo("guid-alt", new Uri("https://download.example.com/alt.cab"), 1024)
+            }
+        };
+
+        var source = NewSource(fakeClient, enabled: true);
+        var driver = NewDriver("PCI\\VEN_8086&DEV_1234&REV_01") with
+        {
+            HardwareIds =
+            [
+                "PCI\\VEN_8086&DEV_1234&REV_01",
+                "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000"
+            ]
+        };
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results.Should().ContainSingle(c => c.ForHardwareId == "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000");
+        fakeClient.SearchInvocations.Should().BeGreaterThan(1);
+    }
+
+    [Fact]
     public async Task SearchAsync_caches_hits_per_hardware_id()
     {
         var fakeClient = new FakeCatalogClient

@@ -106,6 +106,27 @@ public class MainViewModelUpdateSourceTests
         vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
     }
 
+    [WpfFact]
+    public async Task ScanAsync_matches_update_candidate_to_alternate_hardware_id()
+    {
+        var driver = NewDriver("Intel Chipset", @"PCI\VEN_8086&DEV_1234&REV_01", new Version(1, 0, 0, 0)) with
+        {
+            HardwareIds =
+            [
+                @"PCI\VEN_8086&DEV_1234&REV_01",
+                @"PCI\VEN_8086&DEV_1234&SUBSYS_00000000"
+            ]
+        };
+        var candidate = NewCandidate(@"PCI\VEN_8086&DEV_1234&SUBSYS_00000000", new Version(2, 0, 0, 0));
+
+        var vm = NewVm(new[] { driver }, new[] { candidate });
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+    }
+
     [Theory]
     // Same string and clean prefix-with-separator cases match.
     [InlineData(@"PCI\VEN_1002&DEV_747E", @"PCI\VEN_1002&DEV_747E", true)]
@@ -287,7 +308,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateOutdatedAsync_ignores_vendor_pages_in_automatic_mode()
+    public async Task UpdateOutdatedAsync_opens_vendor_pages_in_automatic_mode()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var candidate = NewCandidate(
@@ -311,8 +332,8 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateOutdatedCommand.ExecuteAsync(null);
 
-        opener.Opened.Should().BeEmpty();
-        vm.StatusText.Should().Be("No confirmed updates to install.");
+        opener.Opened.Should().ContainSingle().Which.Should().Be(candidate.DownloadUrl);
+        vm.StatusText.Should().Be("Opened 1 vendor update pages.");
         vm.ConfirmedUpdatesCount.Should().Be(0);
         vm.VendorChecksCount.Should().Be(1);
     }
@@ -510,11 +531,13 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
 
-        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
+        opener.Opened.Should().ContainSingle()
+            .Which.Should().Be(advisory.DownloadUrl);
+        vm.StatusText.Should().Be("Opened 1 vendor update pages.");
     }
 
     [WpfFact]
-    public async Task OpenVendorChecksCommand_opens_only_vendor_pages()
+    public async Task OpenVendorChecksCommand_opens_vendor_pages()
     {
         var confirmedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
@@ -540,9 +563,11 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         vm.OpenVendorChecksCommand.Execute(null);
 
-        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
+        opener.Opened.Should().ContainSingle()
+            .Which.Should().Be(advisory.DownloadUrl);
         vm.ConfirmedUpdatesCount.Should().Be(1);
         vm.VendorChecksCount.Should().Be(1);
+        vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
     }
 
     [WpfFact]
@@ -619,6 +644,9 @@ public class MainViewModelUpdateSourceTests
 
         vm.UpdateFilter = DriverUpdateFilter.VendorChecks;
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "NVIDIA Display");
+
+        vm.UpdateFilter = DriverUpdateFilter.Installable;
+        vm.DriversView.Cast<DriverRowViewModel>().Should().HaveCount(2);
 
         vm.UpdateFilter = DriverUpdateFilter.NoUpdate;
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "Current Display");

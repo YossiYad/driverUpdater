@@ -21,6 +21,7 @@ public static class AppServices
         services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
+        services.AddSingleton<IAiResultWindowOpener, AiResultWindowOpener>();
         services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
         services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
         services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();

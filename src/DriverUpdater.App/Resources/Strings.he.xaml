@@ -3,7 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.0</sys:String>
+    <sys:String x:Key="App.Version">v0.1.6</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>
     <sys:String x:Key="App.NotElevated">ללא הרשאות מנהל</sys:String>
 
@@ -15,6 +15,7 @@
     <sys:String x:Key="Toolbar.UpdateOutdated">עדכן לא מעודכנים</sys:String>
     <sys:String x:Key="Toolbar.InstallConfirmed">התקן ודאיים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">פתח בדיקות יצרן</sys:String>
+    <sys:String x:Key="Toolbar.AskAiAll">בדוק הכל עם AI</sys:String>
     <sys:String x:Key="Toolbar.DryRun">הרצה יבשה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
     <sys:String x:Key="Toolbar.Logs">לוגים</sys:String>

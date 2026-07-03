@@ -9,4 +9,10 @@ public sealed record AiVerificationRequest(
     string CandidateVersion,
     DateOnly CandidateDate,
     UpdateSource Source,
-    string DownloadUrl);
+    string DownloadUrl,
+    DriverCategory Category = DriverCategory.Other,
+    string Provider = "",
+    string Manufacturer = "",
+    UpdateInstallKind InstallKind = UpdateInstallKind.WindowsUpdate,
+    UpdateConfidence Confidence = UpdateConfidence.Confirmed,
+    bool FindLatestWhenNoCandidate = false);
