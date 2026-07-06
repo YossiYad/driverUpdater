@@ -25,15 +25,15 @@ public class MainViewModelTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_clears_previous_results_before_each_run()
+    public async Task ScanAsync_keeps_rows_from_previous_runs()
     {
         var vm = NewVm(NewDriver("Only", DriverCategory.Display));
         vm.Drivers.Add(new DriverRowViewModel(NewDriver("Stale", DriverCategory.Other)));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers.Should().HaveCount(1);
-        vm.Drivers[0].DeviceName.Should().Be("Only");
+        vm.Drivers.Should().HaveCount(2);
+        vm.Drivers.Select(r => r.DeviceName).Should().BeEquivalentTo(new[] { "Only", "Stale" });
     }
 
     [WpfFact]
