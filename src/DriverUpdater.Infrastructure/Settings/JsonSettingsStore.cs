@@ -33,6 +33,7 @@ public sealed class JsonSettingsStore : ISettingsStore
     {
         if (!File.Exists(SettingsPath))
         {
+            _logger.LogInformation("No settings file at {Path}; using defaults", SettingsPath);
             return new AppSettings();
         }
 
@@ -40,6 +41,7 @@ public sealed class JsonSettingsStore : ISettingsStore
         {
             await using var stream = File.OpenRead(SettingsPath);
             var settings = await JsonSerializer.DeserializeAsync<AppSettings>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Loaded settings from {Path}", SettingsPath);
             return settings ?? new AppSettings();
         }
         catch (Exception ex)

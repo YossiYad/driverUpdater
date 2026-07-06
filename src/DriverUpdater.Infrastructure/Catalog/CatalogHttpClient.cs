@@ -35,7 +35,11 @@ public sealed class CatalogHttpClient : ICatalogHttpClient
         response.EnsureSuccessStatusCode();
 
         var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return CatalogHtmlParser.ParseSearchResults(html);
+        var hits = CatalogHtmlParser.ParseSearchResults(html);
+        _logger.LogDebug(
+            "Catalog search for {Query}: {Count} hit(s) parsed from {Length}-byte page",
+            query, hits.Count, html.Length);
+        return hits;
     }
 
     public async Task<IReadOnlyList<CatalogDownloadInfo>> GetDownloadsAsync(
@@ -63,7 +67,11 @@ public sealed class CatalogHttpClient : ICatalogHttpClient
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return CatalogHtmlParser.ParseDownloadDialog(body);
+        var downloads = CatalogHtmlParser.ParseDownloadDialog(body);
+        _logger.LogDebug(
+            "Catalog download dialog resolved {Resolved} of {Requested} update(s)",
+            downloads.Count, updateIds.Count);
+        return downloads;
     }
 
     internal static string BuildUpdateIdsPayload(IReadOnlyCollection<string> updateIds)

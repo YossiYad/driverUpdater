@@ -33,13 +33,18 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
     {
         if (!File.Exists(CachePath))
         {
+            _logger.LogInformation("No driver cache at {Path}; first run or cache was cleared", CachePath);
             return null;
         }
 
         try
         {
             await using var stream = File.OpenRead(CachePath);
-            return await JsonSerializer.DeserializeAsync<DriverCacheSnapshot>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            var snapshot = await JsonSerializer.DeserializeAsync<DriverCacheSnapshot>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Loaded driver cache from {Path}: {Count} entries, captured at {CapturedAt}",
+                CachePath, snapshot?.Entries.Count ?? 0, snapshot?.CapturedAt);
+            return snapshot;
         }
         catch (Exception ex)
         {

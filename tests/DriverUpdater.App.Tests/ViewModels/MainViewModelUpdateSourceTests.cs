@@ -308,7 +308,41 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateOutdatedAsync_opens_vendor_pages_in_automatic_mode()
+    public async Task UpdateOutdatedAsync_runs_vendor_pages_through_pipeline_and_opens_page_on_skip()
+    {
+        var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(
+            "PCI\\VEN_10DE&DEV_0001",
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var opener = new RecordingUpdatePageOpener();
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            opener);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateOutdatedCommand.ExecuteAsync(null);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(candidate.SourceUpdateId);
+        opener.Opened.Should().ContainSingle().Which.Should().Be(candidate.DownloadUrl);
+        vm.StatusText.Should().Contain("Opened 1 vendor pages");
+        vm.ConfirmedUpdatesCount.Should().Be(0);
+        vm.VendorChecksCount.Should().Be(1);
+    }
+
+    [WpfFact]
+    public async Task UpdateOutdatedAsync_does_not_open_vendor_page_when_pipeline_installs_it()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var candidate = NewCandidate(
@@ -321,8 +355,8 @@ public class MainViewModelUpdateSourceTests
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
             new NullOemDetectionService(),
-            new ThrowingInstallPipeline(),
-            new ThrowingInstallConfirmation(),
+            new SuccessfulInstallPipeline(),
+            new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
@@ -332,10 +366,10 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateOutdatedCommand.ExecuteAsync(null);
 
-        opener.Opened.Should().ContainSingle().Which.Should().Be(candidate.DownloadUrl);
-        vm.StatusText.Should().Be("Opened 1 vendor update pages.");
-        vm.ConfirmedUpdatesCount.Should().Be(0);
-        vm.VendorChecksCount.Should().Be(1);
+        opener.Opened.Should().BeEmpty();
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.UpToDate);
+        vm.StatusText.Should().Be("Install completed for 1 drivers.");
     }
 
     [WpfFact]
@@ -400,10 +434,11 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateAllCommand.ExecuteAsync(null);
 
-        pipeline.Operations.Should().ContainSingle()
-            .Which.Candidate.SourceUpdateId.Should().Be(installCandidate.SourceUpdateId);
+        pipeline.Operations.Should().HaveCount(2);
+        pipeline.Operations.Select(o => o.Candidate.SourceUpdateId)
+            .Should().BeEquivalentTo(new[] { installCandidate.SourceUpdateId, advisory.SourceUpdateId });
         opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
-        vm.StatusText.Should().Contain("Install completed for 1 drivers")
+        vm.StatusText.Should().Contain("Install completed for 2 drivers")
             .And.Contain("Opened 1 vendor pages");
     }
 
@@ -507,7 +542,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_with_vendor_page_opens_url_without_installing()
+    public async Task UpdateSingleAsync_with_vendor_page_tries_pipeline_then_opens_url()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -516,12 +551,13 @@ public class MainViewModelUpdateSourceTests
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
         var opener = new RecordingUpdatePageOpener();
+        var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
             new NullOemDetectionService(),
-            new ThrowingInstallPipeline(),
-            new ThrowingInstallConfirmation(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
@@ -531,9 +567,11 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
 
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
         opener.Opened.Should().ContainSingle()
             .Which.Should().Be(advisory.DownloadUrl);
-        vm.StatusText.Should().Be("Opened 1 vendor update pages.");
+        vm.StatusText.Should().Contain("Opened 1 vendor pages");
     }
 
     [WpfFact]
@@ -1045,11 +1083,20 @@ public class MainViewModelUpdateSourceTests
             CancellationToken cancellationToken = default)
         {
             Operations.Add(operation);
-            var finished = operation with
-            {
-                Status = UpdateStatus.Succeeded,
-                CompletedAt = DateTimeOffset.UtcNow
-            };
+            // Mirrors the real pipeline: a vendor page candidate that could not be
+            // resolved to a direct installer is skipped so the UI opens the page.
+            var finished = operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
+                ? operation with
+                {
+                    Status = UpdateStatus.Skipped,
+                    ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+                    CompletedAt = DateTimeOffset.UtcNow
+                }
+                : operation with
+                {
+                    Status = UpdateStatus.Succeeded,
+                    CompletedAt = DateTimeOffset.UtcNow
+                };
             progress?.Report(finished);
             return Task.FromResult(finished);
         }

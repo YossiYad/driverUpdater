@@ -52,6 +52,7 @@ try {
         var escapedDescription = description.Replace("'", "''", StringComparison.Ordinal);
         var script = $"$description = '{escapedDescription}';\n{CheckpointScript}";
 
+        _logger.LogInformation("Creating restore point: {Description}", description);
         var result = await _powerShell.InvokeAsync(script, cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
@@ -62,6 +63,7 @@ try {
         var info = ParseRestorePointOutput(result.StandardOutput);
         if (info is null)
         {
+            _logger.LogWarning("Restore point created but output could not be parsed: {Output}", result.StandardOutput);
             return ResultError.From("RESTORE_POINT_PARSE", "Could not parse restore point output: " + result.StandardOutput);
         }
 

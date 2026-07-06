@@ -38,6 +38,9 @@ public sealed class OemSupportSource : IUpdateSource
         var oem = await _oemDetectionService.DetectAsync(cancellationToken).ConfigureAwait(false);
         if (oem is null || oem.Vendor == OemVendor.Unknown)
         {
+            _logger.LogInformation(
+                "OEM support source skipped: motherboard vendor could not be detected (oem={Oem})",
+                oem is null ? "<null>" : oem.Vendor.ToString());
             yield break;
         }
 
@@ -49,6 +52,9 @@ public sealed class OemSupportSource : IUpdateSource
             if (driver.CurrentDate is { } currentDate
                 && now - new DateTimeOffset(currentDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) < AdvisoryAge)
             {
+                _logger.LogDebug(
+                    "OEM support check skipped for {Device}: installed driver dated {CurrentDate} is within the {Days}-day advisory window",
+                    driver.DeviceName, currentDate, AdvisoryAge.TotalDays);
                 continue;
             }
 

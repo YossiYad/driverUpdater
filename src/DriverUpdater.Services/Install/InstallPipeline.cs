@@ -17,6 +17,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IVendorInstallerRunner? _vendorInstallerRunner;
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
+    private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -30,7 +31,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IVendorInstallerRunner? vendorInstallerRunner = null,
         IHttpClientFactory? httpClientFactory = null,
         IHistoryRepository? historyRepository = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IVendorPageInstallerResolver? vendorPageResolver = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -44,6 +46,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _vendorInstallerRunner = vendorInstallerRunner;
         _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
+        _vendorPageResolver = vendorPageResolver;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -230,6 +233,23 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
         {
+            var resolved = _vendorPageResolver is null
+                ? null
+                : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
+            if (resolved is not null)
+            {
+                _logger.LogInformation(
+                    "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
+                    operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
+                operation = operation with { Candidate = resolved };
+                return await StepInstallVendorInstallerAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+            }
+
+            _logger.LogInformation(
+                "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
+                operation.TargetSnapshot.DeviceName,
+                _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
+                operation.Candidate.DownloadUrl);
             operation = operation with
             {
                 Status = UpdateStatus.Skipped,

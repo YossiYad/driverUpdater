@@ -30,6 +30,7 @@ public sealed class DriverScanService : IDriverScanService
     {
         _logger.LogInformation("Driver scan started");
         var count = 0;
+        var rejected = 0;
 
         await foreach (var row in _wmi.QueryAsync(CimV2Scope, SignedDriverQuery, cancellationToken)
                                       .ConfigureAwait(false))
@@ -39,9 +40,15 @@ public sealed class DriverScanService : IDriverScanService
                 count++;
                 yield return driver;
             }
+            else
+            {
+                rejected++;
+            }
         }
 
-        _logger.LogInformation("Driver scan completed: {Count} drivers", count);
+        _logger.LogInformation(
+            "Driver scan completed: {Count} drivers, {Rejected} WMI rows discarded (no DeviceID)",
+            count, rejected);
     }
 
     internal static bool TryProject(IReadOnlyDictionary<string, object?> row, out DriverInfo driver)

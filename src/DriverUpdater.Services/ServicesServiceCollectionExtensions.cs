@@ -78,6 +78,8 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IOemDetectionService, OemDetectionService>();
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRestorePointService, RestorePointService>();
+        ConfigureVendorPageResolverHttpClient(services);
+        services.AddSingleton<IVendorPageInstallerResolver, VendorPageInstallerResolver>();
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
         services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 
@@ -124,6 +126,20 @@ public static class ServicesServiceCollectionExtensions
             client.DefaultRequestHeaders.Accept.ParseAdd("*/*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
             client.DefaultRequestHeaders.Referrer = new Uri("https://www.google.com/");
+        });
+    }
+
+    private static void ConfigureVendorPageResolverHttpClient(IServiceCollection services)
+    {
+        // Vendor support pages (AMD, Gigabyte, ...) 403 or redirect non-browser
+        // User-Agents, so the resolver mimics Chrome like the downloads client does.
+        services.AddHttpClient(VendorPageInstallerResolver.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
         });
     }
 
