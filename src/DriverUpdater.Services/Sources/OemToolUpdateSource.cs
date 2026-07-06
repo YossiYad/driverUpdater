@@ -36,8 +36,16 @@ public sealed class OemToolUpdateSource : IUpdateSource
         ArgumentNullException.ThrowIfNull(drivers);
 
         var oem = await _oemDetectionService.DetectAsync(cancellationToken).ConfigureAwait(false);
-        if (oem is null || !TryBuildToolCandidate(oem, out var toolId, out var toolUri))
+        if (oem is null)
         {
+            _logger.LogInformation("OEM tool source skipped: OEM could not be detected");
+            yield break;
+        }
+        if (!TryBuildToolCandidate(oem, out var toolId, out var toolUri))
+        {
+            _logger.LogInformation(
+                "OEM tool source skipped: no supported vendor update tool (vendor={Vendor}, toolInstalled={ToolInstalled}, toolPath={ToolPath})",
+                oem.Vendor, oem.ToolInstalled, oem.ToolPath ?? "<none>");
             yield break;
         }
 
@@ -51,6 +59,9 @@ public sealed class OemToolUpdateSource : IUpdateSource
             if (driver.CurrentDate is { } currentDate
                 && now - new DateTimeOffset(currentDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) < CandidateAge)
             {
+                _logger.LogDebug(
+                    "OEM tool check skipped for {Device}: installed driver dated {CurrentDate} is within the {Days}-day window",
+                    driver.DeviceName, currentDate, CandidateAge.TotalDays);
                 continue;
             }
 

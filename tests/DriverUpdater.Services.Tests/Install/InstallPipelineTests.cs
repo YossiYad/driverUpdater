@@ -240,6 +240,76 @@ public class InstallPipelineTests
         vendorInstaller.Invocations.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task ExecuteAsync_installs_vendor_page_when_resolver_finds_direct_installer()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var resolver = new FakeVendorPageResolver(candidate => candidate with
+        {
+            DownloadUrl = new Uri("https://download.example.com/driver.msi"),
+            InstallKind = UpdateInstallKind.VendorInstaller,
+            SourceUpdateId = $"vendor-installer:msi-wrapper:resolved:{candidate.SourceUpdateId}"
+        });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: http,
+            vendorPageResolver: resolver);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.Candidate.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        vendorInstaller.Invocations.Should().ContainSingle()
+            .Which.FileName.Should().EndWith("msiexec.exe");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_vendor_page_when_resolver_finds_nothing()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null));
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("vendor page");
+        result.Candidate.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_vendor_page_without_resolver()
+    {
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("vendor page");
+    }
+
     private static UpdateOperation NewOperation(
         UpdateSource source = UpdateSource.WindowsUpdate,
         UpdateInstallKind installKind = UpdateInstallKind.WindowsUpdate,
@@ -376,6 +446,19 @@ public class InstallPipelineTests
             File.WriteAllText(Path.Combine(extractDir, "driver.inf"), "[Version]");
             return Task.FromResult(new ProcessResult(0, "expanded", ""));
         }
+    }
+
+    private sealed class FakeVendorPageResolver : IVendorPageInstallerResolver
+    {
+        private readonly Func<UpdateCandidate, UpdateCandidate?> _resolve;
+
+        public FakeVendorPageResolver(Func<UpdateCandidate, UpdateCandidate?> resolve)
+        {
+            _resolve = resolve;
+        }
+
+        public Task<UpdateCandidate?> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_resolve(candidate));
     }
 
     private sealed class FakeVendorInstallerRunner : IVendorInstallerRunner

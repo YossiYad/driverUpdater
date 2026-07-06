@@ -30,10 +30,11 @@ public partial class App : Application
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
-            // Surface the full AI verification trail (prompt, payload, raw response,
-            // per-verdict detail) without turning on Debug for the whole app.
-            .MinimumLevel.Override("DriverUpdater.Services.Ai", Serilog.Events.LogEventLevel.Debug)
-            .MinimumLevel.Override("DriverUpdater.App.ViewModels.MainViewModel", Serilog.Events.LogEventLevel.Debug)
+            // All DriverUpdater namespaces log at Debug so skip/miss decisions in every
+            // source and pipeline step land in the file; framework noise stays at
+            // Information+ (HttpClient is pushed further down to Warning).
+            .MinimumLevel.Override("DriverUpdater", Serilog.Events.LogEventLevel.Debug)
+            .MinimumLevel.Override("System.Net.Http.HttpClient", Serilog.Events.LogEventLevel.Warning)
             .WriteTo.Debug()
             .WriteTo.File(
                 path: Path.Combine(logDirectory, "driverupdater-.log"),

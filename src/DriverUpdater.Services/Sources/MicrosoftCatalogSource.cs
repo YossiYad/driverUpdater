@@ -59,6 +59,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
 
         if (hardwareIds.Length == 0)
         {
+            _logger.LogDebug("Catalog search skipped: no hardware IDs to query");
             yield break;
         }
 
@@ -108,6 +109,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
 
             if (hits.Count == 0)
             {
+                _logger.LogDebug("Catalog search for {HardwareId} returned no hits", hardwareId);
                 return;
             }
 
@@ -129,7 +131,19 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
                 cancellationToken.ThrowIfCancellationRequested();
                 if (TryMap(hit, hardwareId, downloadMap, out var candidate))
                 {
+                    if (candidate.InstallKind == UpdateInstallKind.VendorPage)
+                    {
+                        _logger.LogDebug(
+                            "Catalog hit {UpdateId} for {HardwareId} has no downloadable package; offering the catalog page instead",
+                            hit.UpdateId, hardwareId);
+                    }
                     await writer.WriteAsync(candidate, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Catalog hit for {HardwareId} discarded: missing update id (title={Title})",
+                        hardwareId, hit.Title);
                 }
             }
         }

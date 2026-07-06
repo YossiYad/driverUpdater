@@ -31,16 +31,30 @@ public sealed partial class WindowsUpdateSource : IUpdateSource
 
         _logger.LogInformation("Windows Update search starting for {Count} drivers", drivers.Count);
 
+        var mapped = 0;
+        var discarded = 0;
         await foreach (var record in _client.SearchDriverUpdatesAsync(cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (TryMap(record, out var candidate))
             {
+                mapped++;
+                _logger.LogDebug(
+                    "Windows Update candidate: {Title} (hardwareId={HardwareId}, version={Version}, date={Date})",
+                    record.Title, candidate.ForHardwareId, candidate.NewVersion, candidate.NewDate);
                 yield return candidate;
+            }
+            else
+            {
+                discarded++;
+                _logger.LogDebug(
+                    "Windows Update record discarded (missing update id): {Title}", record.Title);
             }
         }
 
-        _logger.LogInformation("Windows Update search completed");
+        _logger.LogInformation(
+            "Windows Update search completed: {Mapped} candidates, {Discarded} records discarded",
+            mapped, discarded);
     }
 
     internal static bool TryMap(WuDriverUpdateRecord record, out UpdateCandidate candidate)

@@ -52,6 +52,9 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
 
             if (!TryResolveVendorPage(driver, out var vendorName, out var page))
             {
+                _logger.LogDebug(
+                    "Vendor page check skipped for {Device}: no vendor page mapping (provider={Provider}, category={Category})",
+                    driver.DeviceName, driver.Provider, driver.Category);
                 continue;
             }
 
@@ -65,6 +68,9 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
             if (driver.CurrentDate is { } currentDate
                 && now - new DateTimeOffset(currentDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) < advisoryAge)
             {
+                _logger.LogDebug(
+                    "Vendor page check skipped for {Device}: installed driver dated {CurrentDate} is within the {Days}-day advisory window",
+                    driver.DeviceName, currentDate, advisoryAge.TotalDays);
                 continue;
             }
 
@@ -109,6 +115,9 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
             var html = await _httpClient.GetStringAsync(page, cancellationToken).ConfigureAwait(false);
             if (!TryFindAppInstallablePackage(page, html, out var packageUrl, out var installerKind))
             {
+                _logger.LogInformation(
+                    "No direct .msi/.zip installer found on {Page} for {Device} ({Length} bytes scanned); offering the page itself",
+                    page, driver.DeviceName, html.Length);
                 return null;
             }
 

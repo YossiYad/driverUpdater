@@ -71,7 +71,7 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
         UpdateInstallKind.VendorInstaller => "Install (silent)",
-        UpdateInstallKind.VendorPage => "Open vendor page",
+        UpdateInstallKind.VendorPage => "Install / vendor page",
         _ => string.Empty
     };
     public string ConfidenceText => AvailableUpdate?.Confidence switch

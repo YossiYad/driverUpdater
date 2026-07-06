@@ -1191,18 +1191,19 @@ public partial class MainViewModel : ObservableObject
                 && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
+        // Vendor page rows go through the pipeline too: it tries to resolve a direct
+        // installer from the page and install silently. Only when that fails does the
+        // pipeline report Skipped and the row falls back to opening the page below.
         if (!dryRun && includeVendorPages && pageTargets.Length > 0)
         {
-            OpenVendorPages(pageTargets);
+            installTargets = installTargets.Concat(pageTargets).ToArray();
         }
 
         if (installTargets.Length == 0)
         {
             StatusText = dryRun
                 ? $"Dry run completed. {pageTargets.Length} vendor pages would be opened."
-                : includeVendorPages
-                    ? $"Opened {pageTargets.Length} vendor update pages."
-                    : "No confirmed updates to install.";
+                : "No confirmed updates to install.";
             return;
         }
 
@@ -1227,6 +1228,7 @@ public partial class MainViewModel : ObservableObject
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         var skipped = new List<(DriverRowViewModel Row, string Reason)>();
+        var vendorPageFallbacks = new List<DriverRowViewModel>();
         foreach (var row in installTargets)
         {
             if (row.AvailableUpdate is null)
@@ -1247,6 +1249,7 @@ public partial class MainViewModel : ObservableObject
             }
             cancellationToken.ThrowIfCancellationRequested();
 
+            var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
@@ -1279,17 +1282,31 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                ApplySharedVendorInstallerResult(finished, row);
+                ApplySharedVendorInstallerResult(finished, row, originalUpdateId);
+            }
+
+            if (!dryRun
+                && finished.Status == UpdateStatus.Skipped
+                && finished.Candidate.InstallKind == UpdateInstallKind.VendorPage)
+            {
+                vendorPageFallbacks.Add(row);
             }
         }
 
-        LogRunSummary(runStartedAt, dryRun, pageTargets, installTargets, outcomes, skipped);
+        if (vendorPageFallbacks.Count > 0)
+        {
+            OpenVendorPages(vendorPageFallbacks);
+        }
+
+        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, outcomes, skipped);
 
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
-            : includeVendorPages
-                ? $"Install completed for {installTargets.Length} drivers. Opened {pageTargets.Length} vendor pages."
-                : $"Install completed for {installTargets.Length} confirmed drivers.";
+            : vendorPageFallbacks.Count > 0
+                ? $"Install completed for {installTargets.Length} drivers. Opened {vendorPageFallbacks.Count} vendor pages."
+                : includeVendorPages
+                    ? $"Install completed for {installTargets.Length} drivers."
+                    : $"Install completed for {installTargets.Length} confirmed drivers.";
 
         if (!dryRun)
         {
@@ -1303,7 +1320,7 @@ public partial class MainViewModel : ObservableObject
     private void LogRunSummary(
         DateTimeOffset runStartedAt,
         bool dryRun,
-        IReadOnlyList<DriverRowViewModel> pageTargets,
+        IReadOnlyList<DriverRowViewModel> vendorPageFallbacks,
         IReadOnlyList<DriverRowViewModel> installTargets,
         IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes,
         IReadOnlyList<(DriverRowViewModel Row, string Reason)> skipped)
@@ -1317,7 +1334,7 @@ public partial class MainViewModel : ObservableObject
         sb.Append("Update run summary").Append(dryRun ? " (dry run)" : string.Empty)
             .Append(" - elapsed ").Append(elapsed.ToString(@"mm\:ss"))
             .Append(", install targets ").Append(installTargets.Count)
-            .Append(", vendor pages ").Append(pageTargets.Count)
+            .Append(", vendor pages opened ").Append(vendorPageFallbacks.Count)
             .Append(", succeeded ").Append(succeeded.Length)
             .Append(", failed ").Append(failed.Length)
             .Append(", skipped ").Append(pipelineSkipped.Length + skipped.Count)
@@ -1363,7 +1380,7 @@ public partial class MainViewModel : ObservableObject
         _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
     }
 
-    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow)
+    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow, string originalUpdateId)
     {
         // Every row that shares the SourceUpdateId is really the same install (think 18
         // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
@@ -1372,7 +1389,12 @@ public partial class MainViewModel : ObservableObject
         // filter makes it look like there is still work pending when there is not.
         // The master row keeps its AvailableUpdate on failure so the user can retry it
         // explicitly without having to rescan.
-        foreach (var row in Drivers.Where(r => r.AvailableUpdate?.SourceUpdateId == finished.Candidate.SourceUpdateId))
+        // A vendor page candidate that was resolved to a direct installer finishes with a
+        // rewritten SourceUpdateId; sibling rows still carry the original id, so match both.
+        foreach (var row in Drivers.Where(r =>
+            r.AvailableUpdate?.SourceUpdateId is { } id
+            && (string.Equals(id, finished.Candidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, originalUpdateId, StringComparison.OrdinalIgnoreCase))))
         {
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = finished;

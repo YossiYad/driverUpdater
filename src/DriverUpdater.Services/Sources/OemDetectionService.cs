@@ -58,6 +58,12 @@ public sealed class OemDetectionService : IOemDetectionService
 
         var template = GetToolTemplate(vendor);
         var toolPath = ResolveToolPath(template.CandidateToolPaths);
+        if (toolPath is null && template.CandidateToolPaths.Count > 0)
+        {
+            _logger.LogInformation(
+                "OEM tool {ToolName} not installed; checked: {Paths}",
+                template.ToolName, string.Join("; ", template.CandidateToolPaths));
+        }
         var fallbackUrl = ResolveVendorSupportUrl(vendor, csModel) ?? template.FallbackUrl;
 
         var info = new OemInfo(
@@ -68,7 +74,9 @@ public sealed class OemDetectionService : IOemDetectionService
             ToolPath: toolPath,
             FallbackUrl: fallbackUrl);
 
-        _logger.LogInformation("OEM detected: {Vendor} {Model} (tool installed={Installed})", vendor, info.Model, info.ToolInstalled);
+        _logger.LogInformation(
+            "OEM detected: {Vendor} {Model} (manufacturer={Manufacturer}, tool={ToolName}, tool installed={Installed}, toolPath={ToolPath}, fallbackUrl={FallbackUrl})",
+            vendor, info.Model, info.Manufacturer, info.ToolName, info.ToolInstalled, info.ToolPath ?? "<none>", info.FallbackUrl);
         return info;
     }
 
