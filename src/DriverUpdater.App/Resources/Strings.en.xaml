@@ -3,7 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.6</sys:String>
+    <sys:String x:Key="App.Version">v0.1.7</sys:String>
     <sys:String x:Key="App.Admin">Administrator</sys:String>
     <sys:String x:Key="App.NotElevated">Not elevated</sys:String>
 
@@ -20,6 +20,7 @@
     <sys:String x:Key="Toolbar.History">History</sys:String>
     <sys:String x:Key="Toolbar.Logs">Logs</sys:String>
     <sys:String x:Key="Toolbar.Settings">Settings</sys:String>
+    <sys:String x:Key="Toolbar.UpdateApp">Update app</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>

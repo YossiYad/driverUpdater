@@ -34,6 +34,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IDriverCacheStore? _driverCacheStore;
     private readonly IAiVerifier? _aiVerifier;
     private readonly IOptionsMonitor<UpdaterSettings>? _updaterSettings;
+    private readonly IAppUpdater? _appUpdater;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -90,6 +91,17 @@ public partial class MainViewModel : ObservableObject
     private int _vendorChecksCount;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAppCommand))]
+    private bool _isAppUpdateAvailable;
+
+    [ObservableProperty]
+    private string? _appUpdateVersion;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAppCommand))]
+    private bool _isAppUpdating;
+
+    [ObservableProperty]
     private DriverCategory? _categoryFilter;
 
     [ObservableProperty]
@@ -125,7 +137,8 @@ public partial class MainViewModel : ObservableObject
         IDriverCacheStore? driverCacheStore = null,
         IAiVerifier? aiVerifier = null,
         IOptionsMonitor<UpdaterSettings>? updaterSettings = null,
-        IAiResultWindowOpener? aiResultWindowOpener = null)
+        IAiResultWindowOpener? aiResultWindowOpener = null,
+        IAppUpdater? appUpdater = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -149,6 +162,7 @@ public partial class MainViewModel : ObservableObject
         _driverCacheStore = driverCacheStore;
         _aiVerifier = aiVerifier;
         _updaterSettings = updaterSettings;
+        _appUpdater = appUpdater;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -171,7 +185,63 @@ public partial class MainViewModel : ObservableObject
         }
 
         await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+
+        await CheckForAppUpdateAsync(cancellationToken).ConfigureAwait(true);
     }
+
+    private async Task CheckForAppUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (_appUpdater is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
+            IsAppUpdateAvailable = result.IsUpdateAvailable;
+            AppUpdateVersion = result.Version;
+            if (result.IsUpdateAvailable)
+            {
+                _logger.LogInformation("App update {Version} is available", result.Version);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Checking for an app update failed");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUpdateApp))]
+    private async Task UpdateAppAsync(CancellationToken cancellationToken)
+    {
+        if (_appUpdater is null)
+        {
+            return;
+        }
+
+        IsAppUpdating = true;
+        StatusText = $"Downloading app update {AppUpdateVersion}...";
+        try
+        {
+            var progress = new Progress<int>(percent =>
+                StatusText = $"Downloading app update {AppUpdateVersion}... {percent}%");
+            // On success the app downloads the new version and restarts immediately, so
+            // execution does not return past this call.
+            await _appUpdater.DownloadAndApplyAsync(progress, cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Applying the app update failed");
+            StatusText = $"App update failed: {ex.Message}";
+        }
+        finally
+        {
+            IsAppUpdating = false;
+        }
+    }
+
+    private bool CanUpdateApp() => IsAppUpdateAvailable && !IsAppUpdating && _appUpdater is not null;
 
     private async Task LoadDriverCacheAsync(CancellationToken cancellationToken)
     {
