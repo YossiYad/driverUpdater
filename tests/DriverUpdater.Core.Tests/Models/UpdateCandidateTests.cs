@@ -136,6 +136,26 @@ public class UpdateCandidateTests
         candidate.IsNewerThan(current).Should().BeFalse();
     }
 
+    // The real-world bug: Windows inbox drivers report a placeholder date of 2006-06-21 while
+    // carrying a modern build number (10.0.26100.x). A calendar-versioned catalog package whose
+    // date encodes the version (2018.5.31.0 / 2018-05-31) must NOT be considered newer just
+    // because 2018-05-31 > 2006-06-21 — the inbox guard has to win over the date comparison.
+    [Theory]
+    [InlineData("2018.5.31.0",  2018, 5,  31, "10.0.26100.1")]      // WAN Miniport
+    [InlineData("2018.7.17.0",  2018, 7,  17, "10.0.26100.8521")]   // Intel Processor
+    [InlineData("2019.8.3.0",   2019, 8,  3,  "10.0.26100.8521")]   // Disk drive
+    [InlineData("2021.12.5.0",  2021, 12, 5,  "10.0.26100.8521")]   // Generic PnP Monitor
+    [InlineData("2021.12.29.0", 2021, 12, 29, "10.0.26100.8521")]   // USB Composite Device
+    [InlineData("2023.3.19.0",  2023, 3,  19, "10.0.26100.1150")]   // Microsoft Input Config
+    public void IsNewerThan_refuses_calendar_package_over_inbox_driver_with_placeholder_date(
+        string candidateVersion, int year, int month, int day, string installedVersion)
+    {
+        var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(year, month, day));
+        var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = new DateOnly(2006, 6, 21) };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
     [Fact]
     public void IsNewerThan_allows_real_vendor_driver_to_replace_windows_inbox_driver()
     {

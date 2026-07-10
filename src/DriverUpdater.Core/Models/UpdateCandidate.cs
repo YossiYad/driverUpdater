@@ -19,6 +19,21 @@ public sealed record UpdateCandidate(
     {
         ArgumentNullException.ThrowIfNull(current);
 
+        // Never downgrade a Windows inbox driver (10.0.<osbuild>.x, e.g. 10.0.26100.8521) to an
+        // OEM catalog driver that uses a calendar-year version (YYYY.MM.DD.x, e.g. 2018.5.31.0).
+        // This MUST be decided before any date/number comparison below: inbox drivers report a
+        // placeholder date (commonly 2006-06-21), so the date branch would see a 2018 package as
+        // "newer than 2006" and the raw "2018 > 10" number comparison is also a false positive.
+        // The modern build number (26100) is the real signal. Because Windows silently rejects
+        // the downgrade of a protected inbox driver, such an "update" otherwise reappears on
+        // every scan and is installed in a loop.
+        if (current.CurrentVersion is { } installed
+            && IsWindowsInboxVersion(installed)
+            && IsCalendarVersion(NewVersion))
+        {
+            return false;
+        }
+
         // Most reliable comparison: both the candidate and the installed driver expose a date.
         if (IsDateBasedVersion(NewVersion, NewDate) && current.CurrentDate is { } currentDate)
         {
@@ -28,19 +43,6 @@ public sealed record UpdateCandidate(
         if (current.CurrentVersion is null)
         {
             return true;
-        }
-
-        // Never downgrade a Windows inbox driver (10.0.<osbuild>.x, e.g. 10.0.26100.8521)
-        // to an OEM catalog driver that uses a calendar-year major (YYYY.MM.DD.x, e.g.
-        // 2018.5.31.0). The two version schemes live in different domains, so the raw
-        // "2018 > 10" comparison below is a false positive that would replace a modern
-        // inbox driver with a years-old package — and because Windows silently rejects the
-        // downgrade of a protected inbox driver, the "update" reappears on every scan.
-        // Detect the calendar scheme from the version itself so this holds even when the
-        // catalog's NewDate does not cleanly encode the version.
-        if (IsCalendarVersion(NewVersion) && IsWindowsInboxVersion(current.CurrentVersion))
-        {
-            return false;
         }
 
         // Calendar-year candidate vs a low-major classic driver (e.g. Realtek 6.0.9927.1 or
