@@ -7,12 +7,14 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DriverUpdater.App.Logging;
+using DriverUpdater.Core.Abstractions;
 
 namespace DriverUpdater.App.ViewModels;
 
 public partial class LogsViewModel : ObservableObject, IDisposable
 {
     private readonly InMemoryLogSink _sink;
+    private readonly IAiTextCompleter? _aiCompleter;
     private readonly Dispatcher _dispatcher;
     private readonly List<LogEntry> _pending = new();
     private readonly object _pendingGate = new();
@@ -37,10 +39,22 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _pendingCount;
 
-    public LogsViewModel(InMemoryLogSink sink)
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeWithAiCommand))]
+    private bool _isSummarizing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAiSummary))]
+    [NotifyCanExecuteChangedFor(nameof(CopyAiSummaryCommand))]
+    private string? _aiSummary;
+
+    public bool HasAiSummary => !string.IsNullOrWhiteSpace(AiSummary);
+
+    public LogsViewModel(InMemoryLogSink sink, IAiTextCompleter? aiCompleter = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
         _sink = sink;
+        _aiCompleter = aiCompleter;
         _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
 
         foreach (var existing in sink.Snapshot())
@@ -134,6 +148,71 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 
         SafeSetClipboard(buffer.ToString());
         StatusText = $"Copied {count} entries to clipboard.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSummarize), IncludeCancelCommand = true)]
+    private async Task SummarizeWithAiAsync(CancellationToken cancellationToken)
+    {
+        if (_aiCompleter is null)
+        {
+            StatusText = "AI summary is not available in this build.";
+            return;
+        }
+        if (!_aiCompleter.IsConfigured)
+        {
+            StatusText = $"AI is not configured. Open Settings > AI to enable {_aiCompleter.Provider}.";
+            return;
+        }
+
+        var entries = _sink.Snapshot();
+        if (entries.Count == 0)
+        {
+            StatusText = "No logs to summarize yet.";
+            return;
+        }
+
+        IsSummarizing = true;
+        AiSummary = null;
+        StatusText = $"Summarizing {entries.Count} log entries with AI...";
+        try
+        {
+            var prompt = LogSummaryPromptBuilder.Build(entries);
+            var summary = await _aiCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(summary))
+            {
+                StatusText = "AI did not return a summary. Check the AI provider in Settings and try again.";
+                return;
+            }
+
+            AiSummary = summary.Trim();
+            SafeSetClipboard(AiSummary);
+            StatusText = "AI log summary ready and copied to the clipboard. Paste it to share.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "AI summary cancelled.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"AI summary failed: {ex.Message}";
+        }
+        finally
+        {
+            IsSummarizing = false;
+        }
+    }
+
+    private bool CanSummarize() => !IsSummarizing && _aiCompleter is not null;
+
+    [RelayCommand(CanExecute = nameof(HasAiSummary))]
+    private void CopyAiSummary()
+    {
+        if (string.IsNullOrWhiteSpace(AiSummary))
+        {
+            return;
+        }
+        SafeSetClipboard(AiSummary);
+        StatusText = "AI summary copied to the clipboard.";
     }
 
     [RelayCommand]

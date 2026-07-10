@@ -88,6 +88,10 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<OllamaAiVerifier>();
         services.AddSingleton<IAiVerifier, AiVerifierSelector>();
 
+        services.AddSingleton<GeminiAiTextCompleter>();
+        services.AddSingleton<OllamaAiTextCompleter>();
+        services.AddSingleton<IAiTextCompleter, AiTextCompleterSelector>();
+
         return services;
     }
 
