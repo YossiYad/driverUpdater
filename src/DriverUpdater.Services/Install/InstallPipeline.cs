@@ -191,14 +191,14 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         if (Interlocked.CompareExchange(ref _restorePointSuppressed, 0, 0) == 1)
         {
-            _logger.LogInformation("Restore point skipped for {Device} (suppressed: earlier failure in this session)", operation.TargetSnapshot.DeviceName);
+            _logger.LogInformation("Restore point skipped for {Device} (suppressed: earlier failure in this session)", DeviceLabel(operation.TargetSnapshot));
             return operation;
         }
 
         operation = operation with { Status = UpdateStatus.CreatingRestorePoint };
         progress?.Report(operation);
 
-        var description = $"DriverUpdater - before {operation.TargetSnapshot.DeviceName}";
+        var description = $"DriverUpdater - before {DeviceLabel(operation.TargetSnapshot)}";
         var rp = await _restorePointService.CreateRestorePointAsync(description, cancellationToken).ConfigureAwait(false);
         if (rp.IsFailure)
         {
@@ -264,9 +264,7 @@ public sealed class InstallPipeline : IInstallPipeline
             return operation;
         }
 
-        var deviceName = string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceName)
-            ? operation.TargetSnapshot.HardwareId
-            : operation.TargetSnapshot.DeviceName;
+        var deviceName = DeviceLabel(operation.TargetSnapshot);
 
         // When a reboot is required the new driver only binds after restart, so an in-session
         // read-back would falsely report "unchanged". Defer verification to the next scan.
@@ -771,6 +769,22 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         var value = string.IsNullOrWhiteSpace(first) ? second : first;
         return value.Trim();
+    }
+
+    // A human-readable label for a device that never yields an empty string. Virtual/inbox
+    // devices (e.g. Microsoft Print to PDF) can have a blank DeviceName, which otherwise leaks
+    // into the restore point description ("DriverUpdater - before ") and logs.
+    private static string DeviceLabel(DriverInfo driver)
+    {
+        if (!string.IsNullOrWhiteSpace(driver.DeviceName))
+        {
+            return driver.DeviceName;
+        }
+        if (!string.IsNullOrWhiteSpace(driver.HardwareId))
+        {
+            return driver.HardwareId;
+        }
+        return string.IsNullOrWhiteSpace(driver.DeviceId) ? "Unknown device" : driver.DeviceId;
     }
 
     // When a silent installer exits non-zero with empty stdout/stderr (AMD and most
