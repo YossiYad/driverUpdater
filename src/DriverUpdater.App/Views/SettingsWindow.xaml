@@ -254,23 +254,38 @@
                         <Run Text="Settings file: " /><Run Text="{Binding SettingsPath, Mode=OneWay}" />
                     </TextBlock>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,20,0,0"
+                    <StackPanel Margin="0,20,0,0"
                                 Visibility="{Binding CanCheckForUpdates, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Button Padding="14,6"
-                                Content="Check for updates"
-                                Command="{Binding CheckForUpdatesCommand}" />
-                        <ProgressBar Width="120"
-                                     Height="4"
-                                     Margin="12,0,0,0"
-                                     VerticalAlignment="Center"
-                                     IsIndeterminate="True"
-                                     Visibility="{Binding IsCheckingForUpdates, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Padding="14,6"
+                                    Content="Check for updates"
+                                    Command="{Binding CheckForUpdatesCommand}" />
+                            <ProgressBar Width="120"
+                                         Height="4"
+                                         Margin="12,0,0,0"
+                                         VerticalAlignment="Center"
+                                         IsIndeterminate="True"
+                                         Visibility="{Binding IsCheckingForUpdates, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                        <TextBlock Margin="0,8,0,0"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="Checks GitHub for a newer version. If one is found you'll be asked to install it — the app downloads it and restarts, no need to close and reopen." />
+
+                        <CheckBox Margin="0,16,0,0"
+                                  Content="Automatically check for updates on startup"
+                                  IsChecked="{Binding CheckForUpdatesOnStartup, Mode=TwoWay}" />
+                        <CheckBox Margin="0,8,0,0"
+                                  Content="Install updates automatically (no prompt)"
+                                  IsEnabled="{Binding CheckForUpdatesOnStartup}"
+                                  IsChecked="{Binding AutoInstallAppUpdates, Mode=TwoWay}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="With automatic install on, a found update is downloaded and applied on startup and the app restarts onto the new version." />
                     </StackPanel>
-                    <TextBlock Margin="0,8,0,0"
-                               Opacity="0.7"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Text="Checks GitHub for a newer version. If one is found you'll be asked to install it — the app downloads it and restarts, no need to close and reopen." />
                 </StackPanel>
             </TabItem>
         </TabControl>

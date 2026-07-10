@@ -37,6 +37,11 @@ public partial class MainViewModel : ObservableObject
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly IRebootPrompt? _rebootPrompt;
+    private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
+
+    // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
+    // A candidate is suppressed while the device still reports that installed version.
+    private Dictionary<string, string?> _ineffectiveIndex = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -142,7 +147,8 @@ public partial class MainViewModel : ObservableObject
         IAiResultWindowOpener? aiResultWindowOpener = null,
         IAppUpdater? appUpdater = null,
         IAppUpdatePrompt? appUpdatePrompt = null,
-        IRebootPrompt? rebootPrompt = null)
+        IRebootPrompt? rebootPrompt = null,
+        IIneffectiveUpdateStore? ineffectiveUpdateStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -169,6 +175,7 @@ public partial class MainViewModel : ObservableObject
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
         _rebootPrompt = rebootPrompt;
+        _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -393,6 +400,8 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        await LoadIneffectiveLedgerAsync(cancellationToken).ConfigureAwait(true);
+
         var index = BuildHardwareIdIndex();
         var driverSnapshots = Drivers.Select(d => d.Driver).ToArray();
 
@@ -414,6 +423,7 @@ public partial class MainViewModel : ObservableObject
                 {
                     if (TryFindRow(index, candidate.ForHardwareId, out var row, out var matchKind)
                         && candidate.IsNewerThan(row.Driver)
+                        && !IsProvenIneffective(row, candidate)
                         && ShouldAcceptCandidate(row, candidate))
                     {
                         if (matchKind == HardwareIdMatchKind.Fuzzy)
@@ -443,6 +453,91 @@ public partial class MainViewModel : ObservableObject
         await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
 
         LogScanSummary();
+    }
+
+    private static string IneffectiveKey(string deviceId, string targetVersion) => deviceId + "|" + targetVersion;
+
+    private async Task LoadIneffectiveLedgerAsync(CancellationToken cancellationToken)
+    {
+        if (_ineffectiveUpdateStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var records = await _ineffectiveUpdateStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            _ineffectiveIndex = records.ToDictionary(
+                r => IneffectiveKey(r.DeviceId, r.TargetVersion),
+                r => r.InstalledVersionAtAttempt,
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load the ineffective-update ledger; not suppressing any candidates");
+            _ineffectiveIndex = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    // A candidate is a proven no-op when we previously installed this exact target for this device
+    // and Windows kept the existing driver (no reboot pending), AND the device still reports the
+    // same installed version — so re-installing would change nothing again. If the installed
+    // version has since changed, the record no longer applies and the candidate is offered again.
+    private bool IsProvenIneffective(DriverRowViewModel row, UpdateCandidate candidate)
+    {
+        if (_ineffectiveIndex.Count == 0 || candidate.NewVersion is null)
+        {
+            return false;
+        }
+
+        var key = IneffectiveKey(row.Driver.DeviceId, candidate.NewVersion.ToString());
+        if (!_ineffectiveIndex.TryGetValue(key, out var installedAtAttempt))
+        {
+            return false;
+        }
+
+        var currentInstalled = row.Driver.CurrentVersion?.ToString();
+        if (!string.Equals(installedAtAttempt, currentInstalled, StringComparison.OrdinalIgnoreCase))
+        {
+            return false; // something changed since the failed attempt — re-evaluate normally
+        }
+
+        _logger.LogInformation(
+            "Suppressing {Device}: {Target} was already installed but Windows kept {Installed} (proven no-op). " +
+            "It will be offered again if the installed driver changes or a newer version appears.",
+            DriverDisplayName(row), candidate.NewVersion, currentInstalled ?? "the existing driver");
+        return true;
+    }
+
+    private async Task RecordIfProvenIneffectiveAsync(DriverRowViewModel row, UpdateOperation finished, CancellationToken cancellationToken)
+    {
+        if (_ineffectiveUpdateStore is null || finished.Candidate.NewVersion is null)
+        {
+            return;
+        }
+
+        // Only record the proven immediate no-op: post-install verification saw the active driver
+        // unchanged with no reboot pending (that is exactly the "kept the existing driver" skip).
+        // Reboot-required successes are never recorded — they bind after a restart.
+        var isProvenNoOp = finished.Status == UpdateStatus.Skipped
+            && finished.ErrorMessage?.Contains("kept the existing driver", StringComparison.OrdinalIgnoreCase) == true;
+        if (!isProvenNoOp)
+        {
+            return;
+        }
+
+        try
+        {
+            await _ineffectiveUpdateStore.RecordAsync(
+                row.Driver.DeviceId,
+                finished.Candidate.NewVersion.ToString(),
+                finished.TargetSnapshot.CurrentVersion?.ToString(),
+                cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not record the ineffective update for {Device}", DriverDisplayName(row));
+        }
     }
 
     private static bool IsSourceDisabled(IUpdateSource source, UpdaterSettings settings) => source.Kind switch
@@ -1406,6 +1501,8 @@ public partial class MainViewModel : ObservableObject
                 "Update run: {Device} finished with {Status} after {Duration}{Error}",
                 displayName, finished.Status, finished.Duration ?? TimeSpan.Zero,
                 string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
+
+            await RecordIfProvenIneffectiveAsync(row, finished, cancellationToken).ConfigureAwait(true);
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {

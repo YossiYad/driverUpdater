@@ -32,6 +32,8 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
         services.AddSingleton<IDriverCacheStore>(sp =>
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
+        services.AddSingleton<IIneffectiveUpdateStore>(sp =>
+            new JsonIneffectiveUpdateStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonIneffectiveUpdateStore>>()));
         services.AddMemoryCache();
 
         services.AddHttpClient<ICatalogHttpClient, CatalogHttpClient>(CatalogHttpClient.HttpClientName, (sp, client) =>

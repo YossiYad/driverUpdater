@@ -58,6 +58,15 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CheckForUpdatesCommand))]
     private bool _isCheckingForUpdates;
 
+    /// <summary>Automatically check GitHub for a newer app version on startup.</summary>
+    [ObservableProperty] private bool _checkForUpdatesOnStartup;
+
+    /// <summary>When checking on startup, download and install a found update without asking.</summary>
+    [ObservableProperty] private bool _autoInstallAppUpdates;
+
+    // Preserved across save so the app-update feed/repo settings are not wiped by the UI.
+    private UpdaterSettings _loadedUpdater = new();
+
     /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
     public bool CanCheckForUpdates => _appUpdater is not null;
 
@@ -228,7 +237,13 @@ public partial class SettingsViewModel : ObservableObject
         Updater = new UpdaterSettings
         {
             WindowsUpdateEnabled = EnableWindowsUpdate,
-            OemSourcesEnabled = EnableOemHints
+            OemSourcesEnabled = EnableOemHints,
+            CheckOnStartup = CheckForUpdatesOnStartup,
+            AutoApply = AutoInstallAppUpdates,
+            // Preserve the feed/repo settings that have no UI so a save does not reset them.
+            GitHubRepoUrl = _loadedUpdater.GitHubRepoUrl,
+            FeedUrl = _loadedUpdater.FeedUrl,
+            AllowPrerelease = _loadedUpdater.AllowPrerelease
         },
         Schedule = new ScheduleSettings
         {
@@ -258,9 +273,12 @@ public partial class SettingsViewModel : ObservableObject
 
     internal void ApplyFromSettings(AppSettings settings)
     {
+        _loadedUpdater = settings.Updater;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
         EnableMicrosoftCatalog = settings.Catalog.Enabled;
         EnableOemHints = settings.Updater.OemSourcesEnabled;
+        CheckForUpdatesOnStartup = settings.Updater.CheckOnStartup;
+        AutoInstallAppUpdates = settings.Updater.AutoApply;
         BackupRetentionDays = settings.Backup.RetentionDays;
         ScheduleMode = settings.Schedule.Mode;
         ScheduleCadence = settings.Schedule.Cadence;

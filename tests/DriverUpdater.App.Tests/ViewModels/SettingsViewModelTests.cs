@@ -242,6 +242,46 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_auto_update_toggles_from_store()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Updater = new UpdaterSettings { CheckOnStartup = true, AutoApply = true }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.CheckForUpdatesOnStartup.Should().BeTrue();
+        vm.AutoInstallAppUpdates.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_auto_update_toggles_without_wiping_feed_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Updater = new UpdaterSettings
+            {
+                GitHubRepoUrl = "https://github.com/YossiYad/driverUpdater",
+                AllowPrerelease = true
+            }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.CheckForUpdatesOnStartup = true;
+        vm.AutoInstallAppUpdates = true;
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Updater.CheckOnStartup.Should().BeTrue();
+        store.Saved.Updater.AutoApply.Should().BeTrue();
+        store.Saved.Updater.GitHubRepoUrl.Should().Be("https://github.com/YossiYad/driverUpdater");
+        store.Saved.Updater.AllowPrerelease.Should().BeTrue("feed settings without a UI must be preserved on save");
+    }
+
+    [WpfFact]
     public void CheckForUpdates_is_unavailable_without_an_updater()
     {
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
