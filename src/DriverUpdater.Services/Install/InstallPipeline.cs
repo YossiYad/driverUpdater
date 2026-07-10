@@ -182,7 +182,7 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         if (Interlocked.CompareExchange(ref _restorePointSuppressed, 0, 0) == 1)
         {
-            _logger.LogDebug("Restore point creation skipped (suppressed after earlier failure in this session)");
+            _logger.LogInformation("Restore point skipped for {Device} (suppressed: earlier failure in this session)", operation.TargetSnapshot.DeviceName);
             return operation;
         }
 
@@ -468,6 +468,24 @@ public sealed class InstallPipeline : IInstallPipeline
                     progress?.Report(operation);
                 },
                 cancellationToken).ConfigureAwait(false);
+
+            var packageExt = Path.GetExtension(packagePath);
+            if (!packageExt.Equals(".cab", StringComparison.OrdinalIgnoreCase)
+                && !packageExt.Equals(".inf", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "pnputil package for {Device} downloaded as {Ext} — only .cab/.inf are supported for automatic install; skipping. URL: {Url}",
+                    operation.TargetSnapshot.DeviceName, packageExt, operation.Candidate.DownloadUrl);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Skipped,
+                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil. Open the vendor page to install manually: {operation.Candidate.DownloadUrl}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             var installRoot = await PreparePnPUtilInstallRootAsync(packagePath, workDir, cancellationToken).ConfigureAwait(false);
 
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };

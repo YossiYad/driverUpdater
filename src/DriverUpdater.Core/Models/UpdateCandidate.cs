@@ -28,6 +28,21 @@ public sealed record UpdateCandidate(
         {
             return true;
         }
+
+        // When a catalog entry IS date-based (NewVersion encodes YYYY.MM.DD.0) but the
+        // installed driver has no CurrentDate to compare against, we fall through to the
+        // version number comparison below. That comparison is wrong when the installed
+        // driver uses a Windows build version (major ≤ 99, e.g. 10.0.26100.1882 for an
+        // inbox driver or 12.19.0.11 for an Intel NIC): "2021 > 10" is numerically true
+        // but would downgrade a current Windows 11 inbox driver to a 2021 OEM package.
+        // Treat such mismatched schemes as incomparable — refuse the update.
+        if (IsDateBasedVersion(NewVersion, NewDate)
+            && current.CurrentDate is null
+            && current.CurrentVersion.Major < 100)
+        {
+            return false;
+        }
+
         return NewVersion > current.CurrentVersion;
     }
 

@@ -1320,7 +1320,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _logger.LogInformation(
                     "Update run: skipping {Device} - candidate was already cleared by an earlier shared install",
-                    row.DeviceName);
+                    DriverDisplayName(row));
                 skipped.Add((row, "candidate was already cleared by an earlier shared install"));
                 continue;
             }
@@ -1328,27 +1328,28 @@ public partial class MainViewModel : ObservableObject
             {
                 _logger.LogInformation(
                     "Update run: skipping {Device} - deduplicated, same installer as a previous row ({SourceUpdateId})",
-                    row.DeviceName, row.AvailableUpdate.SourceUpdateId);
+                    DriverDisplayName(row), row.AvailableUpdate.SourceUpdateId);
                 skipped.Add((row, $"deduplicated - same installer as a previous row ({row.AvailableUpdate.SourceUpdateId})"));
                 continue;
             }
             cancellationToken.ThrowIfCancellationRequested();
 
             var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
+            var displayName = DriverDisplayName(row);
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
-            StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
+            StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
             ScrollToRowRequested?.Invoke(this, row);
             _logger.LogInformation(
                 "Update run: starting {Device} (current version={CurrentVersion}, target version={TargetVersion}, source={Source}, kind={Kind}, url={Url})",
-                row.DeviceName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
+                displayName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
                 row.AvailableUpdate.Source, row.AvailableUpdate.InstallKind, row.AvailableUpdate.DownloadUrl);
 
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
                 row.ActiveOperation = report;
                 row.Status = MapOperationStatus(report.Status);
-                StatusText = $"{report.Status}: {row.DeviceName}";
+                StatusText = $"{report.Status}: {displayName}";
             }), cancellationToken).ConfigureAwait(true);
 
             row.ActiveOperation = null;
@@ -1362,7 +1363,7 @@ public partial class MainViewModel : ObservableObject
             outcomes.Add((row, finished));
             _logger.LogInformation(
                 "Update run: {Device} finished with {Status} after {Duration}{Error}",
-                row.DeviceName, finished.Status, finished.Duration ?? TimeSpan.Zero,
+                displayName, finished.Status, finished.Duration ?? TimeSpan.Zero,
                 string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
@@ -1642,6 +1643,9 @@ public partial class MainViewModel : ObservableObject
 
         return true;
     }
+
+    private static string DriverDisplayName(DriverRowViewModel row) =>
+        string.IsNullOrWhiteSpace(row.DeviceName) ? $"[{row.HardwareId}]" : row.DeviceName;
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);

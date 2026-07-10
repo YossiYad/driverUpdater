@@ -203,6 +203,32 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_skips_pnputil_package_when_download_is_exe()
+    {
+        // Hyper-V and some catalog entries point at .exe packages that pnputil cannot handle.
+        // The pipeline must skip gracefully rather than throw InvalidOperationException.
+        var pnputil = new FakePnPUtilRunner();
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A }); // MZ header (valid PE)
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/rootsupd.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("vendor page");
+        pnputil.Arguments.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_installs_catalog_cab_package_with_pnputil()
     {
         var pnputil = new FakePnPUtilRunner();
