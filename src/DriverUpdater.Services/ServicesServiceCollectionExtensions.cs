@@ -32,7 +32,7 @@ public static class ServicesServiceCollectionExtensions
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
-        ConfigureVendorScrapingHttpClient(services, OfficialVendorPageSource.HttpClientName, "https://example.com/");
+        ConfigureOfficialVendorPageHttpClient(services);
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
@@ -113,6 +113,20 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+        });
+    }
+
+    private static void ConfigureOfficialVendorPageHttpClient(IServiceCollection services)
+    {
+        // Intel's download center returns 403 for non-browser User-Agents. Use a full
+        // browser UA so Intel, Realtek, and similar vendor pages serve the page correctly.
+        services.AddHttpClient(OfficialVendorPageSource.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
         });
     }
 

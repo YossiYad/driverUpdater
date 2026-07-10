@@ -115,17 +115,40 @@ public class InstallPipelineTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_returns_failure_when_backup_fails()
+    public async Task ExecuteAsync_continues_installation_when_backup_fails()
     {
         var bk = new FakeBackupService { BackupFailure = ResultError.From("BACKUP_PNPUTIL_FAILED", "permission denied") };
-        var wu = new FakeWuApiClient();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
         var pipeline = new InstallPipeline(new FakeRestorePointService(), bk, wu, NullLogger<InstallPipeline>.Instance);
 
         var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions());
 
-        result.Status.Should().Be(UpdateStatus.Failed);
-        result.ErrorMessage.Should().Contain("permission denied");
-        wu.DownloadAndInstallInvocations.Should().Be(0);
+        // Backup failure is non-fatal; installation must still complete.
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        wu.DownloadAndInstallInvocations.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_pnputil_exit_3010_is_success_with_reboot_message()
+    {
+        var pnputil = new FakePnPUtilRunner { ExitCode = 3010 };
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/driver.cab")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
     }
 
     [Fact]
@@ -439,11 +462,12 @@ public class InstallPipelineTests
     private sealed class FakePnPUtilRunner : IPnPUtilRunner
     {
         public List<string> Arguments { get; } = new();
+        public int ExitCode { get; init; }
 
         public Task<ProcessResult> RunAsync(string arguments, CancellationToken cancellationToken = default)
         {
             Arguments.Add(arguments);
-            return Task.FromResult(new ProcessResult(0, "ok", ""));
+            return Task.FromResult(new ProcessResult(ExitCode, "ok", ""));
         }
     }
 

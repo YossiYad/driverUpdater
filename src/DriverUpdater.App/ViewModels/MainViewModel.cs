@@ -1223,7 +1223,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
-    private void OpenVendorChecks()
+    private async Task OpenVendorChecksAsync(CancellationToken cancellationToken)
     {
         var pageTargets = Drivers
             .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
@@ -1235,7 +1235,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        OpenVendorPages(pageTargets);
+        await OpenVendorPagesAsync(pageTargets, cancellationToken).ConfigureAwait(true);
         StatusText = $"Opened {pageTargets.Length} vendor update pages.";
     }
 
@@ -1378,7 +1378,7 @@ public partial class MainViewModel : ObservableObject
 
         if (vendorPageFallbacks.Count > 0)
         {
-            OpenVendorPages(vendorPageFallbacks);
+            await OpenVendorPagesAsync(vendorPageFallbacks, cancellationToken).ConfigureAwait(true);
         }
 
         LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, outcomes, skipped);
@@ -1490,7 +1490,7 @@ public partial class MainViewModel : ObservableObject
         RefreshUpdateCounts();
     }
 
-    private void OpenVendorPages(IEnumerable<DriverRowViewModel> targets)
+    private async Task OpenVendorPagesAsync(IEnumerable<DriverRowViewModel> targets, CancellationToken cancellationToken)
     {
         var opener = _updatePageOpener;
         if (opener is null)
@@ -1498,18 +1498,28 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        foreach (var candidate in targets
+        var candidates = targets
             .Select(t => t.AvailableUpdate)
             .OfType<UpdateCandidate>()
-            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase))
+            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (var i = 0; i < candidates.Length; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                opener.Open(candidate);
+                opener.Open(candidates[i]);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidate.DownloadUrl);
+                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidates[i].DownloadUrl);
+            }
+
+            // Stagger tab openings so the browser doesn't get flooded all at once.
+            if (i < candidates.Length - 1)
+            {
+                await Task.Delay(150, cancellationToken).ConfigureAwait(true);
             }
         }
     }

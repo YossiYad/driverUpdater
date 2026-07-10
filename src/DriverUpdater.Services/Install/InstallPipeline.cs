@@ -217,18 +217,11 @@ public sealed class InstallPipeline : IInstallPipeline
         var backup = await _backupService.BackupDriverAsync(operation.TargetSnapshot, cancellationToken).ConfigureAwait(false);
         if (backup.IsFailure)
         {
-            _logger.LogWarning("Backup step failed: {Error}", backup.Error);
-            operation = operation with
-            {
-                Status = UpdateStatus.Failed,
-                ErrorMessage = $"Backup: {backup.Error.Message}",
-                CompletedAt = _clock.GetUtcNow()
-            };
+            _logger.LogWarning("Backup step failed (continuing with installation): {Error}", backup.Error.Message);
+            return operation;
         }
-        else
-        {
-            operation = operation with { BackupPath = backup.Value.BackupFolderPath };
-        }
+
+        operation = operation with { BackupPath = backup.Value.BackupFolderPath };
         progress?.Report(operation);
         return operation;
     }
@@ -481,6 +474,21 @@ public sealed class InstallPipeline : IInstallPipeline
 
             var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
             var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
+
+            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged successfully, reboot needed.
+            if (result.ExitCode == 3010)
+            {
+                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit 3010)");
+                operation = operation with
+                {
+                    Status = UpdateStatus.Succeeded,
+                    ErrorMessage = "Reboot required to complete driver installation.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             if (!result.IsSuccess)
             {
                 _logger.LogError("pnputil catalog install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
