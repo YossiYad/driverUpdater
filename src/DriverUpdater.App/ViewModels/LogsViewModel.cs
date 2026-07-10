@@ -45,10 +45,23 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAiSummary))]
+    [NotifyPropertyChangedFor(nameof(IsSummaryShown))]
     [NotifyCanExecuteChangedFor(nameof(CopyAiSummaryCommand))]
     private string? _aiSummary;
 
     public bool HasAiSummary => !string.IsNullOrWhiteSpace(AiSummary);
+
+    /// <summary>User toggle for the AI log summary panel; the ✕ button sets it false.</summary>
+    [ObservableProperty]
+    private bool _isSummaryVisible = true;
+
+    /// <summary>The summary panel is shown only when a summary exists AND it has not been closed.</summary>
+    public bool IsSummaryShown => HasAiSummary && IsSummaryVisible;
+
+    partial void OnIsSummaryVisibleChanged(bool value) => OnPropertyChanged(nameof(IsSummaryShown));
+
+    [RelayCommand]
+    private void CloseSummary() => IsSummaryVisible = false;
 
     /// <summary>Multi-turn conversation with the AI about the current session logs.</summary>
     public ObservableCollection<LogChatMessage> ChatMessages { get; } = new();
@@ -216,6 +229,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            IsSummaryVisible = true; // re-show the panel if it was previously closed
             AiSummary = summary.Trim();
             SafeSetClipboard(AiSummary);
             StatusText = "AI log summary ready and copied to the clipboard. Paste it to share.";

@@ -53,6 +53,22 @@ public class LogsViewModelChatTests
     }
 
     [WpfFact]
+    public void SummaryPanel_shows_only_with_a_summary_and_hides_on_close()
+    {
+        var sink = new InMemoryLogSink();
+        var vm = new LogsViewModel(sink, new StubTextCompleter(isConfigured: true, reply: "x"));
+
+        vm.IsSummaryShown.Should().BeFalse("no summary generated yet");
+
+        vm.AiSummary = "session went fine";
+        vm.IsSummaryShown.Should().BeTrue();
+
+        vm.CloseSummaryCommand.Execute(null);
+        vm.IsSummaryVisible.Should().BeFalse();
+        vm.IsSummaryShown.Should().BeFalse("closed with the ✕ button");
+    }
+
+    [WpfFact]
     public void ChatPanel_is_never_shown_when_ai_is_unavailable()
     {
         var sink = new InMemoryLogSink();

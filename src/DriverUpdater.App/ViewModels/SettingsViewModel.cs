@@ -13,6 +13,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ISettingsStore _settingsStore;
     private readonly ISchedulerService _schedulerService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IAppUpdater? _appUpdater;
+    private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
@@ -52,6 +54,13 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _statusText = string.Empty;
     [ObservableProperty] private bool _isBusy;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CheckForUpdatesCommand))]
+    private bool _isCheckingForUpdates;
+
+    /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
+    public bool CanCheckForUpdates => _appUpdater is not null;
+
     public string SettingsPath => _settingsStore.SettingsPath;
 
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
@@ -64,7 +73,9 @@ public partial class SettingsViewModel : ObservableObject
         ISettingsStore settingsStore,
         ISchedulerService schedulerService,
         ILogger<SettingsViewModel> logger,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        IAppUpdater? appUpdater = null,
+        IAppUpdatePrompt? appUpdatePrompt = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -72,7 +83,54 @@ public partial class SettingsViewModel : ObservableObject
         _settingsStore = settingsStore;
         _schedulerService = schedulerService;
         _localizationService = localizationService;
+        _appUpdater = appUpdater;
+        _appUpdatePrompt = appUpdatePrompt;
         _logger = logger;
+    }
+
+    private bool CanRunUpdateCheck() => _appUpdater is not null && !IsCheckingForUpdates;
+
+    [RelayCommand(CanExecute = nameof(CanRunUpdateCheck))]
+    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_appUpdater is null)
+        {
+            return;
+        }
+
+        IsCheckingForUpdates = true;
+        StatusText = "Checking for app updates...";
+        try
+        {
+            var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
+            if (!result.IsUpdateAvailable)
+            {
+                StatusText = "You're on the latest version.";
+                return;
+            }
+
+            _logger.LogInformation("App update {Version} is available (checked from Settings)", result.Version);
+            StatusText = $"App update {result.Version} is available.";
+
+            // Offer to install now. DownloadAndApplyAsync restarts onto the new version on
+            // success, so control does not return past it.
+            if (_appUpdatePrompt is not null && _appUpdatePrompt.Confirm(result.Version))
+            {
+                StatusText = $"Downloading app update {result.Version}...";
+                var progress = new Progress<int>(percent =>
+                    StatusText = $"Downloading app update {result.Version}... {percent}%");
+                await _appUpdater.DownloadAndApplyAsync(progress, cancellationToken).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Checking for an app update from Settings failed");
+            StatusText = "Could not check for updates. See logs for details.";
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+        }
     }
 
     partial void OnScheduleModeChanged(ScheduleMode value)
