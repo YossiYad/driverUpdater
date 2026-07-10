@@ -9,6 +9,10 @@ public sealed class InstallPipeline : IInstallPipeline
 {
     public const string DownloadsHttpClientName = "VendorInstallerDownloads";
 
+    // Circuit breaker: after the first restore-point failure (e.g. srservice disabled)
+    // subsequent drivers skip the attempt instead of flooding the log with the same error.
+    private int _restorePointSuppressed;
+
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
@@ -18,6 +22,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
+    private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -32,7 +37,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IHttpClientFactory? httpClientFactory = null,
         IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null,
-        IVendorPageInstallerResolver? vendorPageResolver = null)
+        IVendorPageInstallerResolver? vendorPageResolver = null,
+        IInstalledDriverProbe? installedDriverProbe = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -47,6 +53,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
         _vendorPageResolver = vendorPageResolver;
+        _installedDriverProbe = installedDriverProbe;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -96,6 +103,12 @@ public sealed class InstallPipeline : IInstallPipeline
             }
 
             operation = await StepDownloadAndInstallAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+
+            if (operation.Status == UpdateStatus.Succeeded)
+            {
+                operation = await StepVerifyInstallAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+            }
+
             return operation;
         }
         catch (OperationCanceledException)
@@ -176,6 +189,12 @@ public sealed class InstallPipeline : IInstallPipeline
         IProgress<UpdateOperation>? progress,
         CancellationToken cancellationToken)
     {
+        if (Interlocked.CompareExchange(ref _restorePointSuppressed, 0, 0) == 1)
+        {
+            _logger.LogInformation("Restore point skipped for {Device} (suppressed: earlier failure in this session)", operation.TargetSnapshot.DeviceName);
+            return operation;
+        }
+
         operation = operation with { Status = UpdateStatus.CreatingRestorePoint };
         progress?.Report(operation);
 
@@ -183,18 +202,18 @@ public sealed class InstallPipeline : IInstallPipeline
         var rp = await _restorePointService.CreateRestorePointAsync(description, cancellationToken).ConfigureAwait(false);
         if (rp.IsFailure)
         {
-            _logger.LogWarning("Restore point step failed: {Error}", rp.Error);
-            operation = operation with
-            {
-                Status = UpdateStatus.Failed,
-                ErrorMessage = $"Restore point: {rp.Error.Message}",
-                CompletedAt = _clock.GetUtcNow()
-            };
+            Interlocked.Exchange(ref _restorePointSuppressed, 1);
+            _logger.LogWarning(
+                "Restore point creation failed ({Error}). System Protection is most likely turned off for the " +
+                "system drive - enable it via System Properties > System Protection (or " +
+                "'Enable-ComputerRestore -Drive \"C:\\\"' in an elevated PowerShell) to allow rollbacks. " +
+                "Restore points will be skipped for all remaining drivers this session. " +
+                "Driver file backups (pnputil export-driver) are unaffected and will still run.",
+                rp.Error.Message);
+            return operation;
         }
-        else
-        {
-            operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
-        }
+
+        operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
         progress?.Report(operation);
         return operation;
     }
@@ -210,18 +229,92 @@ public sealed class InstallPipeline : IInstallPipeline
         var backup = await _backupService.BackupDriverAsync(operation.TargetSnapshot, cancellationToken).ConfigureAwait(false);
         if (backup.IsFailure)
         {
-            _logger.LogWarning("Backup step failed: {Error}", backup.Error);
-            operation = operation with
+            // A driver with no INF name is a virtual/inbox device (e.g. "Microsoft Print to PDF")
+            // that ships with Windows and has nothing to export - that is expected, not a problem
+            // worth a warning. Genuine backup failures still surface as warnings.
+            if (string.Equals(backup.Error.Code, "BACKUP_NO_INF", StringComparison.Ordinal))
             {
-                Status = UpdateStatus.Failed,
-                ErrorMessage = $"Backup: {backup.Error.Message}",
-                CompletedAt = _clock.GetUtcNow()
-            };
+                _logger.LogInformation(
+                    "Backup skipped for {Device}: virtual/inbox device has no INF to export (continuing with installation).",
+                    operation.TargetSnapshot.DeviceName);
+            }
+            else
+            {
+                _logger.LogWarning("Backup step failed (continuing with installation): {Error}", backup.Error.Message);
+            }
+            return operation;
         }
-        else
+
+        operation = operation with { BackupPath = backup.Value.BackupFolderPath };
+        progress?.Report(operation);
+        return operation;
+    }
+
+    // Confirms the active driver actually changed after a "successful" install, rather than
+    // trusting the installer's exit code. pnputil can report success after merely staging a
+    // package in the driver store while Windows keeps a higher-ranked (e.g. inbox) driver
+    // bound - which is exactly why such "updates" reappeared on every scan.
+    private async Task<UpdateOperation> StepVerifyInstallAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_installedDriverProbe is null)
         {
-            operation = operation with { BackupPath = backup.Value.BackupFolderPath };
+            return operation;
         }
+
+        var deviceName = string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceName)
+            ? operation.TargetSnapshot.HardwareId
+            : operation.TargetSnapshot.DeviceName;
+
+        // When a reboot is required the new driver only binds after restart, so an in-session
+        // read-back would falsely report "unchanged". Defer verification to the next scan.
+        if (operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogInformation(
+                "Install verification deferred for {Device}: reboot required before the new driver binds.", deviceName);
+            return operation;
+        }
+
+        var before = operation.TargetSnapshot;
+        var current = await _installedDriverProbe.GetCurrentAsync(before.DeviceId, cancellationToken).ConfigureAwait(false);
+        if (current is null || (current.Version is null && current.Date is null))
+        {
+            _logger.LogInformation(
+                "Install verification inconclusive for {Device}: the current driver could not be read back.", deviceName);
+            return operation;
+        }
+
+        var versionChanged = !Equals(current.Version, before.CurrentVersion);
+        var dateChanged = current.Date != before.CurrentDate;
+        if (versionChanged || dateChanged)
+        {
+            _logger.LogInformation(
+                "Install verified for {Device}: active driver changed from {OldVersion} ({OldDate}) to {NewVersion} ({NewDate}).",
+                deviceName,
+                before.CurrentVersion?.ToString() ?? "?", before.CurrentDate?.ToString() ?? "?",
+                current.Version?.ToString() ?? "?", current.Date?.ToString() ?? "?");
+            return operation;
+        }
+
+        // Nothing changed: the package was staged but Windows kept the existing driver.
+        var installedText = before.CurrentVersion?.ToString() ?? before.CurrentDate?.ToString() ?? "unknown";
+        _logger.LogWarning(
+            "Install did not take effect for {Device}: the active driver is still {Installed} after installing " +
+            "{Source} {Candidate}. Windows kept the existing driver - usually because it is ranked higher (e.g. a " +
+            "protected Windows inbox driver) or a reboot is pending. Reporting this as not applied rather than success.",
+            deviceName, installedText, operation.Candidate.Source,
+            operation.Candidate.NewVersion?.ToString() ?? "?");
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Skipped,
+            ErrorMessage =
+                $"Installed to the driver store, but Windows kept the existing driver (version unchanged: {installedText}). " +
+                "This usually means the current driver is ranked higher (e.g. a protected Windows inbox driver) or a reboot is pending.",
+            CompletedAt = _clock.GetUtcNow()
+        };
         progress?.Report(operation);
         return operation;
     }
@@ -467,6 +560,24 @@ public sealed class InstallPipeline : IInstallPipeline
                     progress?.Report(operation);
                 },
                 cancellationToken).ConfigureAwait(false);
+
+            var packageExt = Path.GetExtension(packagePath);
+            if (!packageExt.Equals(".cab", StringComparison.OrdinalIgnoreCase)
+                && !packageExt.Equals(".inf", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "pnputil package for {Device} downloaded as {Ext} - only .cab/.inf are supported for automatic install; skipping. URL: {Url}",
+                    operation.TargetSnapshot.DeviceName, packageExt, operation.Candidate.DownloadUrl);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Skipped,
+                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil. Open the vendor page to install manually: {operation.Candidate.DownloadUrl}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             var installRoot = await PreparePnPUtilInstallRootAsync(packagePath, workDir, cancellationToken).ConfigureAwait(false);
 
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
@@ -474,6 +585,25 @@ public sealed class InstallPipeline : IInstallPipeline
 
             var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
             var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
+
+            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
+            // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
+            // (notably Intel SST/HDA components) when a prior pending reboot must be
+            // completed before the INF is fully applied. The pnputil output explicitly
+            // says "System reboot is needed to complete install operations!" in this case.
+            if (result.ExitCode is 3010 or 259)
+            {
+                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit {Code})", result.ExitCode);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Succeeded,
+                    ErrorMessage = "Reboot required to complete driver installation.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             if (!result.IsSuccess)
             {
                 _logger.LogError("pnputil catalog install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);

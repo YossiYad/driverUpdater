@@ -10,6 +10,19 @@ public sealed partial class RestorePointService : IRestorePointService
 {
     private const string CheckpointScript = @"$ErrorActionPreference = 'Stop';
 try {
+    $sysDrive = $env:SystemDrive + '\';
+    $srKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore';
+    # System Protection ships disabled on many OEM laptops, so Checkpoint-Computer fails with
+    # 'the service cannot be started because it is disabled'. Turn protection back on for the
+    # system drive first (the app runs elevated) so the checkpoint can actually be created.
+    # Also clear DisableSR and set the creation-frequency throttle to 0 so Windows does not
+    # silently skip a checkpoint created within 1440 minutes of a previous one.
+    try {
+        if (-not (Test-Path $srKey)) { New-Item -Path $srKey -Force | Out-Null; }
+        Set-ItemProperty -Path $srKey -Name 'DisableSR' -Value 0 -Type DWord -Force;
+        Set-ItemProperty -Path $srKey -Name 'SystemRestorePointCreationFrequency' -Value 0 -Type DWord -Force;
+    } catch { }
+    try { Enable-ComputerRestore -Drive $sysDrive -ErrorAction Stop; } catch { }
     Checkpoint-Computer -Description $description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop;
     $rp = Get-ComputerRestorePoint | Sort-Object -Property CreationTime -Descending | Select-Object -First 1;
     if ($null -eq $rp) {

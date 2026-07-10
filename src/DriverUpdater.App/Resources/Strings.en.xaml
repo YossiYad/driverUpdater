@@ -3,7 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.8</sys:String>
+    <sys:String x:Key="App.Version">v0.1.23</sys:String>
     <sys:String x:Key="App.Admin">Administrator</sys:String>
     <sys:String x:Key="App.NotElevated">Not elevated</sys:String>
 
@@ -23,6 +23,9 @@
     <sys:String x:Key="Toolbar.UpdateApp">Update app</sys:String>
     <sys:String x:Key="Update.AvailableTitle">Update available</sys:String>
     <sys:String x:Key="Update.AvailableMessage">A new version ({0}) is available. Update now? The app will restart to finish installing.</sys:String>
+    <sys:String x:Key="Reboot.RequiredTitle">Restart required</sys:String>
+    <sys:String x:Key="Reboot.RequiredMessage">{0} driver update(s) need a restart to finish. Restart the computer now?</sys:String>
+    <sys:String x:Key="Reboot.ShutdownComment">DriverUpdater is restarting to finish driver installation.</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>

@@ -1,4 +1,5 @@
 using DriverUpdater.Core.Abstractions;
+using Polly;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Ai;
@@ -24,6 +25,7 @@ public static class ServicesServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IDriverScanService, DriverScanService>();
+        services.AddSingleton<IInstalledDriverProbe, WmiInstalledDriverProbe>();
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();
@@ -32,7 +34,8 @@ public static class ServicesServiceCollectionExtensions
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
-        ConfigureVendorScrapingHttpClient(services, OfficialVendorPageSource.HttpClientName, "https://example.com/");
+        ConfigureOfficialVendorPageHttpClient(services);
+        ConfigureAsusScrapingHttpClient(services);
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
@@ -57,7 +60,9 @@ public static class ServicesServiceCollectionExtensions
             new Lazy<IMotherboardScraper>(() => sp.GetRequiredService<GigabytePlaywrightScraper>()),
             sp.GetRequiredService<IOptionsMonitor<ScraperSettings>>(),
             sp.GetRequiredService<ILogger<HybridGigabyteScraper>>()));
-        services.AddSingleton<AsusMotherboardScraper>();
+        services.AddSingleton<AsusMotherboardScraper>(sp => new AsusMotherboardScraper(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(AsusMotherboardScraper.HttpClientName),
+            sp.GetRequiredService<ILogger<AsusMotherboardScraper>>()));
         services.AddSingleton<MsiMotherboardScraper>();
         services.AddSingleton<AsrockMotherboardScraper>();
         services.AddSingleton<IUpdateSource>(sp => new MotherboardSource(
@@ -113,7 +118,45 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
+    }
+
+    private static void ConfigureAsusScrapingHttpClient(IServiceCollection services)
+    {
+        // ASUS's internal helpdesk API (product.asmx/GetPDLevel) requires a browser
+        // User-Agent and Referer header to avoid 403/empty responses from Akamai.
+        services.AddHttpClient(AsusMotherboardScraper.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://www.asus.com/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/javascript, */*; q=0.01");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
+    }
+
+    private static void ConfigureOfficialVendorPageHttpClient(IServiceCollection services)
+    {
+        // Intel's download center returns 403 for non-browser User-Agents. Use a full
+        // browser UA so Intel, Realtek, and similar vendor pages serve the page correctly.
+        services.AddHttpClient(OfficialVendorPageSource.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureVendorInstallerDownloadHttpClient(IServiceCollection services)
@@ -144,7 +187,10 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureGigabyteHttpClient(IServiceCollection services)
@@ -160,6 +206,9 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json,text/plain,*/*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 }

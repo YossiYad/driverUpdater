@@ -30,7 +30,19 @@ public static class LogSummaryPromptBuilder
         sb.AppendLine("- Every error, warning, or failure, with its likely root cause.");
         sb.AppendLine("- Repeated or anomalous patterns worth attention.");
         sb.AppendLine("- Concrete suggested next steps to fix problems or improve the app.");
-        sb.AppendLine("Do not invent details that are not supported by the logs. Keep it under ~400 words.");
+        sb.AppendLine();
+        sb.AppendLine("Also analyse the structured summary blocks that appear in the logs:");
+        sb.AppendLine("- 'Scan result summary': lists every driver with an available update (installed version,");
+        sb.AppendLine("  available version, source). Flag any driver where installed ≈ available version - that");
+        sb.AppendLine("  suggests a false-positive in version comparison. Note how many drivers were up-to-date.");
+        sb.AppendLine("- 'Update run summary': lists what succeeded/failed/skipped in the install run, with");
+        sb.AppendLine("  old→new version for each. Flag:");
+        sb.AppendLine("  * Drivers where old version = new version (no real change, likely a detection bug).");
+        sb.AppendLine("  * Drivers that appear in Failed or Skipped despite having an update available.");
+        sb.AppendLine("  * Any driver requiring a reboot - list them together at the end.");
+        sb.AppendLine("  * If multiple run summaries appear in one session, flag any driver that recurs");
+        sb.AppendLine("    (updated more than once - indicates the update is not sticking).");
+        sb.AppendLine("Do not invent details that are not supported by the logs. Keep it under ~500 words.");
         sb.AppendLine();
         sb.AppendLine($"Session log stats: {entries.Count} entries, {errors} error(s)/fatal, {warnings} warning(s).");
         sb.AppendLine();
@@ -39,7 +51,12 @@ public static class LogSummaryPromptBuilder
         return sb.ToString();
     }
 
-    private static string FormatEntries(IReadOnlyList<LogEntry> entries)
+    /// <summary>
+    /// Formats the log entries into a plain-text slice suitable for embedding in an AI prompt,
+    /// keeping the most recent entries when the buffer exceeds the model context budget.
+    /// Shared with <see cref="LogChatPromptBuilder"/>.
+    /// </summary>
+    internal static string FormatEntries(IReadOnlyList<LogEntry> entries)
     {
         var buffer = new StringBuilder();
         foreach (var entry in entries)

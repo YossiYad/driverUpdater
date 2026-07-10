@@ -1,3 +1,4 @@
+using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -238,6 +239,136 @@ public class SettingsViewModelTests
 
         vm.StatusText.Should().Contain("schedule update failed");
         store.Saved.Should().NotBeNull();
+    }
+
+    [WpfFact]
+    public async Task LoadAsync_reads_auto_update_toggles_from_store()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Updater = new UpdaterSettings { CheckOnStartup = true, AutoApply = true }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.CheckForUpdatesOnStartup.Should().BeTrue();
+        vm.AutoInstallAppUpdates.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_auto_update_toggles_without_wiping_feed_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Updater = new UpdaterSettings
+            {
+                GitHubRepoUrl = "https://github.com/YossiYad/driverUpdater",
+                AllowPrerelease = true
+            }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.CheckForUpdatesOnStartup = true;
+        vm.AutoInstallAppUpdates = true;
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Updater.CheckOnStartup.Should().BeTrue();
+        store.Saved.Updater.AutoApply.Should().BeTrue();
+        store.Saved.Updater.GitHubRepoUrl.Should().Be("https://github.com/YossiYad/driverUpdater");
+        store.Saved.Updater.AllowPrerelease.Should().BeTrue("feed settings without a UI must be preserved on save");
+    }
+
+    [WpfFact]
+    public void CheckForUpdates_is_unavailable_without_an_updater()
+    {
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        vm.CanCheckForUpdates.Should().BeFalse();
+        vm.CheckForUpdatesCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task CheckForUpdates_reports_latest_when_none_available()
+    {
+        var updater = new FakeAppUpdater(new AppUpdateCheckResult(false, null));
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance, appUpdater: updater);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        updater.CheckCalls.Should().Be(1);
+        updater.DownloadCalls.Should().Be(0);
+        vm.CanCheckForUpdates.Should().BeTrue();
+        vm.StatusText.Should().Be("You're on the latest version.");
+    }
+
+    [WpfFact]
+    public async Task CheckForUpdates_downloads_when_update_available_and_user_accepts()
+    {
+        var updater = new FakeAppUpdater(new AppUpdateCheckResult(true, "1.2.3"));
+        var prompt = new FakeAppUpdatePrompt(answer: true);
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance, appUpdater: updater, appUpdatePrompt: prompt);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        prompt.Prompts.Should().ContainSingle().Which.Should().Be("1.2.3");
+        updater.DownloadCalls.Should().Be(1);
+    }
+
+    [WpfFact]
+    public async Task CheckForUpdates_does_not_download_when_user_declines()
+    {
+        var updater = new FakeAppUpdater(new AppUpdateCheckResult(true, "1.2.3"));
+        var prompt = new FakeAppUpdatePrompt(answer: false);
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance, appUpdater: updater, appUpdatePrompt: prompt);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        updater.DownloadCalls.Should().Be(0);
+        vm.StatusText.Should().Contain("1.2.3");
+    }
+
+    private sealed class FakeAppUpdater : IAppUpdater
+    {
+        private readonly AppUpdateCheckResult _result;
+        public int CheckCalls { get; private set; }
+        public int DownloadCalls { get; private set; }
+
+        public FakeAppUpdater(AppUpdateCheckResult result) { _result = result; }
+
+        public Task CheckAndApplyAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<AppUpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
+        {
+            CheckCalls++;
+            return Task.FromResult(_result);
+        }
+
+        public Task DownloadAndApplyAsync(IProgress<int>? progress = null, CancellationToken cancellationToken = default)
+        {
+            DownloadCalls++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeAppUpdatePrompt : IAppUpdatePrompt
+    {
+        private readonly bool _answer;
+        public List<string?> Prompts { get; } = new();
+
+        public FakeAppUpdatePrompt(bool answer) { _answer = answer; }
+
+        public bool Confirm(string? version)
+        {
+            Prompts.Add(version);
+            return _answer;
+        }
     }
 
     private sealed class FakeStore : ISettingsStore

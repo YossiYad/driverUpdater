@@ -36,6 +36,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IOptionsMonitor<UpdaterSettings>? _updaterSettings;
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
+    private readonly IRebootPrompt? _rebootPrompt;
+    private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
+
+    // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
+    // A candidate is suppressed while the device still reports that installed version.
+    private Dictionary<string, string?> _ineffectiveIndex = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -140,7 +146,9 @@ public partial class MainViewModel : ObservableObject
         IOptionsMonitor<UpdaterSettings>? updaterSettings = null,
         IAiResultWindowOpener? aiResultWindowOpener = null,
         IAppUpdater? appUpdater = null,
-        IAppUpdatePrompt? appUpdatePrompt = null)
+        IAppUpdatePrompt? appUpdatePrompt = null,
+        IRebootPrompt? rebootPrompt = null,
+        IIneffectiveUpdateStore? ineffectiveUpdateStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -166,6 +174,8 @@ public partial class MainViewModel : ObservableObject
         _updaterSettings = updaterSettings;
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
+        _rebootPrompt = rebootPrompt;
+        _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -271,14 +281,35 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            var staleDropped = 0;
             foreach (var entry in snapshot.Entries)
             {
+                // A cache written by an older build can hold an AvailableUpdate that our current
+                // version comparison no longer considers an upgrade (e.g. a calendar-versioned
+                // downgrade of a Windows inbox driver). Re-validate on load so the user cannot
+                // install a stale downgrade straight from cache without re-scanning.
+                var cachedUpdate = entry.AvailableUpdate;
+                if (cachedUpdate is not null && !cachedUpdate.IsNewerThan(entry.Driver))
+                {
+                    cachedUpdate = null;
+                    staleDropped++;
+                }
+
                 var row = new DriverRowViewModel(entry.Driver)
                 {
-                    Status = entry.Status,
-                    AvailableUpdate = entry.AvailableUpdate
+                    Status = cachedUpdate is null && entry.Status == DriverStatus.Outdated
+                        ? DriverStatus.UpToDate
+                        : entry.Status,
+                    AvailableUpdate = cachedUpdate
                 };
                 Drivers.Add(row);
+            }
+
+            if (staleDropped > 0)
+            {
+                _logger.LogInformation(
+                    "Dropped {Count} cached update(s) that are no longer newer than the installed driver (stale downgrade guard).",
+                    staleDropped);
             }
 
             ScannedCount = Drivers.Count;
@@ -369,6 +400,8 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        await LoadIneffectiveLedgerAsync(cancellationToken).ConfigureAwait(true);
+
         var index = BuildHardwareIdIndex();
         var driverSnapshots = Drivers.Select(d => d.Driver).ToArray();
 
@@ -390,6 +423,7 @@ public partial class MainViewModel : ObservableObject
                 {
                     if (TryFindRow(index, candidate.ForHardwareId, out var row, out var matchKind)
                         && candidate.IsNewerThan(row.Driver)
+                        && !IsProvenIneffective(row, candidate)
                         && ShouldAcceptCandidate(row, candidate))
                     {
                         if (matchKind == HardwareIdMatchKind.Fuzzy)
@@ -417,6 +451,93 @@ public partial class MainViewModel : ObservableObject
 
         await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
         await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
+
+        LogScanSummary();
+    }
+
+    private static string IneffectiveKey(string deviceId, string targetVersion) => deviceId + "|" + targetVersion;
+
+    private async Task LoadIneffectiveLedgerAsync(CancellationToken cancellationToken)
+    {
+        if (_ineffectiveUpdateStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var records = await _ineffectiveUpdateStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            _ineffectiveIndex = records.ToDictionary(
+                r => IneffectiveKey(r.DeviceId, r.TargetVersion),
+                r => r.InstalledVersionAtAttempt,
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load the ineffective-update ledger; not suppressing any candidates");
+            _ineffectiveIndex = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    // A candidate is a proven no-op when we previously installed this exact target for this device
+    // and Windows kept the existing driver (no reboot pending), AND the device still reports the
+    // same installed version - so re-installing would change nothing again. If the installed
+    // version has since changed, the record no longer applies and the candidate is offered again.
+    private bool IsProvenIneffective(DriverRowViewModel row, UpdateCandidate candidate)
+    {
+        if (_ineffectiveIndex.Count == 0 || candidate.NewVersion is null)
+        {
+            return false;
+        }
+
+        var key = IneffectiveKey(row.Driver.DeviceId, candidate.NewVersion.ToString());
+        if (!_ineffectiveIndex.TryGetValue(key, out var installedAtAttempt))
+        {
+            return false;
+        }
+
+        var currentInstalled = row.Driver.CurrentVersion?.ToString();
+        if (!string.Equals(installedAtAttempt, currentInstalled, StringComparison.OrdinalIgnoreCase))
+        {
+            return false; // something changed since the failed attempt - re-evaluate normally
+        }
+
+        _logger.LogInformation(
+            "Suppressing {Device}: {Target} was already installed but Windows kept {Installed} (proven no-op). " +
+            "It will be offered again if the installed driver changes or a newer version appears.",
+            DriverDisplayName(row), candidate.NewVersion, currentInstalled ?? "the existing driver");
+        return true;
+    }
+
+    private async Task RecordIfProvenIneffectiveAsync(DriverRowViewModel row, UpdateOperation finished, CancellationToken cancellationToken)
+    {
+        if (_ineffectiveUpdateStore is null || finished.Candidate.NewVersion is null)
+        {
+            return;
+        }
+
+        // Only record the proven immediate no-op: post-install verification saw the active driver
+        // unchanged with no reboot pending (that is exactly the "kept the existing driver" skip).
+        // Reboot-required successes are never recorded - they bind after a restart.
+        var isProvenNoOp = finished.Status == UpdateStatus.Skipped
+            && finished.ErrorMessage?.Contains("kept the existing driver", StringComparison.OrdinalIgnoreCase) == true;
+        if (!isProvenNoOp)
+        {
+            return;
+        }
+
+        try
+        {
+            await _ineffectiveUpdateStore.RecordAsync(
+                row.Driver.DeviceId,
+                finished.Candidate.NewVersion.ToString(),
+                finished.TargetSnapshot.CurrentVersion?.ToString(),
+                cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not record the ineffective update for {Device}", DriverDisplayName(row));
+        }
     }
 
     private static bool IsSourceDisabled(IUpdateSource source, UpdaterSettings settings) => source.Kind switch
@@ -881,6 +1002,23 @@ public partial class MainViewModel : ObservableObject
             Confidence: UpdateConfidence.Advisory,
             AiVerification: verdict);
 
+        // Deterministic downgrade guard. The AI's own "genuinely newer" judgment - and the
+        // date-based version fallback above - can be wrong: e.g. proposing a calendar-versioned
+        // 2018/2021 driver over a modern Windows inbox driver (10.0.26100.x). This discovery
+        // path bypasses the IsNewerThan check that the catalog/vendor sources go through, so
+        // apply it here too. Without this, the AI can reintroduce exactly the downgrades the
+        // deterministic sources already rejected.
+        if (!candidate.IsNewerThan(row.Driver))
+        {
+            _logger.LogInformation(
+                "AI latest-driver lead for {Device} rejected: proposed {Candidate} ({Date}) is not newer than " +
+                "installed {Installed} per version comparison - refusing to avoid a downgrade.",
+                row.DeviceName, candidateVersion, candidateDate,
+                row.Driver.CurrentVersion?.ToString() ?? row.Driver.CurrentDate?.ToString() ?? "unknown");
+            LogAiAdvisorDetails("latest-driver discovery rejected as not-newer", row, verdict);
+            return false;
+        }
+
         _logger.LogInformation(
             "AI latest-driver search found {Device}: latest={Latest} ({Date}), recommended={Recommended}, risk={Risk}, url={Url}. {Summary}",
             row.DeviceName, verdict.LatestKnownVersion ?? candidateVersion.ToString(),
@@ -1223,7 +1361,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
-    private void OpenVendorChecks()
+    private async Task OpenVendorChecksAsync(CancellationToken cancellationToken)
     {
         var pageTargets = Drivers
             .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
@@ -1235,7 +1373,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        OpenVendorPages(pageTargets);
+        await OpenVendorPagesAsync(pageTargets, cancellationToken).ConfigureAwait(true);
         StatusText = $"Opened {pageTargets.Length} vendor update pages.";
     }
 
@@ -1318,7 +1456,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _logger.LogInformation(
                     "Update run: skipping {Device} - candidate was already cleared by an earlier shared install",
-                    row.DeviceName);
+                    DriverDisplayName(row));
                 skipped.Add((row, "candidate was already cleared by an earlier shared install"));
                 continue;
             }
@@ -1326,27 +1464,28 @@ public partial class MainViewModel : ObservableObject
             {
                 _logger.LogInformation(
                     "Update run: skipping {Device} - deduplicated, same installer as a previous row ({SourceUpdateId})",
-                    row.DeviceName, row.AvailableUpdate.SourceUpdateId);
+                    DriverDisplayName(row), row.AvailableUpdate.SourceUpdateId);
                 skipped.Add((row, $"deduplicated - same installer as a previous row ({row.AvailableUpdate.SourceUpdateId})"));
                 continue;
             }
             cancellationToken.ThrowIfCancellationRequested();
 
             var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
+            var displayName = DriverDisplayName(row);
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
-            StatusText = (dryRun ? "Dry run: " : "Installing: ") + row.DeviceName;
+            StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
             ScrollToRowRequested?.Invoke(this, row);
             _logger.LogInformation(
                 "Update run: starting {Device} (current version={CurrentVersion}, target version={TargetVersion}, source={Source}, kind={Kind}, url={Url})",
-                row.DeviceName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
+                displayName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
                 row.AvailableUpdate.Source, row.AvailableUpdate.InstallKind, row.AvailableUpdate.DownloadUrl);
 
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
                 row.ActiveOperation = report;
                 row.Status = MapOperationStatus(report.Status);
-                StatusText = $"{report.Status}: {row.DeviceName}";
+                StatusText = $"{report.Status}: {displayName}";
             }), cancellationToken).ConfigureAwait(true);
 
             row.ActiveOperation = null;
@@ -1360,8 +1499,10 @@ public partial class MainViewModel : ObservableObject
             outcomes.Add((row, finished));
             _logger.LogInformation(
                 "Update run: {Device} finished with {Status} after {Duration}{Error}",
-                row.DeviceName, finished.Status, finished.Duration ?? TimeSpan.Zero,
+                displayName, finished.Status, finished.Duration ?? TimeSpan.Zero,
                 string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
+
+            await RecordIfProvenIneffectiveAsync(row, finished, cancellationToken).ConfigureAwait(true);
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
@@ -1378,7 +1519,7 @@ public partial class MainViewModel : ObservableObject
 
         if (vendorPageFallbacks.Count > 0)
         {
-            OpenVendorPages(vendorPageFallbacks);
+            await OpenVendorPagesAsync(vendorPageFallbacks, cancellationToken).ConfigureAwait(true);
         }
 
         LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, outcomes, skipped);
@@ -1397,6 +1538,44 @@ public partial class MainViewModel : ObservableObject
             // was actually installed (succeeded rows now have AvailableUpdate cleared);
             // otherwise the cache would keep showing them as Outdated until the next scan.
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+
+            MaybePromptForRestart(outcomes);
+        }
+    }
+
+    // When at least one driver update finished with "reboot required", ask the user (once, at
+    // the very end of the run) whether to restart now, and restart if they accept. The cache
+    // has already been saved above, so a restart here does not lose the post-install state.
+    private void MaybePromptForRestart(
+        IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes)
+    {
+        if (_rebootPrompt is null)
+        {
+            return;
+        }
+
+        var rebootRequiredCount = outcomes.Count(o =>
+            o.Operation.Status == UpdateStatus.Succeeded
+            && o.Operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true);
+        if (rebootRequiredCount == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "{Count} driver update(s) require a restart to finish; prompting the user.", rebootRequiredCount);
+
+        if (_rebootPrompt.ConfirmRestartNow(rebootRequiredCount))
+        {
+            _logger.LogInformation("User accepted restart to complete {Count} driver update(s).", rebootRequiredCount);
+            StatusText = "Restarting to finish driver installation...";
+            _rebootPrompt.RestartNow();
+        }
+        else
+        {
+            _logger.LogInformation(
+                "User deferred restart; {Count} update(s) will bind on the next reboot.", rebootRequiredCount);
+            StatusText = $"Install completed. Restart later to finish {rebootRequiredCount} update(s).";
         }
     }
 
@@ -1428,7 +1607,14 @@ public partial class MainViewModel : ObservableObject
             sb.AppendLine("  Succeeded:");
             foreach (var (row, op) in succeeded)
             {
-                sb.Append("    - ").Append(row.DeviceName).Append(" -> ").Append(op.Candidate.NewVersion).AppendLine();
+                var reboot = op.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true
+                    ? " [REBOOT REQUIRED]" : string.Empty;
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
+                    .Append(": ").Append(op.TargetSnapshot.CurrentVersion?.ToString() ?? "?")
+                    .Append(" → ").Append(op.Candidate.NewVersion?.ToString() ?? "?")
+                    .Append(" via ").Append(op.Candidate.Source).Append('/').Append(op.Candidate.InstallKind)
+                    .AppendLine(reboot);
             }
         }
         if (failed.Length > 0)
@@ -1437,6 +1623,7 @@ public partial class MainViewModel : ObservableObject
             foreach (var (row, op) in failed)
             {
                 sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
                     .Append(": ").Append(string.IsNullOrWhiteSpace(op.ErrorMessage) ? "(no error message)" : op.ErrorMessage)
                     .AppendLine();
             }
@@ -1457,6 +1644,36 @@ public partial class MainViewModel : ObservableObject
             foreach (var (row, reason) in skipped)
             {
                 sb.Append("    - ").Append(row.DeviceName).Append(": ").AppendLine(reason);
+            }
+        }
+
+        _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
+    }
+
+    private void LogScanSummary()
+    {
+        var withUpdates = Drivers.Where(d => d.AvailableUpdate != null).ToArray();
+        var upToDateCount = Drivers.Count - withUpdates.Length;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Scan result summary: ").Append(Drivers.Count).Append(" total drivers, ")
+            .Append(withUpdates.Length).Append(" with available updates, ")
+            .Append(upToDateCount).AppendLine(" up-to-date / no update found");
+
+        if (withUpdates.Length > 0)
+        {
+            sb.AppendLine("  Updates found:");
+            foreach (var row in withUpdates)
+            {
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
+                    .Append(": installed=").Append(
+                        row.Driver.CurrentVersion?.ToString()
+                        ?? row.Driver.CurrentDate?.ToString()
+                        ?? "?")
+                    .Append(", available=").Append(row.AvailableUpdate!.NewVersion?.ToString() ?? "?")
+                    .Append(", source=").Append(row.AvailableUpdate.Source)
+                    .AppendLine();
             }
         }
 
@@ -1490,7 +1707,7 @@ public partial class MainViewModel : ObservableObject
         RefreshUpdateCounts();
     }
 
-    private void OpenVendorPages(IEnumerable<DriverRowViewModel> targets)
+    private async Task OpenVendorPagesAsync(IEnumerable<DriverRowViewModel> targets, CancellationToken cancellationToken)
     {
         var opener = _updatePageOpener;
         if (opener is null)
@@ -1498,18 +1715,28 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        foreach (var candidate in targets
+        var candidates = targets
             .Select(t => t.AvailableUpdate)
             .OfType<UpdateCandidate>()
-            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase))
+            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (var i = 0; i < candidates.Length; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                opener.Open(candidate);
+                opener.Open(candidates[i]);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidate.DownloadUrl);
+                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidates[i].DownloadUrl);
+            }
+
+            // Stagger tab openings so the browser doesn't get flooded all at once.
+            if (i < candidates.Length - 1)
+            {
+                await Task.Delay(150, cancellationToken).ConfigureAwait(true);
             }
         }
     }
@@ -1592,6 +1819,9 @@ public partial class MainViewModel : ObservableObject
 
         return true;
     }
+
+    private static string DriverDisplayName(DriverRowViewModel row) =>
+        string.IsNullOrWhiteSpace(row.DeviceName) ? $"[{row.HardwareId}]" : row.DeviceName;
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);

@@ -65,6 +65,108 @@ public class UpdateCandidateTests
         candidate.IsNewerThan(current).Should().BeFalse();
     }
 
+    // A genuinely date-versioned candidate (NewVersion encodes YYYY.MM.DD.0 matching NewDate)
+    // must NOT be considered newer than a Windows inbox or classic driver when the installed
+    // driver has no CurrentDate - because "2021 > 10" is numerically true but means a downgrade.
+    // The guard only fires when IsDateBasedVersion is true (NewVersion matches NewDate exactly).
+    [Theory]
+    [InlineData("2021.12.5.0",  2021, 12, 5,  "10.0.26100.1882")]   // Generic PnP Monitor / WAN Miniport
+    [InlineData("2018.7.17.0",  2018, 7,  17, "10.0.26100.1882")]   // Intel Processor
+    [InlineData("2018.5.31.0",  2018, 5,  31, "10.0.19041.3636")]   // WAN Miniport older build
+    [InlineData("2021.12.5.0",  2021, 12, 5,  "6.0.9927.1")]         // vs Realtek-style version
+    [InlineData("2024.1.1.0",   2024, 1,  1,  "12.19.0.11")]          // vs Intel NIC-style version
+    public void IsNewerThan_returns_false_for_genuine_date_candidate_against_low_major_driver_without_date(
+        string candidateVersion, int year, int month, int day, string installedVersion)
+    {
+        var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(year, month, day));
+        var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_still_compares_two_genuine_date_year_versions_normally()
+    {
+        // Both sides are date-year versioned (NewDate matches NewVersion) - newer wins.
+        var candidate = NewCandidate(new Version(2024, 3, 15, 0), new DateOnly(2024, 3, 15));
+        var current = SampleDriver(new Version(2022, 11, 1, 0)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNewerThan_uses_date_comparison_when_current_has_date_even_if_version_schemes_differ()
+    {
+        // When CurrentDate is set the existing date path handles it; the guard must not interfere.
+        var candidate = NewCandidate(new Version(2021, 12, 5, 0), new DateOnly(2021, 12, 5));
+        var current = SampleDriver(new Version(10, 0, 26100, 1882)) with { CurrentDate = new DateOnly(2023, 1, 1) };
+
+        candidate.IsNewerThan(current).Should().BeFalse(); // 2021-12-05 < 2023-01-01
+    }
+
+    // Regression for the recurring downgrade: a calendar-style catalog version whose NewDate
+    // does NOT cleanly encode the version (so the exact date path does not apply) must still
+    // never replace a Windows inbox driver (10.0.<osbuild>.x), whether or not the inbox driver
+    // reports a date. Raw "2018 > 10" comparison would be a false positive.
+    [Theory]
+    [InlineData("2018.5.31.0",  "10.0.26100.1")]      // WAN Miniport
+    [InlineData("2018.7.17.0",  "10.0.26100.8521")]   // Intel Processor
+    [InlineData("2019.8.3.0",   "10.0.26100.8521")]   // Disk drive
+    [InlineData("2021.12.5.0",  "10.0.26100.8521")]   // Generic PnP Monitor
+    [InlineData("2018.5.31.0",  "10.0.19041.3636")]   // older Windows build
+    public void IsNewerThan_never_downgrades_windows_inbox_driver_to_calendar_version_without_date(
+        string candidateVersion, string installedVersion)
+    {
+        // NewDate deliberately does NOT match the version encoding, and no CurrentDate is set -
+        // this is exactly the combination the earlier narrow guard missed.
+        var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(2026, 1, 1));
+        var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_never_downgrades_windows_inbox_driver_even_when_inbox_has_a_date()
+    {
+        // Inbox driver reports a recent date; catalog date does not encode the calendar version,
+        // so the exact date path is skipped and the inbox guard must catch it.
+        var candidate = NewCandidate(new Version(2018, 5, 31, 0), new DateOnly(2018, 6, 15));
+        var current = SampleDriver(new Version(10, 0, 26100, 8521)) with { CurrentDate = new DateOnly(2024, 6, 1) };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    // The real-world bug: Windows inbox drivers report a placeholder date of 2006-06-21 while
+    // carrying a modern build number (10.0.26100.x). A calendar-versioned catalog package whose
+    // date encodes the version (2018.5.31.0 / 2018-05-31) must NOT be considered newer just
+    // because 2018-05-31 > 2006-06-21 - the inbox guard has to win over the date comparison.
+    [Theory]
+    [InlineData("2018.5.31.0",  2018, 5,  31, "10.0.26100.1")]      // WAN Miniport
+    [InlineData("2018.7.17.0",  2018, 7,  17, "10.0.26100.8521")]   // Intel Processor
+    [InlineData("2019.8.3.0",   2019, 8,  3,  "10.0.26100.8521")]   // Disk drive
+    [InlineData("2021.12.5.0",  2021, 12, 5,  "10.0.26100.8521")]   // Generic PnP Monitor
+    [InlineData("2021.12.29.0", 2021, 12, 29, "10.0.26100.8521")]   // USB Composite Device
+    [InlineData("2023.3.19.0",  2023, 3,  19, "10.0.26100.1150")]   // Microsoft Input Config
+    public void IsNewerThan_refuses_calendar_package_over_inbox_driver_with_placeholder_date(
+        string candidateVersion, int year, int month, int day, string installedVersion)
+    {
+        var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(year, month, day));
+        var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = new DateOnly(2006, 6, 21) };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_allows_real_vendor_driver_to_replace_windows_inbox_driver()
+    {
+        // A genuine vendor driver with a normal (non-calendar) major should still be offered
+        // over an inbox driver - the guard only blocks calendar-year catalog packages.
+        var candidate = NewCandidate(new Version(31, 0, 15, 5222)); // NVIDIA-style version
+        var current = SampleDriver(new Version(10, 0, 26100, 8521)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
     [Fact]
     public void IsNewerThan_throws_when_current_is_null()
     {

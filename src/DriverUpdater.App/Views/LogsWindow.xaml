@@ -25,7 +25,21 @@
         <Border Grid.Row="0"
                 Padding="20,12"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <DockPanel LastChildFill="True">
+                <!-- AI chat toggle: two sparkles that open/close the Ask-AI panel. -->
+                <ToggleButton DockPanel.Dock="Right"
+                              Margin="12,0,0,0"
+                              Padding="10,4"
+                              VerticalAlignment="Center"
+                              IsChecked="{Binding IsChatPanelVisible, Mode=TwoWay}"
+                              Visibility="{Binding IsAiAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              ToolTip="Show or hide the Ask-AI chat panel">
+                    <TextBlock Text="&#x2726;&#x2727;"
+                               FontSize="16"
+                               FontWeight="SemiBold" />
+                </ToggleButton>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Live logs" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
 
                 <ToggleButton x:Name="PauseToggle"
@@ -88,11 +102,19 @@
                           VerticalAlignment="Center"
                           Content="Auto-scroll"
                           IsChecked="{Binding AutoScroll, Mode=TwoWay}" />
-            </StackPanel>
+                </StackPanel>
+            </DockPanel>
         </Border>
 
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
         <DataGrid x:Name="LogsGrid"
-                  Grid.Row="1"
+                  Grid.Column="0"
                   Margin="20,12,20,8"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
@@ -147,6 +169,122 @@
             </DataGrid.Columns>
         </DataGrid>
 
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+            <Border Grid.Column="2"
+                    Width="360"
+                    Margin="0,12,20,8"
+                    Padding="12,10"
+                    CornerRadius="4"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Ask AI about these logs" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ProgressBar Width="60"
+                                     Height="4"
+                                     Margin="10,0,0,0"
+                                     VerticalAlignment="Center"
+                                     IsIndeterminate="True"
+                                     Visibility="{Binding IsChatting, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Margin="10,0,0,0"
+                                Padding="8,2"
+                                Content="Clear"
+                                FontSize="11"
+                                Command="{Binding ClearChatCommand}"
+                                Visibility="{Binding HasChat, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+
+                    <Border Grid.Row="1"
+                            Visibility="{Binding HasNoChat, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Ask a question about what happened in this session - errors, why a driver failed, what was updated, and so on. The AI answers from the current session logs."
+                                   TextWrapping="Wrap"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   VerticalAlignment="Top" />
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1"
+                                  x:Name="ChatScroll"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding HasChat, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding ChatMessages}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8"
+                                            Padding="10,7"
+                                            CornerRadius="6">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumBrush}" />
+                                                <Setter Property="HorizontalAlignment" Value="Left" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsUser}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+                                                        <Setter Property="HorizontalAlignment" Value="Right" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding RoleLabel}"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       Opacity="0.7"
+                                                       Margin="0,0,0,2" />
+                                            <TextBlock Text="{Binding Text}"
+                                                       TextWrapping="Wrap"
+                                                       FontSize="12"
+                                                       MaxWidth="300" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="2" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 x:Name="ChatInputBox"
+                                 Text="{Binding ChatInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 ui:ControlHelper.PlaceholderText="Ask about the logs..."
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="False"
+                                 MaxLength="1000"
+                                 VerticalContentAlignment="Center">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Enter" Command="{Binding SendChatCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="1"
+                                Margin="8,0,0,0"
+                                Padding="14,4"
+                                Content="Send"
+                                Command="{Binding SendChatCommand}"
+                                Style="{DynamicResource AccentButtonStyle}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
         <Border Grid.Row="2"
                 Margin="20,0,20,8"
                 Padding="12,10"
@@ -154,19 +292,26 @@
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                 BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
                 BorderThickness="1"
-                Visibility="{Binding HasAiSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+                Visibility="{Binding IsSummaryShown, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBlock Text="AI log summary" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Button Margin="12,0,0,0"
+                <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="AI log summary" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button DockPanel.Dock="Left"
+                            Margin="12,0,0,0"
                             Padding="10,2"
                             Content="Copy summary"
                             Command="{Binding CopyAiSummaryCommand}" />
-                </StackPanel>
+                    <Button DockPanel.Dock="Right"
+                            Padding="8,2"
+                            Content="&#x2715;"
+                            FontSize="12"
+                            Command="{Binding CloseSummaryCommand}"
+                            ToolTip="Close the AI summary" />
+                </DockPanel>
                 <TextBox Grid.Row="1"
                          Text="{Binding AiSummary, Mode=OneWay}"
                          IsReadOnly="True"

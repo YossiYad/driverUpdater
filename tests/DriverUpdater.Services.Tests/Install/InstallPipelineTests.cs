@@ -85,33 +85,166 @@ public class InstallPipelineTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_returns_failure_when_restore_point_fails()
+    public async Task ExecuteAsync_continues_installation_when_restore_point_fails()
     {
-        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "denied") };
+        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "srservice disabled") };
         var bk = new FakeBackupService();
-        var wu = new FakeWuApiClient();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
         var pipeline = new InstallPipeline(rp, bk, wu, NullLogger<InstallPipeline>.Instance);
 
         var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions());
 
-        result.Status.Should().Be(UpdateStatus.Failed);
-        result.ErrorMessage.Should().Contain("denied");
-        bk.BackupInvocations.Should().Be(0);
-        wu.DownloadAndInstallInvocations.Should().Be(0);
+        // Restore-point failure is non-fatal; installation must still complete.
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        bk.BackupInvocations.Should().Be(1);
+        wu.DownloadAndInstallInvocations.Should().Be(1);
     }
 
     [Fact]
-    public async Task ExecuteAsync_returns_failure_when_backup_fails()
+    public async Task ExecuteAsync_suppresses_restore_point_after_first_failure()
+    {
+        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "srservice disabled") };
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance);
+
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+
+        // After the first failure the circuit breaker fires; CreateRestorePointAsync must not be called again.
+        rp.Invocations.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_continues_installation_when_backup_fails()
     {
         var bk = new FakeBackupService { BackupFailure = ResultError.From("BACKUP_PNPUTIL_FAILED", "permission denied") };
-        var wu = new FakeWuApiClient();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
         var pipeline = new InstallPipeline(new FakeRestorePointService(), bk, wu, NullLogger<InstallPipeline>.Instance);
 
         var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions());
 
-        result.Status.Should().Be(UpdateStatus.Failed);
-        result.ErrorMessage.Should().Contain("permission denied");
-        wu.DownloadAndInstallInvocations.Should().Be(0);
+        // Backup failure is non-fatal; installation must still complete.
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        wu.DownloadAndInstallInvocations.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_pnputil_exit_3010_is_success_with_reboot_message()
+    {
+        var pnputil = new FakePnPUtilRunner { ExitCode = 3010 };
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/driver.cab")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_pnputil_exit_259_is_success_with_reboot_message()
+    {
+        var pnputil = new FakePnPUtilRunner { ExitCode = 259 };
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/driver.cab")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_reclassifies_to_skipped_when_active_driver_did_not_change()
+    {
+        // pnputil/WU reports success but the read-back shows the same version as before -
+        // Windows kept the existing driver. The pipeline must report this honestly.
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1)) // identical to snapshot
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        probe.Invocations.Should().Be(1);
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("kept the existing driver");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_keeps_succeeded_when_active_driver_changed()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(2, 0), new DateOnly(2026, 1, 1)) // changed from snapshot
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        probe.Invocations.Should().Be(1);
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_defers_verification_when_reboot_required()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, true, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1)) // unchanged, but reboot pending
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        // Reboot pending: cannot verify in-session, so the probe is not consulted and status stays Succeeded.
+        probe.Invocations.Should().Be(0);
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_keeps_succeeded_when_probe_result_is_inconclusive()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe { State = null }; // could not read back
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
     }
 
     [Fact]
@@ -140,6 +273,32 @@ public class InstallPipelineTests
 
         result.Status.Should().Be(UpdateStatus.Skipped);
         result.ErrorMessage.Should().Contain("MicrosoftCatalog");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_pnputil_package_when_download_is_exe()
+    {
+        // Hyper-V and some catalog entries point at .exe packages that pnputil cannot handle.
+        // The pipeline must skip gracefully rather than throw InvalidOperationException.
+        var pnputil = new FakePnPUtilRunner();
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A }); // MZ header (valid PE)
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/rootsupd.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("vendor page");
+        pnputil.Arguments.Should().BeEmpty();
     }
 
     [Fact]
@@ -422,14 +581,27 @@ public class InstallPipelineTests
         }
     }
 
+    private sealed class FakeInstalledDriverProbe : IInstalledDriverProbe
+    {
+        public int Invocations { get; private set; }
+        public InstalledDriverState? State { get; set; }
+
+        public Task<InstalledDriverState?> GetCurrentAsync(string deviceId, CancellationToken cancellationToken = default)
+        {
+            Invocations++;
+            return Task.FromResult(State);
+        }
+    }
+
     private sealed class FakePnPUtilRunner : IPnPUtilRunner
     {
         public List<string> Arguments { get; } = new();
+        public int ExitCode { get; init; }
 
         public Task<ProcessResult> RunAsync(string arguments, CancellationToken cancellationToken = default)
         {
             Arguments.Add(arguments);
-            return Task.FromResult(new ProcessResult(0, "ok", ""));
+            return Task.FromResult(new ProcessResult(ExitCode, "ok", ""));
         }
     }
 
