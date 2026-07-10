@@ -10,6 +10,14 @@ public sealed partial class RestorePointService : IRestorePointService
 {
     private const string CheckpointScript = @"$ErrorActionPreference = 'Stop';
 try {
+    # By default Windows refuses to create a restore point if one was created in the last
+    # 1440 minutes (SystemRestorePointCreationFrequency), silently skipping our checkpoint.
+    # Set the frequency to 0 so a genuine checkpoint is always created before a driver change.
+    try {
+        $srKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore';
+        if (-not (Test-Path $srKey)) { New-Item -Path $srKey -Force | Out-Null; }
+        Set-ItemProperty -Path $srKey -Name 'SystemRestorePointCreationFrequency' -Value 0 -Type DWord -Force;
+    } catch { }
     Checkpoint-Computer -Description $description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop;
     $rp = Get-ComputerRestorePoint | Sort-Object -Property CreationTime -Descending | Select-Object -First 1;
     if ($null -eq $rp) {

@@ -104,6 +104,49 @@ public class UpdateCandidateTests
         candidate.IsNewerThan(current).Should().BeFalse(); // 2021-12-05 < 2023-01-01
     }
 
+    // Regression for the recurring downgrade: a calendar-style catalog version whose NewDate
+    // does NOT cleanly encode the version (so the exact date path does not apply) must still
+    // never replace a Windows inbox driver (10.0.<osbuild>.x), whether or not the inbox driver
+    // reports a date. Raw "2018 > 10" comparison would be a false positive.
+    [Theory]
+    [InlineData("2018.5.31.0",  "10.0.26100.1")]      // WAN Miniport
+    [InlineData("2018.7.17.0",  "10.0.26100.8521")]   // Intel Processor
+    [InlineData("2019.8.3.0",   "10.0.26100.8521")]   // Disk drive
+    [InlineData("2021.12.5.0",  "10.0.26100.8521")]   // Generic PnP Monitor
+    [InlineData("2018.5.31.0",  "10.0.19041.3636")]   // older Windows build
+    public void IsNewerThan_never_downgrades_windows_inbox_driver_to_calendar_version_without_date(
+        string candidateVersion, string installedVersion)
+    {
+        // NewDate deliberately does NOT match the version encoding, and no CurrentDate is set —
+        // this is exactly the combination the earlier narrow guard missed.
+        var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(2026, 1, 1));
+        var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_never_downgrades_windows_inbox_driver_even_when_inbox_has_a_date()
+    {
+        // Inbox driver reports a recent date; catalog date does not encode the calendar version,
+        // so the exact date path is skipped and the inbox guard must catch it.
+        var candidate = NewCandidate(new Version(2018, 5, 31, 0), new DateOnly(2018, 6, 15));
+        var current = SampleDriver(new Version(10, 0, 26100, 8521)) with { CurrentDate = new DateOnly(2024, 6, 1) };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_allows_real_vendor_driver_to_replace_windows_inbox_driver()
+    {
+        // A genuine vendor driver with a normal (non-calendar) major should still be offered
+        // over an inbox driver — the guard only blocks calendar-year catalog packages.
+        var candidate = NewCandidate(new Version(31, 0, 15, 5222)); // NVIDIA-style version
+        var current = SampleDriver(new Version(10, 0, 26100, 8521)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
     [Fact]
     public void IsNewerThan_throws_when_current_is_null()
     {

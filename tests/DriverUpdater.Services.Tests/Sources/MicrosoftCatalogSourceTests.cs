@@ -151,6 +151,21 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public void TryMap_discards_hit_when_download_is_a_non_driver_executable()
+    {
+        var hit = Hit("guid-exe", "Windows Root Certificates", new Version(2021, 12, 5, 0), new DateOnly(2021, 12, 5), sizeBytes: 100);
+        var downloads = new Dictionary<string, CatalogDownloadInfo>
+        {
+            ["guid-exe"] = new CatalogDownloadInfo("guid-exe", new Uri("https://download.example.com/rootsupd_fe44934f.exe"), 999)
+        };
+
+        var ok = MicrosoftCatalogSource.TryMap(hit, "ROOT\\HYPERV", downloads, out var candidate);
+
+        ok.Should().BeFalse();
+        candidate.Should().BeNull();
+    }
+
+    [Fact]
     public void TryMap_falls_back_to_scoped_view_url_when_no_download_info()
     {
         var hit = Hit("guid-z", "Sample", new Version(5, 0, 0, 0), new DateOnly(2026, 1, 1), sizeBytes: 100);

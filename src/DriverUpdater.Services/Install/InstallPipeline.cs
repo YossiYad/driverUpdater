@@ -195,7 +195,9 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             Interlocked.Exchange(ref _restorePointSuppressed, 1);
             _logger.LogWarning(
-                "Restore point creation failed ({Error}). System Restore is likely disabled (srservice stopped). " +
+                "Restore point creation failed ({Error}). System Protection is most likely turned off for the " +
+                "system drive — enable it via System Properties > System Protection (or " +
+                "'Enable-ComputerRestore -Drive \"C:\\\"' in an elevated PowerShell) to allow rollbacks. " +
                 "Restore points will be skipped for all remaining drivers this session. " +
                 "Driver file backups (pnputil export-driver) are unaffected and will still run.",
                 rp.Error.Message);
@@ -218,7 +220,19 @@ public sealed class InstallPipeline : IInstallPipeline
         var backup = await _backupService.BackupDriverAsync(operation.TargetSnapshot, cancellationToken).ConfigureAwait(false);
         if (backup.IsFailure)
         {
-            _logger.LogWarning("Backup step failed (continuing with installation): {Error}", backup.Error.Message);
+            // A driver with no INF name is a virtual/inbox device (e.g. "Microsoft Print to PDF")
+            // that ships with Windows and has nothing to export — that is expected, not a problem
+            // worth a warning. Genuine backup failures still surface as warnings.
+            if (string.Equals(backup.Error.Code, "BACKUP_NO_INF", StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Backup skipped for {Device}: virtual/inbox device has no INF to export (continuing with installation).",
+                    operation.TargetSnapshot.DeviceName);
+            }
+            else
+            {
+                _logger.LogWarning("Backup step failed (continuing with installation): {Error}", backup.Error.Message);
+            }
             return operation;
         }
 

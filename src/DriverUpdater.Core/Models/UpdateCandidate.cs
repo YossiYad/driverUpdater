@@ -19,6 +19,7 @@ public sealed record UpdateCandidate(
     {
         ArgumentNullException.ThrowIfNull(current);
 
+        // Most reliable comparison: both the candidate and the installed driver expose a date.
         if (IsDateBasedVersion(NewVersion, NewDate) && current.CurrentDate is { } currentDate)
         {
             return NewDate > currentDate;
@@ -29,14 +30,23 @@ public sealed record UpdateCandidate(
             return true;
         }
 
-        // When a catalog entry IS date-based (NewVersion encodes YYYY.MM.DD.0) but the
-        // installed driver has no CurrentDate to compare against, we fall through to the
-        // version number comparison below. That comparison is wrong when the installed
-        // driver uses a Windows build version (major ≤ 99, e.g. 10.0.26100.1882 for an
-        // inbox driver or 12.19.0.11 for an Intel NIC): "2021 > 10" is numerically true
-        // but would downgrade a current Windows 11 inbox driver to a 2021 OEM package.
-        // Treat such mismatched schemes as incomparable — refuse the update.
-        if (IsDateBasedVersion(NewVersion, NewDate)
+        // Never downgrade a Windows inbox driver (10.0.<osbuild>.x, e.g. 10.0.26100.8521)
+        // to an OEM catalog driver that uses a calendar-year major (YYYY.MM.DD.x, e.g.
+        // 2018.5.31.0). The two version schemes live in different domains, so the raw
+        // "2018 > 10" comparison below is a false positive that would replace a modern
+        // inbox driver with a years-old package — and because Windows silently rejects the
+        // downgrade of a protected inbox driver, the "update" reappears on every scan.
+        // Detect the calendar scheme from the version itself so this holds even when the
+        // catalog's NewDate does not cleanly encode the version.
+        if (IsCalendarVersion(NewVersion) && IsWindowsInboxVersion(current.CurrentVersion))
+        {
+            return false;
+        }
+
+        // Calendar-year candidate vs a low-major classic driver (e.g. Realtek 6.0.9927.1 or
+        // an Intel NIC 12.19.0.11) with no date to compare against: still incomparable
+        // schemes ("2021 > 6"), so refuse rather than downgrade.
+        if (IsCalendarVersion(NewVersion)
             && current.CurrentDate is null
             && current.CurrentVersion.Major < 100)
         {
@@ -51,4 +61,19 @@ public sealed record UpdateCandidate(
         && version.Minor == date.Month
         && version.Build == date.Day
         && version.Revision is 0 or -1;
+
+    // A version whose components look like a calendar date (YYYY.MM.DD), independent of any
+    // supplied release date. OEM catalog drivers commonly encode their release date this way.
+    private static bool IsCalendarVersion(Version version) =>
+        version.Major is >= 2000 and <= 2100
+        && version.Minor is >= 1 and <= 12
+        && version.Build is >= 1 and <= 31;
+
+    // A Windows inbox driver: kernel-style version 10.0.<osbuild>.<revision> where the build
+    // field carries the OS build number (Win10/11 builds are >= 10240). These ship with
+    // Windows and must not be "downgraded" to a calendar-versioned OEM package.
+    private static bool IsWindowsInboxVersion(Version version) =>
+        version.Major == 10
+        && version.Minor == 0
+        && version.Build >= 10000;
 }
