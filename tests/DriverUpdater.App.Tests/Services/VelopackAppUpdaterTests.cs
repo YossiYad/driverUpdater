@@ -45,6 +45,42 @@ public class VelopackAppUpdaterTests
         await act.Should().NotThrowAsync();
     }
 
+    [Fact]
+    public async Task CheckForUpdatesAsync_returns_none_when_no_feed_configured()
+    {
+        var settings = new UpdaterSettings { GitHubRepoUrl = null, FeedUrl = null };
+        var updater = NewUpdater(settings);
+
+        var result = await updater.CheckForUpdatesAsync();
+
+        result.IsUpdateAvailable.Should().BeFalse();
+        result.Version.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_returns_none_when_not_installed_via_velopack()
+    {
+        // The GitHub repo is configured but the test host is not a Velopack install, so the
+        // updater must report no update rather than attempt to download anything.
+        var settings = new UpdaterSettings { GitHubRepoUrl = "https://github.com/YossiYad/driverUpdater" };
+        var updater = NewUpdater(settings);
+
+        var result = await updater.CheckForUpdatesAsync();
+
+        result.IsUpdateAvailable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DownloadAndApplyAsync_does_nothing_when_no_update_is_pending()
+    {
+        var settings = new UpdaterSettings { GitHubRepoUrl = null, FeedUrl = null };
+        var updater = NewUpdater(settings);
+
+        Func<Task> act = () => updater.DownloadAndApplyAsync();
+
+        await act.Should().NotThrowAsync();
+    }
+
     private static VelopackAppUpdater NewUpdater(UpdaterSettings settings) =>
         new(new ConstantOptionsMonitor<UpdaterSettings>(settings), NullLogger<VelopackAppUpdater>.Instance);
 
