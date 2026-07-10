@@ -40,8 +40,17 @@ public partial class MainViewModel : ObservableObject
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
 
     // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
-    // A candidate is suppressed while the device still reports that installed version.
+    // Used for exact-target suppression from precise sources (vendor/OEM/AI).
     private Dictionary<string, string?> _ineffectiveIndex = new(StringComparer.OrdinalIgnoreCase);
+
+    // DeviceId -> the set of installed versions that had a proven no-op. The Microsoft Update
+    // Catalog re-versions the same generic/mismatched driver every scan (e.g. Computer Device
+    // 30.100.2534.35 then .18), so exact-target matching alone lets each new build slip through.
+    // For catalog/Windows-Update candidates we suppress at the device level: while the device
+    // still reports an installed version that a catalog driver already failed to replace, skip
+    // any catalog candidate for it. Reboot-required installs are never recorded, so legitimate
+    // pending updates (Intel PMT, Iris Xe) are unaffected.
+    private Dictionary<string, HashSet<string?>> _ineffectiveDeviceInstalled = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -471,11 +480,23 @@ public partial class MainViewModel : ObservableObject
                 r => IneffectiveKey(r.DeviceId, r.TargetVersion),
                 r => r.InstalledVersionAtAttempt,
                 StringComparer.OrdinalIgnoreCase);
+
+            _ineffectiveDeviceInstalled = new Dictionary<string, HashSet<string?>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in records)
+            {
+                if (!_ineffectiveDeviceInstalled.TryGetValue(r.DeviceId, out var installedVersions))
+                {
+                    installedVersions = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
+                    _ineffectiveDeviceInstalled[r.DeviceId] = installedVersions;
+                }
+                installedVersions.Add(r.InstalledVersionAtAttempt);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not load the ineffective-update ledger; not suppressing any candidates");
             _ineffectiveIndex = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            _ineffectiveDeviceInstalled = new Dictionary<string, HashSet<string?>>(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -485,28 +506,41 @@ public partial class MainViewModel : ObservableObject
     // version has since changed, the record no longer applies and the candidate is offered again.
     private bool IsProvenIneffective(DriverRowViewModel row, UpdateCandidate candidate)
     {
-        if (_ineffectiveIndex.Count == 0 || candidate.NewVersion is null)
+        if (candidate.NewVersion is null)
         {
             return false;
         }
 
-        var key = IneffectiveKey(row.Driver.DeviceId, candidate.NewVersion.ToString());
-        if (!_ineffectiveIndex.TryGetValue(key, out var installedAtAttempt))
-        {
-            return false;
-        }
-
+        var deviceId = row.Driver.DeviceId;
         var currentInstalled = row.Driver.CurrentVersion?.ToString();
-        if (!string.Equals(installedAtAttempt, currentInstalled, StringComparison.OrdinalIgnoreCase))
+
+        // Device-level suppression for the Microsoft Update Catalog / Windows Update, which
+        // re-version the same generic driver every scan. If a catalog driver already failed to
+        // replace this device's currently-installed driver, skip any catalog candidate for it
+        // (regardless of the exact build number) until the installed driver actually changes.
+        if (candidate.Source is UpdateSource.MicrosoftCatalog or UpdateSource.WindowsUpdate
+            && _ineffectiveDeviceInstalled.TryGetValue(deviceId, out var installedVersions)
+            && installedVersions.Contains(currentInstalled))
         {
-            return false; // something changed since the failed attempt - re-evaluate normally
+            _logger.LogInformation(
+                "Suppressing {Device}: a {Source} driver already failed to replace the installed {Installed} " +
+                "(proven no-op); skipping {Target}. It will be offered again if the installed driver changes.",
+                DriverDisplayName(row), candidate.Source, currentInstalled ?? "existing driver", candidate.NewVersion);
+            return true;
         }
 
-        _logger.LogInformation(
-            "Suppressing {Device}: {Target} was already installed but Windows kept {Installed} (proven no-op). " +
-            "It will be offered again if the installed driver changes or a newer version appears.",
-            DriverDisplayName(row), candidate.NewVersion, currentInstalled ?? "the existing driver");
-        return true;
+        // Exact-target suppression for precise sources (vendor/OEM/AI): only skip the same target.
+        if (_ineffectiveIndex.TryGetValue(IneffectiveKey(deviceId, candidate.NewVersion.ToString()), out var installedAtAttempt)
+            && string.Equals(installedAtAttempt, currentInstalled, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Suppressing {Device}: {Target} was already installed but Windows kept {Installed} (proven no-op). " +
+                "It will be offered again if the installed driver changes or a newer version appears.",
+                DriverDisplayName(row), candidate.NewVersion, currentInstalled ?? "the existing driver");
+            return true;
+        }
+
+        return false;
     }
 
     private async Task RecordIfProvenIneffectiveAsync(DriverRowViewModel row, UpdateOperation finished, CancellationToken cancellationToken)
