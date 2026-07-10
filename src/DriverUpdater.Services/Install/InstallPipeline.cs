@@ -22,6 +22,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
+    private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -36,7 +37,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IHttpClientFactory? httpClientFactory = null,
         IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null,
-        IVendorPageInstallerResolver? vendorPageResolver = null)
+        IVendorPageInstallerResolver? vendorPageResolver = null,
+        IInstalledDriverProbe? installedDriverProbe = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -51,6 +53,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
         _vendorPageResolver = vendorPageResolver;
+        _installedDriverProbe = installedDriverProbe;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -100,6 +103,12 @@ public sealed class InstallPipeline : IInstallPipeline
             }
 
             operation = await StepDownloadAndInstallAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+
+            if (operation.Status == UpdateStatus.Succeeded)
+            {
+                operation = await StepVerifyInstallAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+            }
+
             return operation;
         }
         catch (OperationCanceledException)
@@ -237,6 +246,75 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         operation = operation with { BackupPath = backup.Value.BackupFolderPath };
+        progress?.Report(operation);
+        return operation;
+    }
+
+    // Confirms the active driver actually changed after a "successful" install, rather than
+    // trusting the installer's exit code. pnputil can report success after merely staging a
+    // package in the driver store while Windows keeps a higher-ranked (e.g. inbox) driver
+    // bound — which is exactly why such "updates" reappeared on every scan.
+    private async Task<UpdateOperation> StepVerifyInstallAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_installedDriverProbe is null)
+        {
+            return operation;
+        }
+
+        var deviceName = string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceName)
+            ? operation.TargetSnapshot.HardwareId
+            : operation.TargetSnapshot.DeviceName;
+
+        // When a reboot is required the new driver only binds after restart, so an in-session
+        // read-back would falsely report "unchanged". Defer verification to the next scan.
+        if (operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogInformation(
+                "Install verification deferred for {Device}: reboot required before the new driver binds.", deviceName);
+            return operation;
+        }
+
+        var before = operation.TargetSnapshot;
+        var current = await _installedDriverProbe.GetCurrentAsync(before.DeviceId, cancellationToken).ConfigureAwait(false);
+        if (current is null || (current.Version is null && current.Date is null))
+        {
+            _logger.LogInformation(
+                "Install verification inconclusive for {Device}: the current driver could not be read back.", deviceName);
+            return operation;
+        }
+
+        var versionChanged = !Equals(current.Version, before.CurrentVersion);
+        var dateChanged = current.Date != before.CurrentDate;
+        if (versionChanged || dateChanged)
+        {
+            _logger.LogInformation(
+                "Install verified for {Device}: active driver changed from {OldVersion} ({OldDate}) to {NewVersion} ({NewDate}).",
+                deviceName,
+                before.CurrentVersion?.ToString() ?? "?", before.CurrentDate?.ToString() ?? "?",
+                current.Version?.ToString() ?? "?", current.Date?.ToString() ?? "?");
+            return operation;
+        }
+
+        // Nothing changed: the package was staged but Windows kept the existing driver.
+        var installedText = before.CurrentVersion?.ToString() ?? before.CurrentDate?.ToString() ?? "unknown";
+        _logger.LogWarning(
+            "Install did not take effect for {Device}: the active driver is still {Installed} after installing " +
+            "{Source} {Candidate}. Windows kept the existing driver — usually because it is ranked higher (e.g. a " +
+            "protected Windows inbox driver) or a reboot is pending. Reporting this as not applied rather than success.",
+            deviceName, installedText, operation.Candidate.Source,
+            operation.Candidate.NewVersion?.ToString() ?? "?");
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Skipped,
+            ErrorMessage =
+                $"Installed to the driver store, but Windows kept the existing driver (version unchanged: {installedText}). " +
+                "This usually means the current driver is ranked higher (e.g. a protected Windows inbox driver) or a reboot is pending.",
+            CompletedAt = _clock.GetUtcNow()
+        };
         progress?.Report(operation);
         return operation;
     }

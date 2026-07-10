@@ -25,6 +25,7 @@ public static class ServicesServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IDriverScanService, DriverScanService>();
+        services.AddSingleton<IInstalledDriverProbe, WmiInstalledDriverProbe>();
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();

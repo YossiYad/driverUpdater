@@ -175,6 +175,79 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_reclassifies_to_skipped_when_active_driver_did_not_change()
+    {
+        // pnputil/WU reports success but the read-back shows the same version as before —
+        // Windows kept the existing driver. The pipeline must report this honestly.
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1)) // identical to snapshot
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        probe.Invocations.Should().Be(1);
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("kept the existing driver");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_keeps_succeeded_when_active_driver_changed()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(2, 0), new DateOnly(2026, 1, 1)) // changed from snapshot
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        probe.Invocations.Should().Be(1);
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_defers_verification_when_reboot_required()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, true, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1)) // unchanged, but reboot pending
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        // Reboot pending: cannot verify in-session, so the probe is not consulted and status stays Succeeded.
+        probe.Invocations.Should().Be(0);
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_keeps_succeeded_when_probe_result_is_inconclusive()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe { State = null }; // could not read back
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_returns_failure_when_install_fails()
     {
         var wu = new FakeWuApiClient { InstallFailure = ResultError.From("WU_INSTALL_FAILED", "HRESULT 0x80070005") };
@@ -505,6 +578,18 @@ public class InstallPipelineTests
                 return Task.FromResult(Result<WuInstallResult>.Failure(InstallFailure));
             }
             return Task.FromResult<Result<WuInstallResult>>(InstallResult ?? new WuInstallResult(0, false, "ok"));
+        }
+    }
+
+    private sealed class FakeInstalledDriverProbe : IInstalledDriverProbe
+    {
+        public int Invocations { get; private set; }
+        public InstalledDriverState? State { get; set; }
+
+        public Task<InstalledDriverState?> GetCurrentAsync(string deviceId, CancellationToken cancellationToken = default)
+        {
+            Invocations++;
+            return Task.FromResult(State);
         }
     }
 
