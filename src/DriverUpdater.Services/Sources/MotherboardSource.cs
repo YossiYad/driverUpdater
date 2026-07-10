@@ -165,10 +165,12 @@ public sealed class MotherboardSource : IUpdateSource
             : catalogVersion;
     }
 
-    internal static string ResolveInstallerFamily(string vendorTag) =>
-        vendorTag.Equals("gigabyte", StringComparison.OrdinalIgnoreCase)
-            ? "nullsoft"
-            : "installshield";
+    internal static string ResolveInstallerFamily(string vendorTag) => vendorTag.ToLowerInvariant() switch
+    {
+        "gigabyte" => "nullsoft",
+        "asus" => "nullsoft",
+        _ => "installshield"
+    };
 
     internal static MotherboardDriverEntry? FindMatch(DriverInfo driver, IReadOnlyList<MotherboardDriverEntry> entries)
     {
@@ -219,6 +221,60 @@ public sealed class MotherboardSource : IUpdateSource
         {
             var wifi = BestByVersion(entries, e => Contains(e.Category, "Wireless") || Contains(e.Title, "WiFi") || Contains(e.Title, "Wireless"));
             if (wifi is not null) { return wifi; }
+        }
+
+        // Intel chipset INF driver
+        if (driver.Category is DriverCategory.Chipset or DriverCategory.System
+            && (Contains(driver.Provider, "Intel") || Contains(deviceName, "Intel")))
+        {
+            var chipset = BestByVersion(entries, e =>
+                Contains(e.Title, "Chipset") || Contains(e.Title, "INF") || Contains(e.Category, "Chipset"));
+            if (chipset is not null) { return chipset; }
+        }
+
+        // Intel LAN (I219 / I225 / I226)
+        if (driver.Category == DriverCategory.Network
+            && Contains(driver.Provider, "Intel")
+            && (Contains(deviceName, "Ethernet") || Contains(deviceName, "LAN")
+                || Contains(deviceName, "I219") || Contains(deviceName, "I225") || Contains(deviceName, "I226")))
+        {
+            var lan = BestByVersion(entries, e =>
+                (Contains(e.Title, "LAN") || Contains(e.Title, "Ethernet") || Contains(e.Category, "LAN"))
+                && (Contains(e.Title, "Intel") || Contains(e.Category, "Intel")));
+            if (lan is not null) { return lan; }
+        }
+
+        // Intel Wi-Fi / Bluetooth (AX200, AX201, AX210, ...)
+        if (driver.Category is DriverCategory.Network or DriverCategory.Bluetooth
+            && Contains(driver.Provider, "Intel")
+            && (Contains(deviceName, "Wi-Fi") || Contains(deviceName, "WiFi")
+                || Contains(deviceName, "Wireless") || Contains(deviceName, "Bluetooth")
+                || Contains(deviceName, "AX20") || Contains(deviceName, "AX21")))
+        {
+            var wlan = BestByVersion(entries, e =>
+                Contains(e.Title, "WiFi") || Contains(e.Title, "Wi-Fi")
+                || Contains(e.Title, "Wireless") || Contains(e.Title, "Bluetooth"));
+            if (wlan is not null) { return wlan; }
+        }
+
+        // MediaTek Bluetooth / Wi-Fi (common on ASUS motherboards)
+        if (driver.Category is DriverCategory.Bluetooth or DriverCategory.Network
+            && (Contains(driver.Provider, "MediaTek") || Contains(deviceName, "MediaTek")
+                || Contains(driver.Manufacturer, "MediaTek")))
+        {
+            var mt = BestByVersion(entries, e =>
+                Contains(e.Title, "Bluetooth") || Contains(e.Title, "WiFi")
+                || Contains(e.Title, "Wi-Fi") || Contains(e.Title, "Wireless")
+                || Contains(e.Title, "MediaTek") || Contains(e.Category, "Wireless"));
+            if (mt is not null) { return mt; }
+        }
+
+        // Dirac Audio processing
+        if (Contains(driver.Provider, "Dirac") || Contains(deviceName, "Dirac")
+            || Contains(driver.Manufacturer, "Dirac"))
+        {
+            var dirac = BestByVersion(entries, e => Contains(e.Title, "Dirac") || Contains(e.Category, "Dirac"));
+            if (dirac is not null) { return dirac; }
         }
 
         return null;

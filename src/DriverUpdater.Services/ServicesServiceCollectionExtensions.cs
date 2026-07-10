@@ -33,6 +33,7 @@ public static class ServicesServiceCollectionExtensions
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
         ConfigureOfficialVendorPageHttpClient(services);
+        ConfigureAsusScrapingHttpClient(services);
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
@@ -57,7 +58,9 @@ public static class ServicesServiceCollectionExtensions
             new Lazy<IMotherboardScraper>(() => sp.GetRequiredService<GigabytePlaywrightScraper>()),
             sp.GetRequiredService<IOptionsMonitor<ScraperSettings>>(),
             sp.GetRequiredService<ILogger<HybridGigabyteScraper>>()));
-        services.AddSingleton<AsusMotherboardScraper>();
+        services.AddSingleton<AsusMotherboardScraper>(sp => new AsusMotherboardScraper(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(AsusMotherboardScraper.HttpClientName),
+            sp.GetRequiredService<ILogger<AsusMotherboardScraper>>()));
         services.AddSingleton<MsiMotherboardScraper>();
         services.AddSingleton<AsrockMotherboardScraper>();
         services.AddSingleton<IUpdateSource>(sp => new MotherboardSource(
@@ -113,6 +116,21 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+        });
+    }
+
+    private static void ConfigureAsusScrapingHttpClient(IServiceCollection services)
+    {
+        // ASUS's internal helpdesk API (product.asmx/GetPDLevel) requires a browser
+        // User-Agent and Referer header to avoid 403/empty responses from Akamai.
+        services.AddHttpClient(AsusMotherboardScraper.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://www.asus.com/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/javascript, */*; q=0.01");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
         });
     }
 
