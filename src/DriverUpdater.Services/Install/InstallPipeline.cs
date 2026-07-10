@@ -195,8 +195,9 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             Interlocked.Exchange(ref _restorePointSuppressed, 1);
             _logger.LogWarning(
-                "Restore point creation failed: {Error}. System Restore may be disabled (srservice). " +
-                "Skipping restore points for the rest of this session and continuing with installation.",
+                "Restore point creation failed ({Error}). System Restore is likely disabled (srservice stopped). " +
+                "Restore points will be skipped for all remaining drivers this session. " +
+                "Driver file backups (pnputil export-driver) are unaffected and will still run.",
                 rp.Error.Message);
             return operation;
         }
@@ -475,10 +476,14 @@ public sealed class InstallPipeline : IInstallPipeline
             var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
             var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
 
-            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged successfully, reboot needed.
-            if (result.ExitCode == 3010)
+            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
+            // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
+            // (notably Intel SST/HDA components) when a prior pending reboot must be
+            // completed before the INF is fully applied. The pnputil output explicitly
+            // says "System reboot is needed to complete install operations!" in this case.
+            if (result.ExitCode is 3010 or 259)
             {
-                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit 3010)");
+                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit {Code})", result.ExitCode);
                 operation = operation with
                 {
                     Status = UpdateStatus.Succeeded,

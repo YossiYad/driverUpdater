@@ -152,6 +152,29 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_pnputil_exit_259_is_success_with_reboot_message()
+    {
+        var pnputil = new FakePnPUtilRunner { ExitCode = 259 };
+        var powerShell = new FakePowerShellInvoker();
+        var http = new FakeHttpClientFactory(new byte[] { 1, 2, 3 });
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            powerShell,
+            httpClientFactory: http);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.MicrosoftCatalog, UpdateInstallKind.PnPUtilPackage, new Uri("https://download.example.com/driver.cab")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_returns_failure_when_install_fails()
     {
         var wu = new FakeWuApiClient { InstallFailure = ResultError.From("WU_INSTALL_FAILED", "HRESULT 0x80070005") };

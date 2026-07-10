@@ -1,4 +1,5 @@
 using DriverUpdater.Core.Abstractions;
+using Polly;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Ai;
@@ -116,7 +117,10 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureAsusScrapingHttpClient(IServiceCollection services)
@@ -131,7 +135,10 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/javascript, */*; q=0.01");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureOfficialVendorPageHttpClient(IServiceCollection services)
@@ -145,7 +152,10 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureVendorInstallerDownloadHttpClient(IServiceCollection services)
@@ -176,7 +186,10 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
     private static void ConfigureGigabyteHttpClient(IServiceCollection services)
@@ -192,6 +205,9 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json,text/plain,*/*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-        });
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 }

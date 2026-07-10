@@ -156,7 +156,7 @@ public class MotherboardSourceTests
 
         results.Should().ContainSingle();
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://dlcdnets.asus.com/audio.zip");
-        results[0].SourceUpdateId.Should().StartWith("vendor-installer:installshield:asus:");
+        results[0].SourceUpdateId.Should().StartWith("vendor-installer:nullsoft:asus:");
     }
 
     [Fact]
