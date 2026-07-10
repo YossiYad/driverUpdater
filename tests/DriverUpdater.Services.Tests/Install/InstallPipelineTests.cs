@@ -73,6 +73,47 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_uses_hardware_id_in_restore_point_when_device_name_is_blank()
+    {
+        // Virtual devices such as Microsoft Print to PDF have a blank DeviceName, which used to
+        // leak into the restore point description as "DriverUpdater - before ".
+        var rp = new FakeRestorePointService();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance);
+
+        var driver = new DriverInfo(
+            DeviceId: "SWD\\PRINTENUM\\PRINTQUEUES",
+            HardwareId: "Microsoft Print to PDF",
+            DeviceName: "",
+            Category: DriverCategory.Printer,
+            Provider: "Microsoft",
+            Manufacturer: "Microsoft",
+            CurrentVersion: null,
+            CurrentDate: null,
+            InfName: null,
+            InfPath: null,
+            IsSigned: true,
+            DeviceClass: "Printer");
+        var candidate = new UpdateCandidate(
+            ForHardwareId: "Microsoft Print to PDF",
+            Source: UpdateSource.WindowsUpdate,
+            NewVersion: new Version(2006, 6, 20, 0),
+            NewDate: new DateOnly(2006, 6, 20),
+            DownloadUrl: new Uri("https://example.com/x.cab"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "print-pdf",
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: UpdateInstallKind.WindowsUpdate);
+
+        await pipeline.ExecuteAsync(UpdateOperation.NewPending(candidate, driver), new InstallOptions(BackupCurrentDriver: false));
+
+        rp.Invocations.Should().Be(1);
+        rp.LastDescription.Should().Be("DriverUpdater - before Microsoft Print to PDF");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_reports_reboot_required_in_error_message()
     {
         var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, true, "ok") };
@@ -506,6 +547,7 @@ public class InstallPipelineTests
     {
         public int Invocations { get; private set; }
         public ResultError? Failure { get; set; }
+        public string? LastDescription { get; private set; }
 
         public Task<bool> IsSystemRestoreEnabledAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
@@ -513,6 +555,7 @@ public class InstallPipelineTests
         public Task<Result<RestorePointInfo>> CreateRestorePointAsync(string description, CancellationToken cancellationToken = default)
         {
             Invocations++;
+            LastDescription = description;
             if (Failure is not null)
             {
                 return Task.FromResult(Result<RestorePointInfo>.Failure(Failure));
