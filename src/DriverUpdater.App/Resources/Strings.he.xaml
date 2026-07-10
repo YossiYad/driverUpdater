@@ -3,7 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.8</sys:String>
+    <sys:String x:Key="App.Version">v0.1.9</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>
     <sys:String x:Key="App.NotElevated">ללא הרשאות מנהל</sys:String>
 
