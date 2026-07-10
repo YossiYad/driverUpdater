@@ -19,6 +19,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
@@ -63,6 +64,20 @@
                         Padding="14,4"
                         Content="Open log folder"
                         Command="{Binding OpenLogFolderCommand}" />
+
+                <Button Margin="8,0,0,0"
+                        Padding="14,4"
+                        Content="AI summary"
+                        Command="{Binding SummarizeWithAiCommand}"
+                        Style="{DynamicResource AccentButtonStyle}"
+                        ToolTip="Summarize the logs with AI and copy the result to the clipboard so you can share it." />
+
+                <ProgressBar Width="90"
+                             Height="6"
+                             Margin="8,0,0,0"
+                             VerticalAlignment="Center"
+                             IsIndeterminate="True"
+                             Visibility="{Binding IsSummarizing, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                 <TextBlock Margin="24,0,8,0" VerticalAlignment="Center" Text="Level:" />
                 <ComboBox MinWidth="120"
@@ -133,6 +148,39 @@
         </DataGrid>
 
         <Border Grid.Row="2"
+                Margin="20,0,20,8"
+                Padding="12,10"
+                CornerRadius="4"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                BorderThickness="1"
+                Visibility="{Binding HasAiSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="AI log summary" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Margin="12,0,0,0"
+                            Padding="10,2"
+                            Content="Copy summary"
+                            Command="{Binding CopyAiSummaryCommand}" />
+                </StackPanel>
+                <TextBox Grid.Row="1"
+                         Text="{Binding AiSummary, Mode=OneWay}"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         AcceptsReturn="True"
+                         MaxHeight="200"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         FontFamily="Consolas, Cascadia Mono, Courier New, monospace"
+                         FontSize="12" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3"
                 Padding="20,8"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <TextBlock Text="{Binding StatusText}" Opacity="0.85" FontSize="12" />

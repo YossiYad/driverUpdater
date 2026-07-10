@@ -35,6 +35,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IAiVerifier? _aiVerifier;
     private readonly IOptionsMonitor<UpdaterSettings>? _updaterSettings;
     private readonly IAppUpdater? _appUpdater;
+    private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -138,7 +139,8 @@ public partial class MainViewModel : ObservableObject
         IAiVerifier? aiVerifier = null,
         IOptionsMonitor<UpdaterSettings>? updaterSettings = null,
         IAiResultWindowOpener? aiResultWindowOpener = null,
-        IAppUpdater? appUpdater = null)
+        IAppUpdater? appUpdater = null,
+        IAppUpdatePrompt? appUpdatePrompt = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -163,6 +165,7 @@ public partial class MainViewModel : ObservableObject
         _aiVerifier = aiVerifier;
         _updaterSettings = updaterSettings;
         _appUpdater = appUpdater;
+        _appUpdatePrompt = appUpdatePrompt;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -201,9 +204,19 @@ public partial class MainViewModel : ObservableObject
             var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
             IsAppUpdateAvailable = result.IsUpdateAvailable;
             AppUpdateVersion = result.Version;
-            if (result.IsUpdateAvailable)
+            if (!result.IsUpdateAvailable)
             {
-                _logger.LogInformation("App update {Version} is available", result.Version);
+                return;
+            }
+
+            _logger.LogInformation("App update {Version} is available", result.Version);
+            StatusText = $"App update {result.Version} is available.";
+
+            // Proactively offer to install it. The 'Update app' toolbar button stays
+            // visible so the user can still update later if they decline now.
+            if (_appUpdatePrompt is not null && _appUpdatePrompt.Confirm(result.Version))
+            {
+                await UpdateAppAsync(cancellationToken).ConfigureAwait(true);
             }
         }
         catch (Exception ex)

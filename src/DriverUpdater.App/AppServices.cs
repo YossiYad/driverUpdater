@@ -23,6 +23,7 @@ public static class AppServices
         services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
         services.AddSingleton<IAiResultWindowOpener, AiResultWindowOpener>();
         services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
+        services.AddSingleton<IAppUpdatePrompt, DialogAppUpdatePrompt>();
         services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
         services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
         services.AddSingleton<ILogsWindowOpener, LogsWindowOpener>();

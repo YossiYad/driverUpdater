@@ -21,6 +21,8 @@
     <sys:String x:Key="Toolbar.Logs">לוגים</sys:String>
     <sys:String x:Key="Toolbar.Settings">הגדרות</sys:String>
     <sys:String x:Key="Toolbar.UpdateApp">עדכן אפליקציה</sys:String>
+    <sys:String x:Key="Update.AvailableTitle">עדכון זמין</sys:String>
+    <sys:String x:Key="Update.AvailableMessage">גרסה חדשה ({0}) זמינה. לעדכן עכשיו? האפליקציה תופעל מחדש כדי להשלים את ההתקנה.</sys:String>
 
     <sys:String x:Key="Filter.Search">חפש מכשיר, ספק, או מזהה חומרה...</sys:String>
     <sys:String x:Key="Filter.AllCategories">כל הקטגוריות</sys:String>

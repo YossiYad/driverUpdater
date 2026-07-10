@@ -21,6 +21,8 @@
     <sys:String x:Key="Toolbar.Logs">Logs</sys:String>
     <sys:String x:Key="Toolbar.Settings">Settings</sys:String>
     <sys:String x:Key="Toolbar.UpdateApp">Update app</sys:String>
+    <sys:String x:Key="Update.AvailableTitle">Update available</sys:String>
+    <sys:String x:Key="Update.AvailableMessage">A new version ({0}) is available. Update now? The app will restart to finish installing.</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>
