@@ -50,6 +50,24 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 
     public bool HasAiSummary => !string.IsNullOrWhiteSpace(AiSummary);
 
+    /// <summary>Multi-turn conversation with the AI about the current session logs.</summary>
+    public ObservableCollection<LogChatMessage> ChatMessages { get; } = new();
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendChatCommand))]
+    private bool _isChatting;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendChatCommand))]
+    private string _chatInput = string.Empty;
+
+    /// <summary>True when an AI text completer was supplied, so the chat panel is worth showing.</summary>
+    public bool IsAiAvailable => _aiCompleter is not null;
+
+    public bool HasChat => ChatMessages.Count > 0;
+
+    public bool HasNoChat => ChatMessages.Count == 0;
+
     public LogsViewModel(InMemoryLogSink sink, IAiTextCompleter? aiCompleter = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
@@ -67,6 +85,11 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 
         _sink.EntryEmitted += OnEntryEmitted;
         _subscribed = true;
+        ChatMessages.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasChat));
+            OnPropertyChanged(nameof(HasNoChat));
+        };
         UpdateStatus();
     }
 
@@ -213,6 +236,78 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         }
         SafeSetClipboard(AiSummary);
         StatusText = "AI summary copied to the clipboard.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSendChat), IncludeCancelCommand = true)]
+    private async Task SendChatAsync(CancellationToken cancellationToken)
+    {
+        var question = ChatInput?.Trim();
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return;
+        }
+        if (_aiCompleter is null)
+        {
+            StatusText = "AI chat is not available in this build.";
+            return;
+        }
+        if (!_aiCompleter.IsConfigured)
+        {
+            StatusText = $"AI is not configured. Open Settings > AI to enable {_aiCompleter.Provider}.";
+            return;
+        }
+
+        var entries = _sink.Snapshot();
+        if (entries.Count == 0)
+        {
+            StatusText = "No logs to ask about yet.";
+            return;
+        }
+
+        // Snapshot the prior turns before we append the new question so the prompt sees history only.
+        var history = ChatMessages.ToArray();
+        ChatMessages.Add(new LogChatMessage(IsUser: true, question));
+        ChatInput = string.Empty;
+        IsChatting = true;
+        StatusText = "Asking AI about the logs...";
+        try
+        {
+            var prompt = LogChatPromptBuilder.Build(entries, history, question);
+            var answer = await _aiCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(answer))
+            {
+                ChatMessages.Add(new LogChatMessage(IsUser: false,
+                    "(No response from AI. Check the AI provider in Settings and try again.)"));
+                StatusText = "AI did not return an answer.";
+                return;
+            }
+
+            ChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
+            StatusText = "AI answered. Ask a follow-up question or clear the chat.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "AI chat cancelled.";
+        }
+        catch (Exception ex)
+        {
+            ChatMessages.Add(new LogChatMessage(IsUser: false, $"(AI chat failed: {ex.Message})"));
+            StatusText = $"AI chat failed: {ex.Message}";
+        }
+        finally
+        {
+            IsChatting = false;
+        }
+    }
+
+    private bool CanSendChat() =>
+        !IsChatting && _aiCompleter is not null && !string.IsNullOrWhiteSpace(ChatInput);
+
+    [RelayCommand]
+    private void ClearChat()
+    {
+        ChatMessages.Clear();
+        StatusText = "AI chat cleared.";
     }
 
     [RelayCommand]

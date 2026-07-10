@@ -51,7 +51,12 @@ public static class LogSummaryPromptBuilder
         return sb.ToString();
     }
 
-    private static string FormatEntries(IReadOnlyList<LogEntry> entries)
+    /// <summary>
+    /// Formats the log entries into a plain-text slice suitable for embedding in an AI prompt,
+    /// keeping the most recent entries when the buffer exceeds the model context budget.
+    /// Shared with <see cref="LogChatPromptBuilder"/>.
+    /// </summary>
+    internal static string FormatEntries(IReadOnlyList<LogEntry> entries)
     {
         var buffer = new StringBuilder();
         foreach (var entry in entries)

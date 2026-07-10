@@ -25,13 +25,35 @@ public partial class LogsWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _viewModel.Entries.CollectionChanged += OnEntriesCollectionChanged;
+        _viewModel.ChatMessages.CollectionChanged += OnChatCollectionChanged;
         ScrollToEnd();
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
         _viewModel.Entries.CollectionChanged -= OnEntriesCollectionChanged;
+        _viewModel.ChatMessages.CollectionChanged -= OnChatCollectionChanged;
         _viewModel.Dispose();
+    }
+
+    private void OnChatCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action != NotifyCollectionChangedAction.Add)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                ChatScroll.ScrollToEnd();
+            }
+            catch
+            {
+                // Auto-scroll is a nicety; never let it crash the UI.
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void OnEntriesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
