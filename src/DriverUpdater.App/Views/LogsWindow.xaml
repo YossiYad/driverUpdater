@@ -25,7 +25,21 @@
         <Border Grid.Row="0"
                 Padding="20,12"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <DockPanel LastChildFill="True">
+                <!-- AI chat toggle: two sparkles that open/close the Ask-AI panel. -->
+                <ToggleButton DockPanel.Dock="Right"
+                              Margin="12,0,0,0"
+                              Padding="10,4"
+                              VerticalAlignment="Center"
+                              IsChecked="{Binding IsChatPanelVisible, Mode=TwoWay}"
+                              Visibility="{Binding IsAiAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              ToolTip="Show or hide the Ask-AI chat panel">
+                    <TextBlock Text="&#x2726;&#x2727;"
+                               FontSize="16"
+                               FontWeight="SemiBold" />
+                </ToggleButton>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Live logs" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
 
                 <ToggleButton x:Name="PauseToggle"
@@ -88,7 +102,8 @@
                           VerticalAlignment="Center"
                           Content="Auto-scroll"
                           IsChecked="{Binding AutoScroll, Mode=TwoWay}" />
-            </StackPanel>
+                </StackPanel>
+            </DockPanel>
         </Border>
 
         <Grid Grid.Row="1">
@@ -160,7 +175,7 @@
                           VerticalAlignment="Stretch"
                           ResizeBehavior="PreviousAndNext"
                           Background="Transparent"
-                          Visibility="{Binding IsAiAvailable, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                          Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
             <Border Grid.Column="2"
                     Width="360"
@@ -170,7 +185,7 @@
                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                     BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
                     BorderThickness="1"
-                    Visibility="{Binding IsAiAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />

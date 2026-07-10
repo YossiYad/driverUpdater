@@ -35,6 +35,37 @@ public class LogsViewModelChatTests
     }
 
     [WpfFact]
+    public void ChatPanel_is_shown_by_default_and_toggles_with_the_ai_button()
+    {
+        var sink = new InMemoryLogSink();
+        var completer = new StubTextCompleter(isConfigured: true, reply: "ok");
+        var vm = new LogsViewModel(sink, completer);
+
+        vm.IsAiAvailable.Should().BeTrue();
+        vm.IsChatPanelVisible.Should().BeTrue();
+        vm.IsChatPanelShown.Should().BeTrue();
+
+        vm.IsChatPanelVisible = false;
+        vm.IsChatPanelShown.Should().BeFalse("the ✦✦ toggle hides the panel");
+
+        vm.IsChatPanelVisible = true;
+        vm.IsChatPanelShown.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public void ChatPanel_is_never_shown_when_ai_is_unavailable()
+    {
+        var sink = new InMemoryLogSink();
+        var vm = new LogsViewModel(sink, aiCompleter: null);
+
+        vm.IsAiAvailable.Should().BeFalse();
+        vm.IsChatPanelShown.Should().BeFalse();
+
+        vm.IsChatPanelVisible = true;
+        vm.IsChatPanelShown.Should().BeFalse("no AI completer means no chat panel regardless of the toggle");
+    }
+
+    [WpfFact]
     public async Task SendChat_sends_prior_turns_as_history()
     {
         var sink = new InMemoryLogSink();
