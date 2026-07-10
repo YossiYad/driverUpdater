@@ -417,6 +417,8 @@ public partial class MainViewModel : ObservableObject
 
         await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
         await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
+
+        LogScanSummary();
     }
 
     private static bool IsSourceDisabled(IUpdateSource source, UpdaterSettings settings) => source.Kind switch
@@ -1428,7 +1430,14 @@ public partial class MainViewModel : ObservableObject
             sb.AppendLine("  Succeeded:");
             foreach (var (row, op) in succeeded)
             {
-                sb.Append("    - ").Append(row.DeviceName).Append(" -> ").Append(op.Candidate.NewVersion).AppendLine();
+                var reboot = op.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true
+                    ? " [REBOOT REQUIRED]" : string.Empty;
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
+                    .Append(": ").Append(op.TargetSnapshot.CurrentVersion?.ToString() ?? "?")
+                    .Append(" → ").Append(op.Candidate.NewVersion?.ToString() ?? "?")
+                    .Append(" via ").Append(op.Candidate.Source).Append('/').Append(op.Candidate.InstallKind)
+                    .AppendLine(reboot);
             }
         }
         if (failed.Length > 0)
@@ -1437,6 +1446,7 @@ public partial class MainViewModel : ObservableObject
             foreach (var (row, op) in failed)
             {
                 sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
                     .Append(": ").Append(string.IsNullOrWhiteSpace(op.ErrorMessage) ? "(no error message)" : op.ErrorMessage)
                     .AppendLine();
             }
@@ -1457,6 +1467,36 @@ public partial class MainViewModel : ObservableObject
             foreach (var (row, reason) in skipped)
             {
                 sb.Append("    - ").Append(row.DeviceName).Append(": ").AppendLine(reason);
+            }
+        }
+
+        _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
+    }
+
+    private void LogScanSummary()
+    {
+        var withUpdates = Drivers.Where(d => d.AvailableUpdate != null).ToArray();
+        var upToDateCount = Drivers.Count - withUpdates.Length;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Scan result summary: ").Append(Drivers.Count).Append(" total drivers, ")
+            .Append(withUpdates.Length).Append(" with available updates, ")
+            .Append(upToDateCount).AppendLine(" up-to-date / no update found");
+
+        if (withUpdates.Length > 0)
+        {
+            sb.AppendLine("  Updates found:");
+            foreach (var row in withUpdates)
+            {
+                sb.Append("    - ").Append(row.DeviceName)
+                    .Append(" [").Append(row.HardwareId).Append(']')
+                    .Append(": installed=").Append(
+                        row.Driver.CurrentVersion?.ToString()
+                        ?? row.Driver.CurrentDate?.ToString()
+                        ?? "?")
+                    .Append(", available=").Append(row.AvailableUpdate!.NewVersion?.ToString() ?? "?")
+                    .Append(", source=").Append(row.AvailableUpdate.Source)
+                    .AppendLine();
             }
         }
 
