@@ -323,6 +323,44 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_ai_discovery_does_not_offer_calendar_downgrade_of_windows_inbox_driver()
+    {
+        // Regression: the AI discovery path bypassed IsNewerThan, so the AI could reintroduce a
+        // calendar-versioned OEM driver (e.g. 2018.7.17.0) over a modern Windows inbox driver
+        // (10.0.26100.x) — exactly the recurring downgrade seen in the field.
+        var driver = new DriverInfo(
+            DeviceId: "PCI\\INTEL_CPU",
+            HardwareId: "PCI\\VEN_8086&DEV_CPU",
+            DeviceName: "Intel Processor",
+            Category: DriverCategory.Chipset,
+            Provider: "Microsoft",
+            Manufacturer: "Intel",
+            CurrentVersion: new Version(10, 0, 26100, 8521),
+            CurrentDate: new DateOnly(2024, 1, 1),
+            InfName: "cpu.inf",
+            InfPath: null,
+            IsSigned: true,
+            DeviceClass: "Processor");
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            Verdicts =
+            {
+                ["ai-latest:PCI\\VEN_8086&DEV_CPU"] = new AiVerdict(
+                    true, AiRiskLevel.Safe, "found", "An older OEM package exists.",
+                    "2018.7.17.0", new DateOnly(2018, 7, 17), "https://example.com/intel-cpu-2018")
+            }
+        };
+        var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.WasCalled.Should().BeTrue();
+        vm.Drivers[0].AvailableUpdate.Should().BeNull(
+            "a 2018 calendar-versioned driver must never be offered over a Windows inbox driver");
+        vm.VendorChecksCount.Should().Be(0);
+    }
+
+    [WpfFact]
     public async Task AskAiAllAsync_verifies_existing_updates_and_discovers_missing_updates()
     {
         var candidateDriver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));

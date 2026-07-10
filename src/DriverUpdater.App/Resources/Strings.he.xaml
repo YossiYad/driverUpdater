@@ -3,7 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
-    <sys:String x:Key="App.Version">v0.1.18</sys:String>
+    <sys:String x:Key="App.Version">v0.1.19</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>
     <sys:String x:Key="App.NotElevated">ללא הרשאות מנהל</sys:String>
 
@@ -23,6 +23,9 @@
     <sys:String x:Key="Toolbar.UpdateApp">עדכן אפליקציה</sys:String>
     <sys:String x:Key="Update.AvailableTitle">עדכון זמין</sys:String>
     <sys:String x:Key="Update.AvailableMessage">גרסה חדשה ({0}) זמינה. לעדכן עכשיו? האפליקציה תופעל מחדש כדי להשלים את ההתקנה.</sys:String>
+    <sys:String x:Key="Reboot.RequiredTitle">נדרש אתחול</sys:String>
+    <sys:String x:Key="Reboot.RequiredMessage">‏{0} עדכוני דרייברים דורשים אתחול כדי להשלים את ההתקנה. לאתחל את המחשב עכשיו?</sys:String>
+    <sys:String x:Key="Reboot.ShutdownComment">‏DriverUpdater מאתחל את המחשב כדי להשלים את התקנת הדרייברים.</sys:String>
 
     <sys:String x:Key="Filter.Search">חפש מכשיר, ספק, או מזהה חומרה...</sys:String>
     <sys:String x:Key="Filter.AllCategories">כל הקטגוריות</sys:String>

@@ -36,6 +36,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IOptionsMonitor<UpdaterSettings>? _updaterSettings;
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
+    private readonly IRebootPrompt? _rebootPrompt;
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -140,7 +141,8 @@ public partial class MainViewModel : ObservableObject
         IOptionsMonitor<UpdaterSettings>? updaterSettings = null,
         IAiResultWindowOpener? aiResultWindowOpener = null,
         IAppUpdater? appUpdater = null,
-        IAppUpdatePrompt? appUpdatePrompt = null)
+        IAppUpdatePrompt? appUpdatePrompt = null,
+        IRebootPrompt? rebootPrompt = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -166,6 +168,7 @@ public partial class MainViewModel : ObservableObject
         _updaterSettings = updaterSettings;
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
+        _rebootPrompt = rebootPrompt;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -271,14 +274,35 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            var staleDropped = 0;
             foreach (var entry in snapshot.Entries)
             {
+                // A cache written by an older build can hold an AvailableUpdate that our current
+                // version comparison no longer considers an upgrade (e.g. a calendar-versioned
+                // downgrade of a Windows inbox driver). Re-validate on load so the user cannot
+                // install a stale downgrade straight from cache without re-scanning.
+                var cachedUpdate = entry.AvailableUpdate;
+                if (cachedUpdate is not null && !cachedUpdate.IsNewerThan(entry.Driver))
+                {
+                    cachedUpdate = null;
+                    staleDropped++;
+                }
+
                 var row = new DriverRowViewModel(entry.Driver)
                 {
-                    Status = entry.Status,
-                    AvailableUpdate = entry.AvailableUpdate
+                    Status = cachedUpdate is null && entry.Status == DriverStatus.Outdated
+                        ? DriverStatus.UpToDate
+                        : entry.Status,
+                    AvailableUpdate = cachedUpdate
                 };
                 Drivers.Add(row);
+            }
+
+            if (staleDropped > 0)
+            {
+                _logger.LogInformation(
+                    "Dropped {Count} cached update(s) that are no longer newer than the installed driver (stale downgrade guard).",
+                    staleDropped);
             }
 
             ScannedCount = Drivers.Count;
@@ -883,6 +907,23 @@ public partial class MainViewModel : ObservableObject
             Confidence: UpdateConfidence.Advisory,
             AiVerification: verdict);
 
+        // Deterministic downgrade guard. The AI's own "genuinely newer" judgment — and the
+        // date-based version fallback above — can be wrong: e.g. proposing a calendar-versioned
+        // 2018/2021 driver over a modern Windows inbox driver (10.0.26100.x). This discovery
+        // path bypasses the IsNewerThan check that the catalog/vendor sources go through, so
+        // apply it here too. Without this, the AI can reintroduce exactly the downgrades the
+        // deterministic sources already rejected.
+        if (!candidate.IsNewerThan(row.Driver))
+        {
+            _logger.LogInformation(
+                "AI latest-driver lead for {Device} rejected: proposed {Candidate} ({Date}) is not newer than " +
+                "installed {Installed} per version comparison — refusing to avoid a downgrade.",
+                row.DeviceName, candidateVersion, candidateDate,
+                row.Driver.CurrentVersion?.ToString() ?? row.Driver.CurrentDate?.ToString() ?? "unknown");
+            LogAiAdvisorDetails("latest-driver discovery rejected as not-newer", row, verdict);
+            return false;
+        }
+
         _logger.LogInformation(
             "AI latest-driver search found {Device}: latest={Latest} ({Date}), recommended={Recommended}, risk={Risk}, url={Url}. {Summary}",
             row.DeviceName, verdict.LatestKnownVersion ?? candidateVersion.ToString(),
@@ -1400,6 +1441,44 @@ public partial class MainViewModel : ObservableObject
             // was actually installed (succeeded rows now have AvailableUpdate cleared);
             // otherwise the cache would keep showing them as Outdated until the next scan.
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+
+            MaybePromptForRestart(outcomes);
+        }
+    }
+
+    // When at least one driver update finished with "reboot required", ask the user (once, at
+    // the very end of the run) whether to restart now, and restart if they accept. The cache
+    // has already been saved above, so a restart here does not lose the post-install state.
+    private void MaybePromptForRestart(
+        IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes)
+    {
+        if (_rebootPrompt is null)
+        {
+            return;
+        }
+
+        var rebootRequiredCount = outcomes.Count(o =>
+            o.Operation.Status == UpdateStatus.Succeeded
+            && o.Operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true);
+        if (rebootRequiredCount == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "{Count} driver update(s) require a restart to finish; prompting the user.", rebootRequiredCount);
+
+        if (_rebootPrompt.ConfirmRestartNow(rebootRequiredCount))
+        {
+            _logger.LogInformation("User accepted restart to complete {Count} driver update(s).", rebootRequiredCount);
+            StatusText = "Restarting to finish driver installation...";
+            _rebootPrompt.RestartNow();
+        }
+        else
+        {
+            _logger.LogInformation(
+                "User deferred restart; {Count} update(s) will bind on the next reboot.", rebootRequiredCount);
+            StatusText = $"Install completed. Restart later to finish {rebootRequiredCount} update(s).";
         }
     }
 
