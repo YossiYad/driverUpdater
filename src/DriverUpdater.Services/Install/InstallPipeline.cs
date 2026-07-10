@@ -9,6 +9,10 @@ public sealed class InstallPipeline : IInstallPipeline
 {
     public const string DownloadsHttpClientName = "VendorInstallerDownloads";
 
+    // Circuit breaker: after the first restore-point failure (e.g. srservice disabled)
+    // subsequent drivers skip the attempt instead of flooding the log with the same error.
+    private int _restorePointSuppressed;
+
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
@@ -176,6 +180,12 @@ public sealed class InstallPipeline : IInstallPipeline
         IProgress<UpdateOperation>? progress,
         CancellationToken cancellationToken)
     {
+        if (Interlocked.CompareExchange(ref _restorePointSuppressed, 0, 0) == 1)
+        {
+            _logger.LogDebug("Restore point creation skipped (suppressed after earlier failure in this session)");
+            return operation;
+        }
+
         operation = operation with { Status = UpdateStatus.CreatingRestorePoint };
         progress?.Report(operation);
 
@@ -183,18 +193,15 @@ public sealed class InstallPipeline : IInstallPipeline
         var rp = await _restorePointService.CreateRestorePointAsync(description, cancellationToken).ConfigureAwait(false);
         if (rp.IsFailure)
         {
-            _logger.LogWarning("Restore point step failed: {Error}", rp.Error);
-            operation = operation with
-            {
-                Status = UpdateStatus.Failed,
-                ErrorMessage = $"Restore point: {rp.Error.Message}",
-                CompletedAt = _clock.GetUtcNow()
-            };
+            Interlocked.Exchange(ref _restorePointSuppressed, 1);
+            _logger.LogWarning(
+                "Restore point creation failed: {Error}. System Restore may be disabled (srservice). " +
+                "Skipping restore points for the rest of this session and continuing with installation.",
+                rp.Error.Message);
+            return operation;
         }
-        else
-        {
-            operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
-        }
+
+        operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
         progress?.Report(operation);
         return operation;
     }

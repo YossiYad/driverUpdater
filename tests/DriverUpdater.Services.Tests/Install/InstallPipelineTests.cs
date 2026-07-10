@@ -85,19 +85,33 @@ public class InstallPipelineTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_returns_failure_when_restore_point_fails()
+    public async Task ExecuteAsync_continues_installation_when_restore_point_fails()
     {
-        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "denied") };
+        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "srservice disabled") };
         var bk = new FakeBackupService();
-        var wu = new FakeWuApiClient();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
         var pipeline = new InstallPipeline(rp, bk, wu, NullLogger<InstallPipeline>.Instance);
 
         var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions());
 
-        result.Status.Should().Be(UpdateStatus.Failed);
-        result.ErrorMessage.Should().Contain("denied");
-        bk.BackupInvocations.Should().Be(0);
-        wu.DownloadAndInstallInvocations.Should().Be(0);
+        // Restore-point failure is non-fatal; installation must still complete.
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        bk.BackupInvocations.Should().Be(1);
+        wu.DownloadAndInstallInvocations.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_suppresses_restore_point_after_first_failure()
+    {
+        var rp = new FakeRestorePointService { Failure = ResultError.From("RESTORE_POINT_FAILED", "srservice disabled") };
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance);
+
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+
+        // After the first failure the circuit breaker fires; CreateRestorePointAsync must not be called again.
+        rp.Invocations.Should().Be(1);
     }
 
     [Fact]
