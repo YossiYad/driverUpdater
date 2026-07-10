@@ -33,15 +33,15 @@ public static class LogSummaryPromptBuilder
         sb.AppendLine();
         sb.AppendLine("Also analyse the structured summary blocks that appear in the logs:");
         sb.AppendLine("- 'Scan result summary': lists every driver with an available update (installed version,");
-        sb.AppendLine("  available version, source). Flag any driver where installed ≈ available version — that");
+        sb.AppendLine("  available version, source). Flag any driver where installed ≈ available version - that");
         sb.AppendLine("  suggests a false-positive in version comparison. Note how many drivers were up-to-date.");
         sb.AppendLine("- 'Update run summary': lists what succeeded/failed/skipped in the install run, with");
         sb.AppendLine("  old→new version for each. Flag:");
         sb.AppendLine("  * Drivers where old version = new version (no real change, likely a detection bug).");
         sb.AppendLine("  * Drivers that appear in Failed or Skipped despite having an update available.");
-        sb.AppendLine("  * Any driver requiring a reboot — list them together at the end.");
+        sb.AppendLine("  * Any driver requiring a reboot - list them together at the end.");
         sb.AppendLine("  * If multiple run summaries appear in one session, flag any driver that recurs");
-        sb.AppendLine("    (updated more than once — indicates the update is not sticking).");
+        sb.AppendLine("    (updated more than once - indicates the update is not sticking).");
         sb.AppendLine("Do not invent details that are not supported by the logs. Keep it under ~500 words.");
         sb.AppendLine();
         sb.AppendLine($"Session log stats: {entries.Count} entries, {errors} error(s)/fatal, {warnings} warning(s).");

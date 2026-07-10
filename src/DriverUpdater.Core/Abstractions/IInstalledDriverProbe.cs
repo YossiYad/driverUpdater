@@ -5,7 +5,7 @@ namespace DriverUpdater.Core.Abstractions;
 /// <summary>
 /// Reads back the driver currently bound to a single device (by DeviceID). Used after an
 /// install to verify that the active driver actually changed, rather than trusting the
-/// installer's exit code — pnputil can report success after merely adding a package to the
+/// installer's exit code - pnputil can report success after merely adding a package to the
 /// driver store while Windows keeps a higher-ranked (e.g. inbox) driver bound to the device.
 /// </summary>
 public interface IInstalledDriverProbe

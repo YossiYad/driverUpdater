@@ -74,7 +74,7 @@ public sealed class AsusMotherboardScraper : IMotherboardScraper
         {
             _logger.LogWarning(
                 "ASUS scraper: could not parse API response for {Model} ({Length} bytes). " +
-                "The ASUS API format may have changed — inspect the raw response to update the parser.",
+                "The ASUS API format may have changed - inspect the raw response to update the parser.",
                 motherboardModel, body.Length);
             throw new ScraperUnavailableException("ASUS API response could not be parsed");
         }

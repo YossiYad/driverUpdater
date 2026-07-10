@@ -237,7 +237,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         if (downloadMap.TryGetValue(hit.UpdateId, out var info))
         {
             // The Microsoft Update Catalog occasionally returns a non-driver executable package
-            // for a hardware-id query — e.g. rootsupd.exe (the Windows Root Certificates update)
+            // for a hardware-id query - e.g. rootsupd.exe (the Windows Root Certificates update)
             // matched against the Hyper-V virtualization device. These are not pnputil-installable
             // drivers, so discard the hit rather than offering a bogus update that can only be
             // skipped or fail. Genuine catalog driver packages ship as .cab (or .msu/.msi).

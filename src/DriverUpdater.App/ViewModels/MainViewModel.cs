@@ -481,7 +481,7 @@ public partial class MainViewModel : ObservableObject
 
     // A candidate is a proven no-op when we previously installed this exact target for this device
     // and Windows kept the existing driver (no reboot pending), AND the device still reports the
-    // same installed version — so re-installing would change nothing again. If the installed
+    // same installed version - so re-installing would change nothing again. If the installed
     // version has since changed, the record no longer applies and the candidate is offered again.
     private bool IsProvenIneffective(DriverRowViewModel row, UpdateCandidate candidate)
     {
@@ -499,7 +499,7 @@ public partial class MainViewModel : ObservableObject
         var currentInstalled = row.Driver.CurrentVersion?.ToString();
         if (!string.Equals(installedAtAttempt, currentInstalled, StringComparison.OrdinalIgnoreCase))
         {
-            return false; // something changed since the failed attempt — re-evaluate normally
+            return false; // something changed since the failed attempt - re-evaluate normally
         }
 
         _logger.LogInformation(
@@ -518,7 +518,7 @@ public partial class MainViewModel : ObservableObject
 
         // Only record the proven immediate no-op: post-install verification saw the active driver
         // unchanged with no reboot pending (that is exactly the "kept the existing driver" skip).
-        // Reboot-required successes are never recorded — they bind after a restart.
+        // Reboot-required successes are never recorded - they bind after a restart.
         var isProvenNoOp = finished.Status == UpdateStatus.Skipped
             && finished.ErrorMessage?.Contains("kept the existing driver", StringComparison.OrdinalIgnoreCase) == true;
         if (!isProvenNoOp)
@@ -1002,8 +1002,8 @@ public partial class MainViewModel : ObservableObject
             Confidence: UpdateConfidence.Advisory,
             AiVerification: verdict);
 
-        // Deterministic downgrade guard. The AI's own "genuinely newer" judgment — and the
-        // date-based version fallback above — can be wrong: e.g. proposing a calendar-versioned
+        // Deterministic downgrade guard. The AI's own "genuinely newer" judgment - and the
+        // date-based version fallback above - can be wrong: e.g. proposing a calendar-versioned
         // 2018/2021 driver over a modern Windows inbox driver (10.0.26100.x). This discovery
         // path bypasses the IsNewerThan check that the catalog/vendor sources go through, so
         // apply it here too. Without this, the AI can reintroduce exactly the downgrades the
@@ -1012,7 +1012,7 @@ public partial class MainViewModel : ObservableObject
         {
             _logger.LogInformation(
                 "AI latest-driver lead for {Device} rejected: proposed {Candidate} ({Date}) is not newer than " +
-                "installed {Installed} per version comparison — refusing to avoid a downgrade.",
+                "installed {Installed} per version comparison - refusing to avoid a downgrade.",
                 row.DeviceName, candidateVersion, candidateDate,
                 row.Driver.CurrentVersion?.ToString() ?? row.Driver.CurrentDate?.ToString() ?? "unknown");
             LogAiAdvisorDetails("latest-driver discovery rejected as not-newer", row, verdict);

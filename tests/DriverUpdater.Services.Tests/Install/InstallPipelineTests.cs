@@ -177,7 +177,7 @@ public class InstallPipelineTests
     [Fact]
     public async Task ExecuteAsync_reclassifies_to_skipped_when_active_driver_did_not_change()
     {
-        // pnputil/WU reports success but the read-back shows the same version as before —
+        // pnputil/WU reports success but the read-back shows the same version as before -
         // Windows kept the existing driver. The pipeline must report this honestly.
         var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
         var probe = new FakeInstalledDriverProbe

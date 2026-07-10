@@ -205,7 +205,7 @@ public sealed class InstallPipeline : IInstallPipeline
             Interlocked.Exchange(ref _restorePointSuppressed, 1);
             _logger.LogWarning(
                 "Restore point creation failed ({Error}). System Protection is most likely turned off for the " +
-                "system drive — enable it via System Properties > System Protection (or " +
+                "system drive - enable it via System Properties > System Protection (or " +
                 "'Enable-ComputerRestore -Drive \"C:\\\"' in an elevated PowerShell) to allow rollbacks. " +
                 "Restore points will be skipped for all remaining drivers this session. " +
                 "Driver file backups (pnputil export-driver) are unaffected and will still run.",
@@ -230,7 +230,7 @@ public sealed class InstallPipeline : IInstallPipeline
         if (backup.IsFailure)
         {
             // A driver with no INF name is a virtual/inbox device (e.g. "Microsoft Print to PDF")
-            // that ships with Windows and has nothing to export — that is expected, not a problem
+            // that ships with Windows and has nothing to export - that is expected, not a problem
             // worth a warning. Genuine backup failures still surface as warnings.
             if (string.Equals(backup.Error.Code, "BACKUP_NO_INF", StringComparison.Ordinal))
             {
@@ -253,7 +253,7 @@ public sealed class InstallPipeline : IInstallPipeline
     // Confirms the active driver actually changed after a "successful" install, rather than
     // trusting the installer's exit code. pnputil can report success after merely staging a
     // package in the driver store while Windows keeps a higher-ranked (e.g. inbox) driver
-    // bound — which is exactly why such "updates" reappeared on every scan.
+    // bound - which is exactly why such "updates" reappeared on every scan.
     private async Task<UpdateOperation> StepVerifyInstallAsync(
         UpdateOperation operation,
         IProgress<UpdateOperation>? progress,
@@ -302,7 +302,7 @@ public sealed class InstallPipeline : IInstallPipeline
         var installedText = before.CurrentVersion?.ToString() ?? before.CurrentDate?.ToString() ?? "unknown";
         _logger.LogWarning(
             "Install did not take effect for {Device}: the active driver is still {Installed} after installing " +
-            "{Source} {Candidate}. Windows kept the existing driver — usually because it is ranked higher (e.g. a " +
+            "{Source} {Candidate}. Windows kept the existing driver - usually because it is ranked higher (e.g. a " +
             "protected Windows inbox driver) or a reboot is pending. Reporting this as not applied rather than success.",
             deviceName, installedText, operation.Candidate.Source,
             operation.Candidate.NewVersion?.ToString() ?? "?");
@@ -566,7 +566,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 && !packageExt.Equals(".inf", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(
-                    "pnputil package for {Device} downloaded as {Ext} — only .cab/.inf are supported for automatic install; skipping. URL: {Url}",
+                    "pnputil package for {Device} downloaded as {Ext} - only .cab/.inf are supported for automatic install; skipping. URL: {Url}",
                     operation.TargetSnapshot.DeviceName, packageExt, operation.Candidate.DownloadUrl);
                 operation = operation with
                 {

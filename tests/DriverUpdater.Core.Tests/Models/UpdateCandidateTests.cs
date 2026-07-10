@@ -67,7 +67,7 @@ public class UpdateCandidateTests
 
     // A genuinely date-versioned candidate (NewVersion encodes YYYY.MM.DD.0 matching NewDate)
     // must NOT be considered newer than a Windows inbox or classic driver when the installed
-    // driver has no CurrentDate — because "2021 > 10" is numerically true but means a downgrade.
+    // driver has no CurrentDate - because "2021 > 10" is numerically true but means a downgrade.
     // The guard only fires when IsDateBasedVersion is true (NewVersion matches NewDate exactly).
     [Theory]
     [InlineData("2021.12.5.0",  2021, 12, 5,  "10.0.26100.1882")]   // Generic PnP Monitor / WAN Miniport
@@ -87,7 +87,7 @@ public class UpdateCandidateTests
     [Fact]
     public void IsNewerThan_still_compares_two_genuine_date_year_versions_normally()
     {
-        // Both sides are date-year versioned (NewDate matches NewVersion) — newer wins.
+        // Both sides are date-year versioned (NewDate matches NewVersion) - newer wins.
         var candidate = NewCandidate(new Version(2024, 3, 15, 0), new DateOnly(2024, 3, 15));
         var current = SampleDriver(new Version(2022, 11, 1, 0)) with { CurrentDate = null };
 
@@ -117,7 +117,7 @@ public class UpdateCandidateTests
     public void IsNewerThan_never_downgrades_windows_inbox_driver_to_calendar_version_without_date(
         string candidateVersion, string installedVersion)
     {
-        // NewDate deliberately does NOT match the version encoding, and no CurrentDate is set —
+        // NewDate deliberately does NOT match the version encoding, and no CurrentDate is set -
         // this is exactly the combination the earlier narrow guard missed.
         var candidate = NewCandidate(Version.Parse(candidateVersion), new DateOnly(2026, 1, 1));
         var current = SampleDriver(Version.Parse(installedVersion)) with { CurrentDate = null };
@@ -139,7 +139,7 @@ public class UpdateCandidateTests
     // The real-world bug: Windows inbox drivers report a placeholder date of 2006-06-21 while
     // carrying a modern build number (10.0.26100.x). A calendar-versioned catalog package whose
     // date encodes the version (2018.5.31.0 / 2018-05-31) must NOT be considered newer just
-    // because 2018-05-31 > 2006-06-21 — the inbox guard has to win over the date comparison.
+    // because 2018-05-31 > 2006-06-21 - the inbox guard has to win over the date comparison.
     [Theory]
     [InlineData("2018.5.31.0",  2018, 5,  31, "10.0.26100.1")]      // WAN Miniport
     [InlineData("2018.7.17.0",  2018, 7,  17, "10.0.26100.8521")]   // Intel Processor
@@ -160,7 +160,7 @@ public class UpdateCandidateTests
     public void IsNewerThan_allows_real_vendor_driver_to_replace_windows_inbox_driver()
     {
         // A genuine vendor driver with a normal (non-calendar) major should still be offered
-        // over an inbox driver — the guard only blocks calendar-year catalog packages.
+        // over an inbox driver - the guard only blocks calendar-year catalog packages.
         var candidate = NewCandidate(new Version(31, 0, 15, 5222)); // NVIDIA-style version
         var current = SampleDriver(new Version(10, 0, 26100, 8521)) with { CurrentDate = null };
 

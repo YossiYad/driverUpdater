@@ -327,7 +327,7 @@ public class MainViewModelAiTests
     {
         // Regression: the AI discovery path bypassed IsNewerThan, so the AI could reintroduce a
         // calendar-versioned OEM driver (e.g. 2018.7.17.0) over a modern Windows inbox driver
-        // (10.0.26100.x) — exactly the recurring downgrade seen in the field.
+        // (10.0.26100.x) - exactly the recurring downgrade seen in the field.
         var driver = new DriverInfo(
             DeviceId: "PCI\\INTEL_CPU",
             HardwareId: "PCI\\VEN_8086&DEV_CPU",

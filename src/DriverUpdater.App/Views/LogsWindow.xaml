@@ -211,7 +211,7 @@
 
                     <Border Grid.Row="1"
                             Visibility="{Binding HasNoChat, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="Ask a question about what happened in this session — errors, why a driver failed, what was updated, and so on. The AI answers from the current session logs."
+                        <TextBlock Text="Ask a question about what happened in this session - errors, why a driver failed, what was updated, and so on. The AI answers from the current session logs."
                                    TextWrapping="Wrap"
                                    Opacity="0.7"
                                    FontSize="12"

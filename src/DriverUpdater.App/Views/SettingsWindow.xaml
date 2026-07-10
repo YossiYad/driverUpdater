@@ -271,7 +271,7 @@
                                    Opacity="0.7"
                                    FontSize="12"
                                    TextWrapping="Wrap"
-                                   Text="Checks GitHub for a newer version. If one is found you'll be asked to install it — the app downloads it and restarts, no need to close and reopen." />
+                                   Text="Checks GitHub for a newer version. If one is found you'll be asked to install it - the app downloads it and restarts, no need to close and reopen." />
 
                         <CheckBox Margin="0,16,0,0"
                                   Content="Automatically check for updates on startup"
