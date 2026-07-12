@@ -180,13 +180,22 @@ public static class ServicesServiceCollectionExtensions
     {
         // Vendor support pages (AMD, Gigabyte, ...) 403 or redirect non-browser
         // User-Agents, so the resolver mimics Chrome like the downloads client does.
+        // Gigabyte's Akamai edge additionally checks the Chrome client-hint and
+        // Sec-Fetch headers before serving the page, hence the full fingerprint.
         services.AddHttpClient(VendorPageInstallerResolver.HttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua", "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
         })
         .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
             retryCount: 3,

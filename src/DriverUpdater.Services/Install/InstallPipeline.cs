@@ -13,6 +13,14 @@ public sealed class InstallPipeline : IInstallPipeline
     // subsequent drivers skip the attempt instead of flooding the log with the same error.
     private int _restorePointSuppressed;
 
+    // A batch of driver installs needs one rollback anchor, not one restore point per driver:
+    // sequential per-driver checkpoints add minutes of overhead and churn through Windows'
+    // restore-point quota. Any restore point created within this window is reused instead.
+    internal static readonly TimeSpan RestorePointReuseWindow = TimeSpan.FromMinutes(60);
+    private readonly SemaphoreSlim _restorePointGate = new(1, 1);
+    private DateTimeOffset _lastRestorePointAt;
+    private string? _lastRestorePointSequence;
+
     private readonly IRestorePointService _restorePointService;
     private readonly IBackupService _backupService;
     private readonly IWuApiClient _wuApiClient;
@@ -195,27 +203,49 @@ public sealed class InstallPipeline : IInstallPipeline
             return operation;
         }
 
-        operation = operation with { Status = UpdateStatus.CreatingRestorePoint };
-        progress?.Report(operation);
-
-        var description = $"DriverUpdater - before {DeviceLabel(operation.TargetSnapshot)}";
-        var rp = await _restorePointService.CreateRestorePointAsync(description, cancellationToken).ConfigureAwait(false);
-        if (rp.IsFailure)
+        await _restorePointGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            Interlocked.Exchange(ref _restorePointSuppressed, 1);
-            _logger.LogWarning(
-                "Restore point creation failed ({Error}). System Protection is most likely turned off for the " +
-                "system drive - enable it via System Properties > System Protection (or " +
-                "'Enable-ComputerRestore -Drive \"C:\\\"' in an elevated PowerShell) to allow rollbacks. " +
-                "Restore points will be skipped for all remaining drivers this session. " +
-                "Driver file backups (pnputil export-driver) are unaffected and will still run.",
-                rp.Error.Message);
+            if (_lastRestorePointSequence is not null
+                && _clock.GetUtcNow() - _lastRestorePointAt < RestorePointReuseWindow)
+            {
+                _logger.LogInformation(
+                    "Reusing restore point {Sequence} for {Device} (created {Age} ago, within the {Window}-minute batch window)",
+                    _lastRestorePointSequence, DeviceLabel(operation.TargetSnapshot),
+                    _clock.GetUtcNow() - _lastRestorePointAt, RestorePointReuseWindow.TotalMinutes);
+                operation = operation with { RestorePointSequenceNumber = _lastRestorePointSequence };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            operation = operation with { Status = UpdateStatus.CreatingRestorePoint };
+            progress?.Report(operation);
+
+            var description = $"DriverUpdater - before {DeviceLabel(operation.TargetSnapshot)}";
+            var rp = await _restorePointService.CreateRestorePointAsync(description, cancellationToken).ConfigureAwait(false);
+            if (rp.IsFailure)
+            {
+                Interlocked.Exchange(ref _restorePointSuppressed, 1);
+                _logger.LogWarning(
+                    "Restore point creation failed ({Error}). System Protection is most likely turned off for the " +
+                    "system drive - enable it via System Properties > System Protection (or " +
+                    "'Enable-ComputerRestore -Drive \"C:\\\"' in an elevated PowerShell) to allow rollbacks. " +
+                    "Restore points will be skipped for all remaining drivers this session. " +
+                    "Driver file backups (pnputil export-driver) are unaffected and will still run.",
+                    rp.Error.Message);
+                return operation;
+            }
+
+            _lastRestorePointAt = _clock.GetUtcNow();
+            _lastRestorePointSequence = rp.Value.SequenceNumber;
+            operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
+            progress?.Report(operation);
             return operation;
         }
-
-        operation = operation with { RestorePointSequenceNumber = rp.Value.SequenceNumber };
-        progress?.Report(operation);
-        return operation;
+        finally
+        {
+            _restorePointGate.Release();
+        }
     }
 
     private async Task<UpdateOperation> StepBackupAsync(

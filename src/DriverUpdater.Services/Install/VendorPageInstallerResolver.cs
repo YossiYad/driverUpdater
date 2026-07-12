@@ -42,7 +42,11 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         try
         {
             var client = _httpClientFactory.CreateClient(HttpClientName);
-            html = await client.GetStringAsync(candidate.DownloadUrl, cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, candidate.DownloadUrl);
+            request.Headers.Referrer = new Uri(candidate.DownloadUrl.GetLeftPart(UriPartial.Authority));
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
