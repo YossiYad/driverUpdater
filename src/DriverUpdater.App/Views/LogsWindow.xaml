@@ -34,10 +34,7 @@
                               IsChecked="{Binding IsChatPanelVisible, Mode=TwoWay}"
                               Visibility="{Binding IsAiAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
                               ToolTip="Show or hide the Ask-AI chat panel">
-                    <TextBlock Text="&#x2726;&#x2727;"
-                               FontSize="16"
-                               FontWeight="Bold"
-                               Foreground="{StaticResource AiSparkleBrush}" />
+                    <ContentControl Content="{StaticResource AiSparkleIcon}" />
                 </ToggleButton>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

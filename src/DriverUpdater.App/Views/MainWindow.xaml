@@ -163,10 +163,7 @@
                                   VerticalAlignment="Center"
                                   IsChecked="{Binding IsDriverChatVisible, Mode=TwoWay}"
                                   ToolTip="Ask AI about your drivers">
-                        <TextBlock Text="&#x2726;&#x2727;"
-                                   FontSize="16"
-                                   FontWeight="Bold"
-                                   Foreground="{StaticResource AiSparkleBrush}" />
+                        <ContentControl Content="{StaticResource AiSparkleIcon}" />
                     </ToggleButton>
                     <TextBox Width="240"
                              Margin="0,0,8,0"
@@ -425,9 +422,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="&#x2726;&#x2727;" FontSize="15" FontWeight="Bold"
-                                   VerticalAlignment="Center" Margin="0,0,6,0"
-                                   Foreground="{StaticResource AiSparkleBrush}" />
+                        <ContentControl Content="{StaticResource AiSparkleIcon}" VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBlock Text="Ask AI about your drivers" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <ProgressBar Width="60" Height="4" Margin="10,0,0,0" VerticalAlignment="Center"
                                      IsIndeterminate="True"
