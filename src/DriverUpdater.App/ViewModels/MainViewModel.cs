@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DriverUpdater.App.Ai;
+using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
@@ -38,6 +40,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly IRebootPrompt? _rebootPrompt;
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
+    private readonly IAiTextCompleter? _driverChatCompleter;
 
     // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
     // Used for exact-target suppression from precise sources (vendor/OEM/AI).
@@ -157,7 +160,8 @@ public partial class MainViewModel : ObservableObject
         IAppUpdater? appUpdater = null,
         IAppUpdatePrompt? appUpdatePrompt = null,
         IRebootPrompt? rebootPrompt = null,
-        IIneffectiveUpdateStore? ineffectiveUpdateStore = null)
+        IIneffectiveUpdateStore? ineffectiveUpdateStore = null,
+        IAiTextCompleter? driverChatCompleter = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -185,11 +189,109 @@ public partial class MainViewModel : ObservableObject
         _appUpdatePrompt = appUpdatePrompt;
         _rebootPrompt = rebootPrompt;
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
+        _driverChatCompleter = driverChatCompleter;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
         DriversView.Filter = FilterDriver;
+
+        DriverChatMessages.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasDriverChat));
+            OnPropertyChanged(nameof(HasNoDriverChat));
+        };
     }
+
+    // ----- AI chat about the scanned drivers -----
+
+    public ObservableCollection<LogChatMessage> DriverChatMessages { get; } = new();
+
+    /// <summary>Toggles the driver AI chat panel (the sparkle button). Closed by default.</summary>
+    [ObservableProperty]
+    private bool _isDriverChatVisible;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendDriverChatCommand))]
+    private bool _isDriverChatting;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendDriverChatCommand))]
+    private string _driverChatInput = string.Empty;
+
+    public bool HasDriverChat => DriverChatMessages.Count > 0;
+
+    public bool HasNoDriverChat => DriverChatMessages.Count == 0;
+
+    private bool CanSendDriverChat() => !IsDriverChatting && !string.IsNullOrWhiteSpace(DriverChatInput);
+
+    [RelayCommand(CanExecute = nameof(CanSendDriverChat), IncludeCancelCommand = true)]
+    private async Task SendDriverChatAsync(CancellationToken cancellationToken)
+    {
+        var question = DriverChatInput?.Trim();
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return;
+        }
+        if (_driverChatCompleter is null || !_driverChatCompleter.IsConfigured)
+        {
+            DriverChatMessages.Add(new LogChatMessage(IsUser: false,
+                "AI is not configured. Open Settings > AI to enable it, then ask again."));
+            DriverChatInput = string.Empty;
+            return;
+        }
+
+        var context = BuildDriverChatContext();
+        var history = DriverChatMessages.ToArray();
+        DriverChatMessages.Add(new LogChatMessage(IsUser: true, question));
+        DriverChatInput = string.Empty;
+        IsDriverChatting = true;
+        StatusText = "Asking AI about your drivers...";
+        try
+        {
+            var prompt = DriverChatPromptBuilder.Build(context, history, question);
+            var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(answer))
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false,
+                    "(No response from AI. Check the AI provider in Settings and try again.)"));
+                StatusText = "AI did not return an answer.";
+                return;
+            }
+
+            DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
+            StatusText = "AI answered. Ask a follow-up or clear the chat.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "AI chat cancelled.";
+        }
+        catch (Exception ex)
+        {
+            DriverChatMessages.Add(new LogChatMessage(IsUser: false, $"(AI chat failed: {ex.Message})"));
+            StatusText = $"AI chat failed: {ex.Message}";
+        }
+        finally
+        {
+            IsDriverChatting = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ClearDriverChat()
+    {
+        DriverChatMessages.Clear();
+        StatusText = "Driver chat cleared.";
+    }
+
+    private IReadOnlyList<DriverChatContextItem> BuildDriverChatContext() =>
+        Drivers.Select(r => new DriverChatContextItem(
+            DeviceName: r.DeviceName,
+            HardwareId: r.HardwareId,
+            Category: r.Category.ToString(),
+            CurrentVersion: r.Driver.CurrentVersion?.ToString() ?? r.Driver.CurrentDate?.ToString(),
+            Status: r.Status.ToString(),
+            AvailableVersion: r.AvailableUpdate?.NewVersion?.ToString(),
+            AvailableSource: r.AvailableUpdate?.Source.ToString())).ToList();
 
     partial void OnCategoryFilterChanged(DriverCategory? value) => DriversView.Refresh();
     partial void OnUpdateFilterChanged(DriverUpdateFilter value) => DriversView.Refresh();

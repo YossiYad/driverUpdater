@@ -11,6 +11,32 @@
                 <ResourceDictionary Source="/DriverUpdater;component/Resources/Strings.en.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+            <!-- Purple-to-blue gradient used for the AI sparkle (chat) buttons. -->
+            <LinearGradientBrush x:Key="AiSparkleBrush" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#C084FC" Offset="0" />
+                <GradientStop Color="#8B5CF6" Offset="0.45" />
+                <GradientStop Color="#3B82F6" Offset="1" />
+            </LinearGradientBrush>
+
+            <!-- AI sparkle icon: a large four-point star at the lower-left with a smaller one at
+                 the upper-right. x:Shared="False" so each button gets its own visual instance. -->
+            <Viewbox x:Key="AiSparkleIcon" x:Shared="False" Width="18" Height="18" Stretch="Uniform">
+                <Grid Width="22" Height="22">
+                    <TextBlock Text="&#x2726;"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Bottom"
+                               Foreground="{StaticResource AiSparkleBrush}" />
+                    <TextBlock Text="&#x2726;"
+                               FontSize="9"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Top"
+                               Foreground="{StaticResource AiSparkleBrush}" />
+                </Grid>
+            </Viewbox>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
