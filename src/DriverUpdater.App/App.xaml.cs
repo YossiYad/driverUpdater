@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using DriverUpdater.App.Logging;
 using DriverUpdater.App.Services;
@@ -19,6 +20,14 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // The XAML resource is a build-time placeholder; the running assembly's version is
+        // always accurate, so override it here instead of hand-editing the string per release.
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        if (version is not null)
+        {
+            Resources["App.Version"] = $"v{version.Major}.{version.Minor}.{version.Build}";
+        }
 
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
