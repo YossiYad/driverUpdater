@@ -12,4 +12,6 @@ public sealed record LogChatMessage(bool IsUser, string Text, IReadOnlyList<stri
     public bool HasInstallAction => RecommendedHardwareIds is { Count: > 0 };
 
     public int RecommendedCount => RecommendedHardwareIds?.Count ?? 0;
+
+    public string InstallActionLabel => $"Install the {RecommendedCount} recommended update(s)";
 }

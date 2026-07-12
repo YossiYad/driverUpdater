@@ -493,7 +493,17 @@
                                         </Border.Style>
                                         <StackPanel>
                                             <TextBlock Text="{Binding RoleLabel}" FontSize="10" FontWeight="SemiBold"
-                                                       Opacity="0.7" Margin="0,0,0,2" />
+                                                       Opacity="0.7" Margin="0,0,0,2">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasInstallAction}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                             <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
@@ -507,11 +517,13 @@
                                             </TextBlock>
                                             <Button Padding="14,5"
                                                     FontSize="12"
+                                                    HorizontalAlignment="Stretch"
                                                     Style="{DynamicResource AccentButtonStyle}"
                                                     Command="{Binding DataContext.InstallAiRecommendedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
-                                                    Content="{Binding RecommendedCount, StringFormat='Install recommended updates ({0})'}"
-                                                    Visibility="{Binding HasInstallAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                    Visibility="{Binding HasInstallAction, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding InstallActionLabel}" TextWrapping="Wrap" TextAlignment="Center" />
+                                            </Button>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
