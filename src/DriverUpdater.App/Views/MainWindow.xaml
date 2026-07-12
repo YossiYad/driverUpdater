@@ -158,6 +158,16 @@
                             Margin="0,10,0,0"
                             HorizontalAlignment="Right"
                             Orientation="Horizontal">
+                    <ToggleButton Margin="0,0,8,0"
+                                  Padding="10,4"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding IsDriverChatVisible, Mode=TwoWay}"
+                                  ToolTip="Ask AI about your drivers">
+                        <TextBlock Text="&#x2726;&#x2727;"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource AiSparkleBrush}" />
+                    </ToggleButton>
                     <TextBox Width="240"
                              Margin="0,0,8,0"
                              ui:ControlHelper.PlaceholderText="Search device, provider, hardware ID..."
@@ -176,8 +186,15 @@
             </Grid>
         </Border>
 
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
         <DataGrid x:Name="DriversGrid"
-                  Grid.Row="3"
+                  Grid.Column="0"
                   Margin="20,12,20,8"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
@@ -382,6 +399,100 @@
                                     Width="160" />
             </DataGrid.Columns>
         </DataGrid>
+
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          Visibility="{Binding IsDriverChatVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+            <Border Grid.Column="2"
+                    Width="380"
+                    Margin="0,12,20,8"
+                    Padding="12,10"
+                    CornerRadius="4"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    Visibility="{Binding IsDriverChatVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="&#x2726;&#x2727;" FontSize="15" FontWeight="Bold"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   Foreground="{StaticResource AiSparkleBrush}" />
+                        <TextBlock Text="Ask AI about your drivers" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ProgressBar Width="60" Height="4" Margin="10,0,0,0" VerticalAlignment="Center"
+                                     IsIndeterminate="True"
+                                     Visibility="{Binding IsDriverChatting, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Margin="10,0,0,0" Padding="8,2" Content="Clear" FontSize="11"
+                                Command="{Binding ClearDriverChatCommand}"
+                                Visibility="{Binding HasDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+
+                    <Border Grid.Row="1"
+                            Visibility="{Binding HasNoDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Ask about your drivers - what is worth updating, whether an update is safe for this exact hardware, why a driver is flagged, and so on. The AI answers from the current scan."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" VerticalAlignment="Top" />
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding HasDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding DriverChatMessages}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8" Padding="10,7" CornerRadius="6">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumBrush}" />
+                                                <Setter Property="HorizontalAlignment" Value="Left" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsUser}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+                                                        <Setter Property="HorizontalAlignment" Value="Right" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding RoleLabel}" FontSize="10" FontWeight="SemiBold"
+                                                       Opacity="0.7" Margin="0,0,0,2" />
+                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="2" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding DriverChatInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 ui:ControlHelper.PlaceholderText="Ask about your drivers..."
+                                 TextWrapping="Wrap" AcceptsReturn="False" MaxLength="1000"
+                                 VerticalContentAlignment="Center">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Enter" Command="{Binding SendDriverChatCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Margin="8,0,0,0" Padding="14,4" Content="Send"
+                                Command="{Binding SendDriverChatCommand}"
+                                Style="{DynamicResource AccentButtonStyle}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
 
         <Border Grid.Row="4"
                 Padding="20,10"

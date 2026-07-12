@@ -11,6 +11,13 @@
                 <ResourceDictionary Source="/DriverUpdater;component/Resources/Strings.en.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+            <!-- Purple-to-blue gradient used for the AI sparkle (chat) buttons. -->
+            <LinearGradientBrush x:Key="AiSparkleBrush" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#C084FC" Offset="0" />
+                <GradientStop Color="#8B5CF6" Offset="0.45" />
+                <GradientStop Color="#3B82F6" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

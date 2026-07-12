@@ -36,7 +36,8 @@
                               ToolTip="Show or hide the Ask-AI chat panel">
                     <TextBlock Text="&#x2726;&#x2727;"
                                FontSize="16"
-                               FontWeight="SemiBold" />
+                               FontWeight="Bold"
+                               Foreground="{StaticResource AiSparkleBrush}" />
                 </ToggleButton>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
