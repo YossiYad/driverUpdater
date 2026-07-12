@@ -12,7 +12,8 @@
         Width="1200" Height="780"
         MinWidth="980" MinHeight="600"
         ui:WindowHelper.UseModernWindowStyle="True"
-        Loaded="OnLoaded">
+        Loaded="OnLoaded"
+        PreviewMouseLeftButtonDown="OnWindowPreviewMouseLeftButtonDown">
 
     <Window.Resources>
         <Style x:Key="HeaderIconButtonStyle" TargetType="Button">
@@ -153,7 +154,8 @@
                             Content="{DynamicResource Toolbar.UpdateAll}"
                             Command="{Binding UpdateAllCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
-                    <Button Margin="8,0,0,0"
+                    <Button x:Name="UpdateSelectedButton"
+                            Margin="8,0,0,0"
                             MinWidth="132"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateSelected}"
@@ -217,7 +219,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="3" MinWidth="0" ClipToBounds="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -226,6 +228,7 @@
 
         <DataGrid x:Name="DriversGrid"
                   Grid.Column="0"
+                  MinWidth="0"
                   Margin="20,12,20,8"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
@@ -351,7 +354,8 @@
                                         HorizontalContentAlignment="Center"
                                         VerticalContentAlignment="Center"
                                         FontSize="12"
-                                        Command="{Binding DataContext.AskAiCommand, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                        IsEnabled="{Binding CanAskAi}"
+                                        Command="{Binding DataContext.AskAiCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
                                         CommandParameter="{Binding}">
                                     <Button.Style>
                                         <Style TargetType="Button">
@@ -445,7 +449,7 @@
                     Margin="0,12,20,8"
                     Padding="12,10"
                     CornerRadius="4"
-                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
                     BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
                     BorderThickness="1"
                     Visibility="{Binding IsDriverChatVisible, Converter={StaticResource BooleanToVisibilityConverter}}">

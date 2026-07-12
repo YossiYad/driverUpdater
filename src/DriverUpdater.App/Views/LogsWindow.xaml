@@ -115,7 +115,7 @@
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" MinWidth="0" ClipToBounds="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -124,6 +124,7 @@
 
         <DataGrid x:Name="LogsGrid"
                   Grid.Column="0"
+                  MinWidth="0"
                   Margin="20,12,20,8"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
@@ -207,7 +208,7 @@
                     Margin="0,12,20,8"
                     Padding="12,10"
                     CornerRadius="4"
-                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
                     BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
                     BorderThickness="1"
                     Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}">

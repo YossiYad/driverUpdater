@@ -1,5 +1,8 @@
 using System.Security.Principal;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using DriverUpdater.App.ViewModels;
 
 namespace DriverUpdater.App.Views;
@@ -22,6 +25,37 @@ public partial class MainWindow : Window
             AdminBadgeText.SetResourceReference(System.Windows.Controls.TextBlock.TextProperty, "App.NotElevated");
             viewModel.StatusText = "Warning: not running as administrator. Most operations will fail.";
         }
+    }
+
+    private void OnWindowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        // Keep selection while interacting with a row, and long enough for the toolbar's
+        // selection command to consume SelectedItems. Every other click clears stale rows,
+        // including clicks outside the grid and in its empty area/header.
+        var row = FindAncestor<DataGridRow>(source);
+        var button = FindAncestor<Button>(source);
+        if (row is null && !ReferenceEquals(button, UpdateSelectedButton))
+        {
+            DriversGrid.UnselectAll();
+        }
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
     }
 
     private void OnScrollToRowRequested(object? sender, DriverRowViewModel row)
