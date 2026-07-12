@@ -222,6 +222,30 @@ public partial class MainViewModel : ObservableObject
 
     public bool HasNoDriverChat => DriverChatMessages.Count == 0;
 
+    [RelayCommand]
+    private async Task InstallAiRecommendedAsync(LogChatMessage? message, CancellationToken cancellationToken)
+    {
+        if (message?.RecommendedHardwareIds is not { Count: > 0 } ids)
+        {
+            return;
+        }
+
+        var rows = MatchRecommendedRows(ids);
+        if (rows.Length == 0)
+        {
+            StatusText = "The AI-recommended updates are no longer available. Rescan and ask again.";
+            return;
+        }
+
+        await RunUpdatesAsync(rows, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    private DriverRowViewModel[] MatchRecommendedRows(IReadOnlyList<string> hardwareIds) =>
+        Drivers
+            .Where(r => r.AvailableUpdate is not null
+                && hardwareIds.Contains(r.HardwareId, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+
     private bool CanSendDriverChat() => !IsDriverChatting && !string.IsNullOrWhiteSpace(DriverChatInput);
 
     [RelayCommand(CanExecute = nameof(CanSendDriverChat), IncludeCancelCommand = true)]
@@ -241,7 +265,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var context = BuildDriverChatContext();
-        var history = DriverChatMessages.ToArray();
+        var history = DriverChatMessages.Where(m => !string.IsNullOrWhiteSpace(m.Text)).ToArray();
         DriverChatMessages.Add(new LogChatMessage(IsUser: true, question));
         DriverChatInput = string.Empty;
         IsDriverChatting = true;
@@ -258,8 +282,33 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
-            StatusText = "AI answered. Ask a follow-up or clear the chat.";
+            var (text, recommendedIds) = DriverChatActionParser.Parse(answer);
+            var matched = MatchRecommendedRows(recommendedIds);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, text));
+            }
+            else if (matched.Length == 0)
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
+            }
+
+            if (matched.Length > 0)
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, string.Empty,
+                    matched.Select(r => r.HardwareId).ToArray()));
+                StatusText = $"AI recommends installing {matched.Length} update(s). Press the button in the chat.";
+            }
+            else
+            {
+                if (recommendedIds.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Driver chat: AI recommended {Count} hardware IDs but none matched a row with an available update",
+                        recommendedIds.Count);
+                }
+                StatusText = "AI answered. Ask a follow-up or clear the chat.";
+            }
         }
         catch (OperationCanceledException)
         {

@@ -43,6 +43,15 @@ public static class DriverChatPromptBuilder
         sb.AppendLine("for this exact hardware; note when an OEM/vendor driver is safer than a generic one. If a driver");
         sb.AppendLine("is not in the list, say you don't see it rather than inventing details.");
         sb.AppendLine();
+        sb.AppendLine("When you conclude that specific drivers from the list should be updated now - either because the");
+        sb.AppendLine("user asked you to update/install them or because they asked what to install and you recommend");
+        sb.AppendLine("specific ones - finish your reply with one extra line, exactly in this format:");
+        sb.AppendLine("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
+        sb.AppendLine("Rules for that line: use only hardware IDs copied exactly from the driver list below, only for");
+        sb.AppendLine("drivers that show an available update, and put it on its own line at the very end. Do not talk");
+        sb.AppendLine("about the line itself in your prose; the app turns it into an install button the user can press.");
+        sb.AppendLine("If nothing should be installed, do not output that line at all.");
+        sb.AppendLine();
 
         var withUpdates = drivers.Count(d => !string.IsNullOrEmpty(d.AvailableVersion));
         sb.Append("DRIVERS (").Append(drivers.Count).Append(" total, ").Append(withUpdates).AppendLine(" with an available update):");

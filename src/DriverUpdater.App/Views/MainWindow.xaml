@@ -469,7 +469,7 @@
 
                     <Border Grid.Row="1"
                             Visibility="{Binding HasNoDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="Ask about your drivers - what is worth updating, whether an update is safe for this exact hardware, why a driver is flagged, and so on. The AI answers from the current scan."
+                        <TextBlock Text="Ask about your drivers - what is worth updating, whether an update is safe for this exact hardware, why a driver is flagged, and so on. The AI answers from the current scan, and when it recommends installing specific updates you get a one-click Install button."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" VerticalAlignment="Top" />
                     </Border>
 
@@ -494,7 +494,24 @@
                                         <StackPanel>
                                             <TextBlock Text="{Binding RoleLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Opacity="0.7" Margin="0,0,0,2" />
-                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310" />
+                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasInstallAction}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Button Padding="14,5"
+                                                    FontSize="12"
+                                                    Style="{DynamicResource AccentButtonStyle}"
+                                                    Command="{Binding DataContext.InstallAiRecommendedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Content="{Binding RecommendedCount, StringFormat='Install recommended updates ({0})'}"
+                                                    Visibility="{Binding HasInstallAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>

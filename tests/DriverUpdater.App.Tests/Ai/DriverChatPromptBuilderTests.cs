@@ -32,6 +32,15 @@ public class DriverChatPromptBuilderTests
     }
 
     [Fact]
+    public void Build_instructs_the_recommend_update_action_line()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(), Array.Empty<LogChatMessage>(), "What should I update?");
+
+        prompt.Should().Contain("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
+    }
+
+    [Fact]
     public void Build_throws_on_blank_question()
     {
         var act = () => DriverChatPromptBuilder.Build(

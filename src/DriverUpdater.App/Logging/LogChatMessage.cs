@@ -5,7 +5,11 @@ namespace DriverUpdater.App.Logging;
 /// developer's questions from the assistant's answers so the view can style them and
 /// the prompt builder can label them for the model.
 /// </summary>
-public sealed record LogChatMessage(bool IsUser, string Text)
+public sealed record LogChatMessage(bool IsUser, string Text, IReadOnlyList<string>? RecommendedHardwareIds = null)
 {
     public string RoleLabel => IsUser ? "You" : "AI";
+
+    public bool HasInstallAction => RecommendedHardwareIds is { Count: > 0 };
+
+    public int RecommendedCount => RecommendedHardwareIds?.Count ?? 0;
 }
