@@ -463,6 +463,7 @@ public partial class MainViewModel : ObservableObject
     private async Task ScanAsync(CancellationToken cancellationToken)
     {
         IsScanning = true;
+        var previousRows = SnapshotRowsByDeviceId();
         Drivers.Clear();
         ScannedCount = 0;
         UpdatesFoundCount = 0;
@@ -480,6 +481,7 @@ public partial class MainViewModel : ObservableObject
             }
 
             var elapsed = stopwatch.Elapsed;
+            MergePreviousRows(previousRows);
             StatusText = $"Scan complete. {Drivers.Count} drivers in {elapsed.TotalSeconds:F1}s. Querying update sources...";
             _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, elapsed);
 
@@ -502,6 +504,81 @@ public partial class MainViewModel : ObservableObject
         {
             IsScanning = false;
         }
+    }
+
+    private Dictionary<string, DriverRowViewModel> SnapshotRowsByDeviceId()
+    {
+        var map = new Dictionary<string, DriverRowViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            if (!string.IsNullOrWhiteSpace(row.Driver.DeviceId))
+            {
+                map[row.Driver.DeviceId] = row;
+            }
+        }
+        return map;
+    }
+
+    // The grid (and the cache built from it) is accumulating: drivers seen in any
+    // earlier scan stay in the list even when the current WMI scan does not report
+    // them, and a pending update found earlier is kept until the installed driver
+    // catches up or a source offers something newer (DriverUpdateMatcher decides).
+    private void MergePreviousRows(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    {
+        if (previousRows.Count == 0)
+        {
+            return;
+        }
+
+        var restoredUpdates = 0;
+        var scannedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            scannedIds.Add(row.Driver.DeviceId);
+            if (row.AvailableUpdate is not null
+                || !previousRows.TryGetValue(row.Driver.DeviceId, out var previous)
+                || previous.AvailableUpdate is not { } pending)
+            {
+                continue;
+            }
+
+            if (pending.IsNewerThan(row.Driver))
+            {
+                row.AvailableUpdate = pending;
+                row.Status = previous.Status;
+                restoredUpdates++;
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Cache merge: dropped pending update for {Device} - installed driver (version={Version}, date={Date}) caught up with cached candidate {Candidate}",
+                    row.DeviceName, row.Driver.CurrentVersion, row.Driver.CurrentDate, pending.NewVersion);
+            }
+        }
+
+        var keptRows = 0;
+        foreach (var (deviceId, previous) in previousRows)
+        {
+            if (scannedIds.Contains(deviceId))
+            {
+                continue;
+            }
+            Drivers.Add(new DriverRowViewModel(previous.Driver)
+            {
+                Status = previous.Status,
+                AvailableUpdate = previous.AvailableUpdate
+            });
+            keptRows++;
+            _logger.LogDebug(
+                "Cache merge: keeping {Device} ({DeviceId}) - present in an earlier scan but missing from this one",
+                previous.DeviceName, deviceId);
+        }
+
+        ScannedCount = Drivers.Count;
+        RefreshUpdateCounts();
+        _logger.LogInformation(
+            "Cache merge: {Kept} driver(s) kept from earlier scans, {Restored} pending update(s) restored (grid now {Total} rows)",
+            keptRows, restoredUpdates, Drivers.Count);
     }
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
@@ -1543,9 +1620,11 @@ public partial class MainViewModel : ObservableObject
             .Where(r => r.Status == DriverStatus.Outdated
                 && r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
             .ToArray();
+        // No Status filter here: vendor check rows are advisory and usually sit at
+        // UpToDate (AI discovery sets them so), yet their row button is enabled via
+        // CanUpdate. Filtering by Outdated made that button a silent no-op.
         var pageTargets = targets
-            .Where(r => r.Status == DriverStatus.Outdated
-                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
         // Vendor page rows go through the pipeline too: it tries to resolve a direct
@@ -1608,6 +1687,7 @@ public partial class MainViewModel : ObservableObject
 
             var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
             var displayName = DriverDisplayName(row);
+            var originalStatus = row.Status;
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
@@ -1645,11 +1725,16 @@ public partial class MainViewModel : ObservableObject
                 ApplySharedVendorInstallerResult(finished, row, originalUpdateId);
             }
 
-            if (!dryRun
-                && finished.Status == UpdateStatus.Skipped
+            if (finished.Status == UpdateStatus.Skipped
                 && finished.Candidate.InstallKind == UpdateInstallKind.VendorPage)
             {
-                vendorPageFallbacks.Add(row);
+                // Advisory vendor check rows are usually UpToDate; a skipped in-app
+                // attempt must not flip them to Outdated.
+                row.Status = originalStatus;
+                if (!dryRun)
+                {
+                    vendorPageFallbacks.Add(row);
+                }
             }
         }
 

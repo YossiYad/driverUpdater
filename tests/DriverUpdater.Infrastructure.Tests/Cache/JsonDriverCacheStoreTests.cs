@@ -104,6 +104,24 @@ public class JsonDriverCacheStoreTests : IDisposable
         second.AvailableUpdate.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("DESKTOP-AB12", "driver-cache.DESKTOP-AB12.json")]
+    [InlineData("PC:with*bad|chars", "driver-cache.PC_with_bad_chars.json")]
+    [InlineData("", "driver-cache.default.json")]
+    public void BuildMachineCacheFileName_sanitizes_machine_name(string machine, string expected)
+    {
+        JsonDriverCacheStore.BuildMachineCacheFileName(machine).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Default_cache_path_is_per_machine()
+    {
+        var store = new JsonDriverCacheStore(NullLogger<JsonDriverCacheStore>.Instance);
+
+        Path.GetFileName(store.CachePath).Should().Be(
+            JsonDriverCacheStore.BuildMachineCacheFileName(Environment.MachineName));
+    }
+
     private JsonDriverCacheStore NewStore() =>
         new(NullLogger<JsonDriverCacheStore>.Instance, _path);
 

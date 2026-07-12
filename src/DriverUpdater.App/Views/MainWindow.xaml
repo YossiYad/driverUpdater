@@ -14,6 +14,19 @@
         ui:WindowHelper.UseModernWindowStyle="True"
         Loaded="OnLoaded">
 
+    <Window.Resources>
+        <Style x:Key="HeaderIconButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="15" />
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -24,30 +37,54 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Padding="20,14"
+                Padding="20,12"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="{DynamicResource App.Title}"
-                           FontSize="22"
-                           FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <Border x:Name="AdminBadge"
-                        Margin="14,0,0,0"
-                        Padding="10,3"
-                        CornerRadius="10"
-                        Background="#FF2E7D32"
-                        VerticalAlignment="Center">
-                    <TextBlock x:Name="AdminBadgeText"
-                               Text="{DynamicResource App.Admin}"
-                               Foreground="White"
-                               FontSize="11"
-                               FontWeight="SemiBold" />
-                </Border>
-                <TextBlock Margin="14,0,0,0"
-                           VerticalAlignment="Center"
-                           Opacity="0.7"
-                           Text="{DynamicResource App.Version}" />
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{DynamicResource App.Title}"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Border x:Name="AdminBadge"
+                            Margin="14,0,0,0"
+                            Padding="10,3"
+                            CornerRadius="10"
+                            Background="#FF2E7D32"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="AdminBadgeText"
+                                   Text="{DynamicResource App.Admin}"
+                                   Foreground="White"
+                                   FontSize="11"
+                                   FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Margin="14,0,0,0"
+                               VerticalAlignment="Center"
+                               Opacity="0.7"
+                               Text="{DynamicResource App.Version}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE81C;"
+                            ToolTip="{DynamicResource Toolbar.History}"
+                            Command="{Binding OpenHistoryCommand}" />
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE8A5;"
+                            ToolTip="{DynamicResource Toolbar.Logs}"
+                            Command="{Binding OpenLogsCommand}" />
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE713;"
+                            ToolTip="{DynamicResource Toolbar.Settings}"
+                            Command="{Binding OpenSettingsCommand}" />
+                </StackPanel>
+            </Grid>
         </Border>
 
         <Border Grid.Row="1"
@@ -95,41 +132,50 @@
 
                 <WrapPanel Grid.Row="0" VerticalAlignment="Center">
                     <Button Content="{DynamicResource Toolbar.Scan}"
+                            MinWidth="88"
                             Padding="14,6"
                             Command="{Binding ScanCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="72"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.Cancel}"
                             Command="{Binding ScanCancelCommand}"
                             IsEnabled="{Binding IsScanning}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="72"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.Clear}"
                             Command="{Binding ClearCommand}" />
                     <Button Margin="24,0,0,0"
+                            MinWidth="108"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateAll}"
                             Command="{Binding UpdateAllCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="132"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateSelected}"
                             Command="{Binding UpdateSelectedCommand}"
                             CommandParameter="{Binding ElementName=DriversGrid, Path=SelectedItems}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="132"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateOutdated}"
                             Command="{Binding UpdateOutdatedCommand}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="132"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.InstallConfirmed}"
                             Command="{Binding InstallConfirmedCommand}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="86"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.AskAiAll}"
                             Command="{Binding AskAiAllCommand}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="76"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.DryRun}"
                             Command="{Binding DryRunOutdatedCommand}" />
@@ -205,34 +251,35 @@
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   EnableRowVirtualization="True"
+                  EnableColumnVirtualization="True"
                   ItemsSource="{Binding DriversView}">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Status"
                                     Binding="{Binding Status}"
-                                    Width="90" />
+                                    Width="74" />
                 <DataGridTextColumn Header="Device"
                                     Binding="{Binding DeviceName}"
-                                    Width="*"
-                                    MinWidth="200" />
+                                    Width="2*"
+                                    MinWidth="260" />
                 <DataGridTextColumn Header="Category"
                                     Binding="{Binding Category}"
-                                    Width="110" />
+                                    Width="92" />
                 <DataGridTextColumn Header="Version"
                                     Binding="{Binding CurrentVersionText}"
-                                    Width="120" />
+                                    Width="92" />
                 <DataGridTextColumn Header="Date"
                                     Binding="{Binding CurrentDateText}"
-                                    Width="100" />
+                                    Width="82" />
                 <DataGridTextColumn Header="Available"
                                     Binding="{Binding AvailableVersionText}"
-                                    Width="120" />
-                <DataGridTextColumn Header="Available date"
+                                    Width="96" />
+                <DataGridTextColumn Header="Avail. date"
                                     Binding="{Binding AvailableDateText}"
-                                    Width="110" />
+                                    Width="92" />
                 <DataGridTextColumn Header="Source"
                                     Binding="{Binding SourceText}"
-                                    Width="110" />
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Progress}" Width="220">
+                                    Width="86" />
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Progress}" Width="170">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Grid VerticalAlignment="Center"
@@ -276,7 +323,7 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Update}" Width="140">
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Update}" Width="118">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Button Content="{Binding UpdateActionText}"
@@ -290,8 +337,8 @@
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Confidence"
                                     Binding="{Binding ConfidenceText}"
-                                    Width="110" />
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}" Width="190" MinWidth="190">
+                                    Width="96" />
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}" Width="170" MinWidth="150">
                     <DataGridTemplateColumn.CellStyle>
                         <Style TargetType="DataGridCell">
                             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -393,7 +440,7 @@
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Provider"
                                     Binding="{Binding Provider}"
-                                    Width="160" />
+                                    Width="140" />
             </DataGrid.Columns>
         </DataGrid>
 
