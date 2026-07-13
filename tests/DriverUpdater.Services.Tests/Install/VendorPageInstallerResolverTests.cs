@@ -1,8 +1,11 @@
 using System.Net;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Install;
+using DriverUpdater.Services.Web;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Services.Tests.Install;
 
@@ -133,6 +136,88 @@ public class VendorPageInstallerResolverTests
             NewVendorPageCandidate() with { InstallKind = UpdateInstallKind.WindowsUpdate });
 
         resolved.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_falls_back_to_browser_fetch_when_http_is_blocked()
+    {
+        var browserFetcher = new StubBrowserFetcher("<a href=\"/downloads/driver.msi\">download</a>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(null),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeTrue();
+        resolved.Should().NotBeNull();
+        resolved!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        resolved.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_skips_browser_fallback_when_disabled()
+    {
+        var browserFetcher = new StubBrowserFetcher("<a href=\"/downloads/driver.msi\">download</a>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(null),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: false));
+
+        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeFalse();
+        resolved.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_does_not_use_browser_when_http_succeeds()
+    {
+        var browserFetcher = new StubBrowserFetcher("<a href=\"/other.msi\">x</a>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<a href=\"/downloads/driver.msi\">download</a>"),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeFalse();
+        resolved!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+    }
+
+    private sealed class StubBrowserFetcher : IBrowserHtmlFetcher
+    {
+        private readonly string? _html;
+
+        public StubBrowserFetcher(string? html)
+        {
+            _html = html;
+        }
+
+        public bool WasCalled { get; private set; }
+
+        public Task<string?> TryFetchHtmlAsync(Uri url, CancellationToken cancellationToken = default)
+        {
+            WasCalled = true;
+            return Task.FromResult(_html);
+        }
+    }
+
+    private sealed class StubScraperSettings : IOptionsMonitor<ScraperSettings>
+    {
+        public StubScraperSettings(bool enablePlaywrightFallback)
+        {
+            CurrentValue = new ScraperSettings { EnablePlaywrightFallback = enablePlaywrightFallback };
+        }
+
+        public ScraperSettings CurrentValue { get; }
+
+        public ScraperSettings Get(string? name) => CurrentValue;
+
+        public IDisposable? OnChange(Action<ScraperSettings, string?> listener) => null;
     }
 
     private static UpdateCandidate NewVendorPageCandidate() => new(

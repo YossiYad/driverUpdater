@@ -2,7 +2,10 @@ using System.IO;
 using System.Text.RegularExpressions;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
+using DriverUpdater.Services.Web;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Services.Install;
 
@@ -12,13 +15,21 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<VendorPageInstallerResolver> _logger;
+    private readonly Lazy<IBrowserHtmlFetcher>? _browserFetcher;
+    private readonly IOptionsMonitor<ScraperSettings>? _scraperSettings;
 
-    public VendorPageInstallerResolver(IHttpClientFactory httpClientFactory, ILogger<VendorPageInstallerResolver> logger)
+    public VendorPageInstallerResolver(
+        IHttpClientFactory httpClientFactory,
+        ILogger<VendorPageInstallerResolver> logger,
+        Lazy<IBrowserHtmlFetcher>? browserFetcher = null,
+        IOptionsMonitor<ScraperSettings>? scraperSettings = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _browserFetcher = browserFetcher;
+        _scraperSettings = scraperSettings;
     }
 
     public async Task<UpdateCandidate?> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default)
@@ -42,23 +53,23 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             "Vendor page resolve starting for {SourceUpdateId} ({Device}): fetching {Url} to look for a directly installable driver package",
             candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl);
 
-        string html;
+        string? html = null;
         try
         {
             var client = _httpClientFactory.CreateClient(HttpClientName);
             using var request = new HttpRequestMessage(HttpMethod.Get, candidate.DownloadUrl);
             request.Headers.Referrer = new Uri(candidate.DownloadUrl.GetLeftPart(UriPartial.Authority));
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
+            {
+                html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
             {
                 _logger.LogWarning(
-                    "Vendor page resolve failed for {SourceUpdateId}: {Url} returned HTTP {Status} ({StatusText}). " +
-                    "The row will fall back to opening the page in a browser. If this vendor blocks automated requests, " +
-                    "the fetch needs matching browser headers or an API endpoint instead of the HTML page.",
+                    "Vendor page resolve for {SourceUpdateId}: {Url} returned HTTP {Status} ({StatusText}) to the plain HTTP fetch.",
                     candidate.SourceUpdateId, candidate.DownloadUrl, (int)response.StatusCode, response.StatusCode);
-                return null;
             }
-            html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -67,6 +78,21 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
+                "Vendor page resolve for {SourceUpdateId}: plain HTTP fetch of {Url} failed.",
+                candidate.SourceUpdateId, candidate.DownloadUrl);
+        }
+
+        // Anti-bot walls (e.g. Akamai on gigabyte.com) reject HttpClient no matter which
+        // headers it sends, because they fingerprint the TLS/HTTP2 layer. A real browser
+        // session passes, so when one is enabled we retry the fetch through it.
+        if (html is null)
+        {
+            html = await TryFetchViaBrowserAsync(candidate, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (html is null)
+        {
+            _logger.LogWarning(
                 "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}. " +
                 "The row will fall back to opening the page in a browser.",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
@@ -88,6 +114,26 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             InstallKind = UpdateInstallKind.VendorInstaller,
             SourceUpdateId = $"vendor-installer:{installerKind}:resolved:{candidate.SourceUpdateId}"
         };
+    }
+
+    private async Task<string?> TryFetchViaBrowserAsync(UpdateCandidate candidate, CancellationToken cancellationToken)
+    {
+        if (_browserFetcher is null)
+        {
+            return null;
+        }
+        if (_scraperSettings is not null && !_scraperSettings.CurrentValue.EnablePlaywrightFallback)
+        {
+            _logger.LogInformation(
+                "Vendor page resolve for {SourceUpdateId}: browser fallback is disabled (EnablePlaywrightFallback=false), not retrying {Url}.",
+                candidate.SourceUpdateId, candidate.DownloadUrl);
+            return null;
+        }
+
+        _logger.LogInformation(
+            "Vendor page resolve for {SourceUpdateId}: retrying {Url} through a real browser session.",
+            candidate.SourceUpdateId, candidate.DownloadUrl);
+        return await _browserFetcher.Value.TryFetchHtmlAsync(candidate.DownloadUrl, cancellationToken).ConfigureAwait(false);
     }
 
     // Explains, in the logs, why a vendor page could not be turned into a silent install so it

@@ -309,8 +309,10 @@ public sealed class InstallPipeline : IInstallPipeline
         var current = await _installedDriverProbe.GetCurrentAsync(before.DeviceId, cancellationToken).ConfigureAwait(false);
         if (current is null || (current.Version is null && current.Date is null))
         {
-            _logger.LogInformation(
-                "Install verification inconclusive for {Device}: the current driver could not be read back.", deviceName);
+            _logger.LogWarning(
+                "Install verification inconclusive for {Device}: the current driver could not be read back. " +
+                "The install is reported as succeeded based on the installer exit code alone; the next scan will show the real state.",
+                deviceName);
             return operation;
         }
 

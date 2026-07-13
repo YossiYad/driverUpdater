@@ -13,6 +13,7 @@ using DriverUpdater.Services.Sources.Internal.Motherboard.Asrock;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Asus;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Msi;
+using DriverUpdater.Services.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -54,6 +55,8 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton(sp => new GigabyteApiScraper(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(GigabyteApiScraper.HttpClientName),
             sp.GetRequiredService<ILogger<GigabyteApiScraper>>()));
+        services.AddSingleton<PlaywrightBrowserProvider>();
+        services.AddSingleton<IBrowserHtmlFetcher, PlaywrightHtmlFetcher>();
         services.AddSingleton<GigabytePlaywrightScraper>();
         services.AddSingleton<HybridGigabyteScraper>(sp => new HybridGigabyteScraper(
             sp.GetRequiredService<GigabyteApiScraper>(),
@@ -84,7 +87,11 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRestorePointService, RestorePointService>();
         ConfigureVendorPageResolverHttpClient(services);
-        services.AddSingleton<IVendorPageInstallerResolver, VendorPageInstallerResolver>();
+        services.AddSingleton<IVendorPageInstallerResolver>(sp => new VendorPageInstallerResolver(
+            sp.GetRequiredService<IHttpClientFactory>(),
+            sp.GetRequiredService<ILogger<VendorPageInstallerResolver>>(),
+            new Lazy<IBrowserHtmlFetcher>(() => sp.GetRequiredService<IBrowserHtmlFetcher>()),
+            sp.GetRequiredService<IOptionsMonitor<ScraperSettings>>()));
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
         services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 

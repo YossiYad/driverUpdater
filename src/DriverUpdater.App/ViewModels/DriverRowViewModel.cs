@@ -63,7 +63,20 @@ public partial class DriverRowViewModel : ObservableObject
     public string? CurrentVersionText => Driver.CurrentVersion?.ToString();
     public string? CurrentDateText => Driver.CurrentDate?.ToString("yyyy-MM-dd");
     public bool IsSigned => Driver.IsSigned;
-    public string? AvailableVersionText => AvailableUpdate?.NewVersion.ToString();
+    public string? AvailableVersionText =>
+        AvailableUpdate is not { } update ? null
+        : IsDateBasedPlaceholderVersion(update) ? "latest"
+        : update.NewVersion.ToString();
+
+    // AI discovery falls back to a version literally built from the publish date
+    // (yyyy.M.d.0) when the vendor page does not state a real one; showing that as a
+    // driver version misleads, so the grid says "latest" instead.
+    private static bool IsDateBasedPlaceholderVersion(UpdateCandidate update) =>
+        update.SourceUpdateId.StartsWith("ai-latest:", StringComparison.Ordinal)
+        && update.NewVersion is { } v
+        && v.Major == update.NewDate.Year
+        && v.Minor == update.NewDate.Month
+        && v.Build == update.NewDate.Day;
     public string? AvailableDateText => AvailableUpdate?.NewDate.ToString("yyyy-MM-dd");
     public string? SourceText => AvailableUpdate?.Source.ToString();
     public string UpdateActionText => AvailableUpdate?.InstallKind switch
