@@ -195,14 +195,6 @@
             </DataGrid.Columns>
         </DataGrid>
 
-            <GridSplitter Grid.Column="1"
-                          Width="4"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Stretch"
-                          ResizeBehavior="PreviousAndNext"
-                          Background="Transparent"
-                          Visibility="{Binding IsChatPanelShown, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
             <Border Grid.Column="2"
                     Width="360"
                     Margin="0,12,20,8"

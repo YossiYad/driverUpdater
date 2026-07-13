@@ -369,6 +369,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Off by default: only check for and offer an app update on launch when the user has
+        // opted in via Settings > "Check for updates on startup". Manual checks in Settings
+        // work regardless of this flag.
+        if (_updaterSettings?.CurrentValue.CheckOnStartup != true)
+        {
+            return;
+        }
+
         try
         {
             var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
@@ -1782,6 +1790,12 @@ public partial class MainViewModel : ObservableObject
                 row.Status = originalStatus;
                 if (!dryRun)
                 {
+                    _logger.LogInformation(
+                        "Update run: {Device} could not be updated in-app from its vendor page ({Url}); " +
+                        "falling back to opening the page in a browser. Reason: {Reason}. See the 'Vendor page resolve' " +
+                        "log lines above for the links found on the page and why none were directly installable.",
+                        displayName, finished.Candidate.DownloadUrl,
+                        string.IsNullOrWhiteSpace(finished.ErrorMessage) ? "no direct installer found on the page" : finished.ErrorMessage);
                     vendorPageFallbacks.Add(row);
                 }
             }

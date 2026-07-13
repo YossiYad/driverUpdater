@@ -38,6 +38,10 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             return null;
         }
 
+        _logger.LogInformation(
+            "Vendor page resolve starting for {SourceUpdateId} ({Device}): fetching {Url} to look for a directly installable driver package",
+            candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl);
+
         string html;
         try
         {
@@ -45,7 +49,15 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             using var request = new HttpRequestMessage(HttpMethod.Get, candidate.DownloadUrl);
             request.Headers.Referrer = new Uri(candidate.DownloadUrl.GetLeftPart(UriPartial.Authority));
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Vendor page resolve failed for {SourceUpdateId}: {Url} returned HTTP {Status} ({StatusText}). " +
+                    "The row will fall back to opening the page in a browser. If this vendor blocks automated requests, " +
+                    "the fetch needs matching browser headers or an API endpoint instead of the HTML page.",
+                    candidate.SourceUpdateId, candidate.DownloadUrl, (int)response.StatusCode, response.StatusCode);
+                return null;
+            }
             html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -55,16 +67,15 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}",
+                "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}. " +
+                "The row will fall back to opening the page in a browser.",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
             return null;
         }
 
         if (!TryFindInstallerLink(candidate.DownloadUrl, html, out var packageUrl, out var installerKind))
         {
-            _logger.LogInformation(
-                "Vendor page resolve for {SourceUpdateId}: no direct installer link found on {Url} ({Length} bytes scanned)",
-                candidate.SourceUpdateId, candidate.DownloadUrl, html.Length);
+            LogInstallerCandidateDiagnostics(candidate, html);
             return null;
         }
 
@@ -77,6 +88,53 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             InstallKind = UpdateInstallKind.VendorInstaller,
             SourceUpdateId = $"vendor-installer:{installerKind}:resolved:{candidate.SourceUpdateId}"
         };
+    }
+
+    // Explains, in the logs, why a vendor page could not be turned into a silent install so it
+    // fell back to opening a browser. Lists every downloadable link found on the page and how
+    // it was classified - most often the page only offers .exe installers whose unattended
+    // flags are not yet known (TryClassifyExe rejects them), which is the signal for what to add.
+    private void LogInstallerCandidateDiagnostics(UpdateCandidate candidate, string html)
+    {
+        var links = new List<string>();
+        var rejectedExes = new List<string>();
+        foreach (Match match in HrefPattern().Matches(html))
+        {
+            var raw = match.Groups["url"].Value;
+            if (!Uri.TryCreate(candidate.DownloadUrl, raw, out var resolved)
+                || resolved.Scheme is not ("http" or "https"))
+            {
+                continue;
+            }
+
+            var extension = Path.GetExtension(resolved.LocalPath);
+            if (extension is not (".exe" or ".msi" or ".zip"))
+            {
+                continue;
+            }
+
+            links.Add($"{Path.GetFileName(resolved.LocalPath)} ({extension})");
+            if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !TryClassifyExe(resolved, out _))
+            {
+                rejectedExes.Add(resolved.AbsoluteUri);
+            }
+        }
+
+        _logger.LogWarning(
+            "Vendor page resolve for {SourceUpdateId} ({Device}) found no installable package on {Url} " +
+            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row falls back to opening the page. " +
+            "To install this in-app, the page needs a recognised .msi/.zip, or one of its .exe links must be added " +
+            "to the known unattended-installer list with the correct silent flags.",
+            candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl, html.Length,
+            links.Count, links.Count == 0 ? "none" : string.Join(", ", links));
+
+        if (rejectedExes.Count > 0)
+        {
+            _logger.LogInformation(
+                "Vendor page resolve for {SourceUpdateId}: {Count} .exe link(s) were rejected as unrecognised installers " +
+                "(no known silent flags): {Exes}. Add matching entries to TryClassifyExe/TryBuildVendorInstallerCommand to auto-install these.",
+                candidate.SourceUpdateId, rejectedExes.Count, string.Join(", ", rejectedExes));
+        }
     }
 
     internal static bool TryFindInstallerLink(Uri page, string html, out Uri packageUrl, out string installerKind)

@@ -107,7 +107,22 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(90);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        });
+        })
+        // Gemini's free tier returns 429 (TooManyRequests) under light bursts and 503 when
+        // the model is briefly overloaded. Without a retry a single 429 makes "Ask AI" fail
+        // outright. Retry those, honouring the Retry-After header when the server sends one.
+        .AddTransientHttpErrorPolicy(builder => builder
+            .OrResult(response => response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            .WaitAndRetryAsync(
+                retryCount: 4,
+                sleepDurationProvider: (attempt, outcome, _) =>
+                {
+                    var retryAfter = outcome.Result?.Headers.RetryAfter?.Delta;
+                    return retryAfter is { } delta && delta > TimeSpan.Zero
+                        ? delta
+                        : TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                },
+                onRetryAsync: (_, _, _, _) => Task.CompletedTask));
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)
