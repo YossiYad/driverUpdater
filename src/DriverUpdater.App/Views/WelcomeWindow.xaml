@@ -40,11 +40,16 @@
 
         <ui:TitleBar x:Name="WelcomeTitleBar"
                      Grid.Row="0"
-                     Height="48"
+                     Height="56"
+                     Padding="20,0"
                      Title="Welcome to DriverUpdater"
                      Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                      ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
-                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}" />
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
 
         <Border Grid.Row="1"
                 Margin="20,16,20,8"

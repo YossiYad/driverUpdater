@@ -19,6 +19,24 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title="{Binding WindowTitle}"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
+
+        <Grid Grid.Row="1">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -168,5 +186,6 @@
                         Click="OnClose" />
             </StackPanel>
         </Border>
+        </Grid>
     </Grid>
 </ui:FluentWindow>

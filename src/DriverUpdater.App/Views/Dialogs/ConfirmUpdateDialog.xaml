@@ -11,12 +11,30 @@
         Icon="pack://application:,,,/Assets/app.ico"
         Width="640"
         Height="660"
-        ResizeMode="NoResize"
+        ResizeMode="CanMinimize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         >
 
-    <Grid Margin="24,16,24,16">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title="{DynamicResource Confirm.Title}"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
+
+        <Grid Grid.Row="1" Margin="24,16,24,16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -228,5 +246,6 @@
                     Style="{DynamicResource AccentButtonStyle}"
                     Click="OnProceed" />
         </StackPanel>
+        </Grid>
     </Grid>
 </ui:FluentWindow>
