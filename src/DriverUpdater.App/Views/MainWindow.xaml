@@ -108,19 +108,8 @@
             <ui:TitleBar.TrailingContent>
                 <StackPanel
                             Orientation="Horizontal"
+                            FlowDirection="LeftToRight"
                             VerticalAlignment="Center">
-                    <Button Style="{StaticResource HeaderIconButtonStyle}"
-                            Content="&#xE81C;"
-                            ToolTip="{DynamicResource Toolbar.History}"
-                            Command="{Binding OpenHistoryCommand}" />
-                    <Button Style="{StaticResource HeaderIconButtonStyle}"
-                            Content="&#xE8A5;"
-                            ToolTip="{DynamicResource Toolbar.Logs}"
-                            Command="{Binding OpenLogsCommand}" />
-                    <Button Style="{StaticResource HeaderIconButtonStyle}"
-                            Content="&#xE713;"
-                            ToolTip="{DynamicResource Toolbar.Settings}"
-                            Command="{Binding OpenSettingsCommand}" />
                     <Button Style="{StaticResource HeaderIconButtonStyle}"
                             ToolTip="Support DriverUpdater"
                             Command="{Binding OpenSupportCommand}">
@@ -152,6 +141,18 @@
                             </Canvas>
                         </Viewbox>
                     </Button>
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE81C;"
+                            ToolTip="{DynamicResource Toolbar.History}"
+                            Command="{Binding OpenHistoryCommand}" />
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE8A5;"
+                            ToolTip="{DynamicResource Toolbar.Logs}"
+                            Command="{Binding OpenLogsCommand}" />
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            Content="&#xE713;"
+                            ToolTip="{DynamicResource Toolbar.Settings}"
+                            Command="{Binding OpenSettingsCommand}" />
                 </StackPanel>
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
