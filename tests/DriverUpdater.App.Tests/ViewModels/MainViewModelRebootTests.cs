@@ -64,6 +64,17 @@ public class MainViewModelRebootTests
         coordinator.CompletedRuns[0].Single().Status.Should().Be(UpdateStatus.Succeeded);
     }
 
+    [WpfFact]
+    public async Task Initialize_resumes_pending_post_restart_verification()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator();
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+
+        await vm.InitializeAsync();
+
+        coordinator.ResumeCalls.Should().Be(1);
+    }
+
     private static void AddConfirmedOutdatedRow(MainViewModel vm, string name)
     {
         var driver = new DriverInfo(
@@ -166,12 +177,19 @@ public class MainViewModelRebootTests
     private sealed class FakePostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
     {
         public List<IReadOnlyCollection<UpdateOperation>> CompletedRuns { get; } = new();
+        public int ResumeCalls { get; private set; }
 
         public Task CompleteRunAsync(
             IReadOnlyCollection<UpdateOperation> operations,
             CancellationToken cancellationToken = default)
         {
             CompletedRuns.Add(operations);
+            return Task.CompletedTask;
+        }
+
+        public Task ResumeAfterRestartAsync(CancellationToken cancellationToken = default)
+        {
+            ResumeCalls++;
             return Task.CompletedTask;
         }
     }

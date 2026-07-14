@@ -34,6 +34,10 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>
             new JsonIneffectiveUpdateStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonIneffectiveUpdateStore>>()));
+        services.AddSingleton<IPendingUpdateVerificationStore>(sp =>
+            new JsonPendingUpdateVerificationStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonPendingUpdateVerificationStore>>()));
+        services.AddSingleton<IPostRebootStartupService, WindowsPostRebootStartupService>();
+        services.AddSingleton<ISystemBootTimeProvider, SystemBootTimeProvider>();
         services.AddMemoryCache();
 
         services.AddHttpClient<ICatalogHttpClient, CatalogHttpClient>(CatalogHttpClient.HttpClientName, (sp, client) =>

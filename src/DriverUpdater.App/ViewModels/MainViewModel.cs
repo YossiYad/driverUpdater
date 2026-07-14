@@ -354,6 +354,11 @@ public partial class MainViewModel : ObservableObject
 
         await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
 
+        if (_postUpdateSummaryCoordinator is not null)
+        {
+            await _postUpdateSummaryCoordinator.ResumeAfterRestartAsync(cancellationToken).ConfigureAwait(true);
+        }
+
         await CheckForAppUpdateAsync(cancellationToken).ConfigureAwait(true);
     }
 
