@@ -20,6 +20,8 @@ public static class AppServices
         services.AddDriverUpdaterServices();
         services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
+        services.AddSingleton<ILogCleanupService, LogCleanupService>();
+        services.AddHostedService<LogCleanupBackgroundService>();
         services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
         services.AddSingleton<IAiResultTranslator, AiResultTranslator>();
         services.AddSingleton<IAiResultWindowOpener, AiResultWindowOpener>();

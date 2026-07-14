@@ -9,8 +9,8 @@ namespace DriverUpdater.App.Views;
 
 public partial class SettingsWindow : FluentWindow
 {
-    private const int AiTabIndex = 4;
-    private const int AboutTabIndex = 5;
+    private const int AiTabIndex = 5;
+    private const int AboutTabIndex = 6;
     private readonly SettingsViewModel _viewModel;
     private bool _syncingKey;
     private WelcomeWindow? _welcomeWindow;

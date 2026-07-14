@@ -15,6 +15,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ILocalizationService? _localizationService;
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
+    private readonly ILogCleanupService? _logCleanupService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
@@ -40,6 +41,9 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
 
     [ObservableProperty] private bool _enablePlaywrightFallback;
+
+    [ObservableProperty] private bool _enableAutomaticLogCleanup = true;
+    [ObservableProperty] private int _logRetentionDays = LogCleanupSettings.DefaultRetentionDays;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
@@ -73,6 +77,9 @@ public partial class SettingsViewModel : ObservableObject
 
     public string SettingsPath => _settingsStore.SettingsPath;
 
+    public string LogDirectoryPath =>
+        _logCleanupService?.LogDirectory ?? LogCleanupService.DefaultLogDirectory();
+
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
 
     public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
@@ -85,7 +92,8 @@ public partial class SettingsViewModel : ObservableObject
         ILogger<SettingsViewModel> logger,
         ILocalizationService? localizationService = null,
         IAppUpdater? appUpdater = null,
-        IAppUpdatePrompt? appUpdatePrompt = null)
+        IAppUpdatePrompt? appUpdatePrompt = null,
+        ILogCleanupService? logCleanupService = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -95,6 +103,7 @@ public partial class SettingsViewModel : ObservableObject
         _localizationService = localizationService;
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
+        _logCleanupService = logCleanupService;
         _logger = logger;
     }
 
@@ -189,6 +198,14 @@ public partial class SettingsViewModel : ObservableObject
             var settings = BuildSettings();
             await _settingsStore.SaveAsync(settings, cancellationToken).ConfigureAwait(true);
 
+            var deletedLogFiles = 0;
+            if (_logCleanupService is not null)
+            {
+                deletedLogFiles = await _logCleanupService.CleanupAsync(
+                    settings.LogCleanup,
+                    cancellationToken).ConfigureAwait(true);
+            }
+
             var scheduleResult = await _schedulerService.ApplyAsync(
                 ScheduleMode,
                 ScheduleCadence,
@@ -204,7 +221,9 @@ public partial class SettingsViewModel : ObservableObject
 
             _localizationService?.ApplyLanguage(SelectedLanguage);
 
-            StatusText = "Settings saved.";
+            StatusText = deletedLogFiles > 0
+                ? $"Settings saved. Removed {deletedLogFiles} old log file(s)."
+                : "Settings saved.";
         }
         catch (Exception ex)
         {
@@ -277,6 +296,14 @@ public partial class SettingsViewModel : ObservableObject
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         },
+        LogCleanup = new LogCleanupSettings
+        {
+            Enabled = EnableAutomaticLogCleanup,
+            RetentionDays = Math.Clamp(
+                LogRetentionDays,
+                LogCleanupSettings.MinimumRetentionDays,
+                LogCleanupSettings.MaximumRetentionDays)
+        },
         Onboarding = _loadedOnboarding
     };
 
@@ -303,5 +330,10 @@ public partial class SettingsViewModel : ObservableObject
         EnableAiWebSearch = settings.Ai.EnableWebSearch;
         OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
         OllamaModel = settings.Ai.OllamaModel;
+        EnableAutomaticLogCleanup = settings.LogCleanup.Enabled;
+        LogRetentionDays = Math.Clamp(
+            settings.LogCleanup.RetentionDays,
+            LogCleanupSettings.MinimumRetentionDays,
+            LogCleanupSettings.MaximumRetentionDays);
     }
 }

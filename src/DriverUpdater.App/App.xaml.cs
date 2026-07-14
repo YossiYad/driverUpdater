@@ -29,10 +29,7 @@ public partial class App : Application
             Resources["App.Version"] = $"v{version.Major}.{version.Minor}.{version.Build}";
         }
 
-        var logDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "DriverUpdater",
-            "Logs");
+        var logDirectory = LogCleanupService.DefaultLogDirectory();
         Directory.CreateDirectory(logDirectory);
 
         var inMemoryLogSink = new InMemoryLogSink();
@@ -48,7 +45,7 @@ public partial class App : Application
             .WriteTo.File(
                 path: Path.Combine(logDirectory, "driverupdater-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 14,
+                retainedFileCountLimit: null,
                 shared: true)
             .WriteTo.Sink(inMemoryLogSink)
             .Enrich.FromLogContext()
@@ -75,6 +72,7 @@ public partial class App : Application
                 services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
                 services.Configure<ScraperSettings>(context.Configuration.GetSection(ScraperSettings.SectionName));
                 services.Configure<AiSettings>(context.Configuration.GetSection(AiSettings.SectionName));
+                services.Configure<LogCleanupSettings>(context.Configuration.GetSection(LogCleanupSettings.SectionName));
                 services.AddDriverUpdaterApp(inMemoryLogSink);
             })
             .Build();

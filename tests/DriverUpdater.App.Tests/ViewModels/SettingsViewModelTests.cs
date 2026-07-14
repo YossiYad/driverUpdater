@@ -40,6 +40,50 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_log_cleanup_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            LogCleanup = new LogCleanupSettings
+            {
+                Enabled = false,
+                RetentionDays = 30
+            }
+        });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.EnableAutomaticLogCleanup.Should().BeFalse();
+        vm.LogRetentionDays.Should().Be(30);
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_and_immediately_applies_log_cleanup_settings()
+    {
+        var store = new FakeStore(new AppSettings());
+        var cleanup = new FakeLogCleanupService { DeletedFiles = 2 };
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            logCleanupService: cleanup);
+        await vm.LoadAsync();
+        vm.EnableAutomaticLogCleanup = true;
+        vm.LogRetentionDays = 14;
+
+        await vm.SaveAsync();
+
+        store.Saved!.LogCleanup.Enabled.Should().BeTrue();
+        store.Saved.LogCleanup.RetentionDays.Should().Be(14);
+        cleanup.LastSettings.Should().BeEquivalentTo(store.Saved.LogCleanup);
+        vm.StatusText.Should().Be("Settings saved. Removed 2 old log file(s).");
+    }
+
+    [WpfFact]
     public async Task SaveAsync_writes_to_store_and_calls_scheduler()
     {
         var store = new FakeStore(new AppSettings());
@@ -446,5 +490,20 @@ public class SettingsViewModelTests
             Task.FromResult<ScheduledTaskInfo?>(null);
 
         public Task RemoveAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeLogCleanupService : ILogCleanupService
+    {
+        public string LogDirectory => @"C:\ProgramData\DriverUpdater\Logs";
+        public int DeletedFiles { get; init; }
+        public LogCleanupSettings? LastSettings { get; private set; }
+
+        public Task<int> CleanupAsync(
+            LogCleanupSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            LastSettings = settings;
+            return Task.FromResult(DeletedFiles);
+        }
     }
 }

@@ -50,6 +50,7 @@ public class JsonSettingsStoreTests : IDisposable
         {
             Catalog = new CatalogSettings { Enabled = true, MaxConcurrentSearches = 8, CacheDuration = TimeSpan.FromHours(48) },
             Backup = new BackupSettings { RetentionDays = 60 },
+            LogCleanup = new LogCleanupSettings { Enabled = false, RetentionDays = 21 },
             Schedule = new ScheduleSettings
             {
                 Mode = ScheduleMode.ScanAndUpdate,
@@ -66,6 +67,8 @@ public class JsonSettingsStoreTests : IDisposable
         loaded.Catalog.Enabled.Should().BeTrue();
         loaded.Catalog.MaxConcurrentSearches.Should().Be(8);
         loaded.Backup.RetentionDays.Should().Be(60);
+        loaded.LogCleanup.Enabled.Should().BeFalse();
+        loaded.LogCleanup.RetentionDays.Should().Be(21);
         loaded.Schedule.Mode.Should().Be(ScheduleMode.ScanAndUpdate);
         loaded.Schedule.Cadence.Should().Be(ScheduleCadence.Daily);
         loaded.Schedule.TimeOfDay.Should().Be(new TimeOnly(7, 30));

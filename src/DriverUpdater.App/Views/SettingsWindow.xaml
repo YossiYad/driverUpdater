@@ -148,6 +148,51 @@
                 </StackPanel>
             </TabItem>
 
+            <TabItem Header="Logs">
+                <StackPanel Margin="16">
+                    <TextBlock FontSize="18"
+                               FontWeight="SemiBold"
+                               Text="Automatic log cleanup" />
+                    <TextBlock Margin="0,6,0,16"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="DriverUpdater can remove old log files automatically so they do not accumulate over time." />
+
+                    <CheckBox IsChecked="{Binding EnableAutomaticLogCleanup}"
+                              Content="Automatically delete old log files" />
+
+                    <StackPanel Margin="22,14,0,0"
+                                IsEnabled="{Binding EnableAutomaticLogCleanup}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center" Text="Keep logs for" />
+                            <TextBox Width="60"
+                                     Margin="8,0"
+                                     Text="{Binding LogRetentionDays}" />
+                            <TextBlock VerticalAlignment="Center" Text="days" />
+                        </StackPanel>
+                        <TextBlock Margin="0,6,0,0"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="Default: 7 days. You can choose between 1 and 365 days. Cleanup runs when the app starts, after saving these settings, and once a day while the app is open." />
+                    </StackPanel>
+
+                    <Separator Margin="0,20,0,14" />
+                    <TextBlock FontWeight="SemiBold" Text="Log folder" />
+                    <TextBlock Margin="0,6,0,0"
+                               Opacity="0.75"
+                               FontSize="12"
+                               Text="{Binding LogDirectoryPath}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Margin="0,8,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Only DriverUpdater log files older than the selected age are removed. The folder itself and unrelated files are never deleted. Turn this option off to keep all log files." />
+                </StackPanel>
+            </TabItem>
+
             <TabItem Header="{DynamicResource Settings.Tab.Language}">
                 <StackPanel Margin="16">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
