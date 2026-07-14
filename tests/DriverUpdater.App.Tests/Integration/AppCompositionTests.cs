@@ -30,6 +30,8 @@ public class AppCompositionTests
         provider.GetRequiredService<LogsViewModel>().Should().NotBeNull();
         provider.GetRequiredService<IAppUpdater>().Should().NotBeNull();
         provider.GetRequiredService<IAiResultTranslator>().Should().NotBeNull();
+        provider.GetRequiredService<IExternalLinkOpener>().Should().NotBeNull();
+        provider.GetRequiredService<ISupportWindowOpener>().Should().NotBeNull();
         provider.GetRequiredService<ILogCleanupService>().Should().NotBeNull();
         provider.GetServices<IHostedService>()
             .Should().Contain(service => service is LogCleanupBackgroundService);

@@ -121,6 +121,37 @@
                             Content="&#xE713;"
                             ToolTip="{DynamicResource Toolbar.Settings}"
                             Command="{Binding OpenSettingsCommand}" />
+                    <Button Style="{StaticResource HeaderIconButtonStyle}"
+                            ToolTip="Support DriverUpdater"
+                            Command="{Binding OpenSupportCommand}">
+                        <Viewbox Width="22" Height="22">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M4,9 H16 V15 C16,19 13,21 10,21 H9 C6,21 4,19 4,15 Z"
+                                      Fill="#FFFFF3E6"
+                                      Stroke="#FFB45309"
+                                      StrokeThickness="1.4" />
+                                <Path Data="M16,11 H18 C21,11 21,16 18,17 H16"
+                                      Fill="Transparent"
+                                      Stroke="#FFB45309"
+                                      StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round" />
+                                <Path Data="M7,7 C4,5 9,4 7,1"
+                                      Fill="Transparent"
+                                      Stroke="#FFB45309"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round" />
+                                <Path Data="M12,7 C9,5 14,4 12,1"
+                                      Fill="Transparent"
+                                      Stroke="#FFB45309"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round" />
+                                <Path Data="M3,22 H18"
+                                      Stroke="#FFB45309"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
                 </StackPanel>
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>

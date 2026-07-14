@@ -12,6 +12,7 @@ public class SecondaryWindowChromeTests
         "HistoryWindow.xaml",
         "LogsWindow.xaml",
         "SettingsWindow.xaml",
+        "SupportWindow.xaml",
         "UpdateSummaryWindow.xaml",
         "WelcomeWindow.xaml",
         Path.Combine("Dialogs", "ConfirmUpdateDialog.xaml")

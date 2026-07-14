@@ -42,6 +42,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
     private readonly IAiTextCompleter? _driverChatCompleter;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
+    private readonly ISupportWindowOpener? _supportWindowOpener;
 
     // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
     // Used for exact-target suppression from precise sources (vendor/OEM/AI).
@@ -155,7 +156,8 @@ public partial class MainViewModel : ObservableObject
         IRebootPrompt? rebootPrompt = null,
         IIneffectiveUpdateStore? ineffectiveUpdateStore = null,
         IAiTextCompleter? driverChatCompleter = null,
-        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null)
+        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null,
+        ISupportWindowOpener? supportWindowOpener = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -185,6 +187,7 @@ public partial class MainViewModel : ObservableObject
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _driverChatCompleter = driverChatCompleter;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
+        _supportWindowOpener = supportWindowOpener;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -1518,6 +1521,12 @@ public partial class MainViewModel : ObservableObject
     private void OpenLogs()
     {
         _logsWindowOpener.Open();
+    }
+
+    [RelayCommand]
+    private void OpenSupport()
+    {
+        _supportWindowOpener?.Open();
     }
 
     [RelayCommand(CanExecute = nameof(CanUpdateAll))]
