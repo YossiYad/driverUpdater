@@ -66,6 +66,7 @@ public partial class SettingsViewModel : ObservableObject
 
     // Preserved across save so the app-update feed/repo settings are not wiped by the UI.
     private UpdaterSettings _loadedUpdater = new();
+    private OnboardingSettings _loadedOnboarding = new();
 
     /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
     public bool CanCheckForUpdates => _appUpdater is not null;
@@ -275,12 +276,14 @@ public partial class SettingsViewModel : ObservableObject
             EnableWebSearch = EnableAiWebSearch,
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
-        }
+        },
+        Onboarding = _loadedOnboarding
     };
 
     internal void ApplyFromSettings(AppSettings settings)
     {
         _loadedUpdater = settings.Updater;
+        _loadedOnboarding = settings.Onboarding;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
         EnableMicrosoftCatalog = settings.Catalog.Enabled;
         EnableOemHints = settings.Updater.OemSourcesEnabled;

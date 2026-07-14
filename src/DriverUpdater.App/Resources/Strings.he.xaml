@@ -72,6 +72,8 @@
     <sys:String x:Key="Settings.Ai.OllamaGuideHeader">איך מגדירים את Ollama (מקומי, בלי מפתח)</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaGuideBody">1. הורד והתקן את Ollama מהקישור למטה.&#x0a;2. פתח טרמינל והרץ:  ollama pull llama3.1&#x0a;3. ודא ש-Ollama רץ. כברירת מחדל הוא מאזין בכתובת http://localhost:11434.&#x0a;4. השאר את כתובת הבסיס ברירת המחדל, או שנה אותה אם Ollama רץ במקום אחר.&#x0a;5. הקלד את המודל שמשכת (לדוגמה llama3.1) בשדה המודל למעלה.&#x0a;&#x0a;Ollama רץ לגמרי על המחשב שלך - בלי מפתח API ובלי אינטרנט.</sys:String>
 
+    <sys:String x:Key="Settings.OpenGuide">פתיחת מדריך ההגדרה</sys:String>
+
     <sys:String x:Key="History.Title">DriverUpdater - היסטוריה</sys:String>
     <sys:String x:Key="History.Heading">היסטוריית עדכונים</sys:String>
     <sys:String x:Key="History.Refresh">רענן</sys:String>

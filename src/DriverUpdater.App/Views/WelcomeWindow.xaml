@@ -1,0 +1,286 @@
+<ui:FluentWindow x:Class="DriverUpdater.App.Views.WelcomeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Welcome to DriverUpdater"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="860"
+        Height="760"
+        MinWidth="700"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="WelcomeCardStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,0,0,14" />
+            <Setter Property="Padding" Value="18,16" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlBackgroundChromeMediumBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style x:Key="WelcomeSectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="19" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+        <Style x:Key="WelcomeBodyStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="LineHeight" Value="22" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="WelcomeTitleBar"
+                     Grid.Row="0"
+                     Height="48"
+                     Title="Welcome to DriverUpdater"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}" />
+
+        <Border Grid.Row="1"
+                Margin="20,16,20,8"
+                Padding="14,10"
+                CornerRadius="8"
+                Background="#FF2D214D"
+                BorderBrush="#FF8B5CF6"
+                BorderThickness="1">
+            <DockPanel LastChildFill="True">
+                <ComboBox x:Name="LanguageSelector"
+                          DockPanel.Dock="Right"
+                          Width="150"
+                          SelectionChanged="OnLanguageChanged">
+                    <ComboBoxItem Content="English" Tag="en" />
+                    <ComboBoxItem Content="עברית" Tag="he" />
+                </ComboBox>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,10,0" />
+                    <TextBlock Text="Language / שפה"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="2"
+                      Margin="20,8,20,20"
+                      VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <StackPanel x:Name="EnglishPanel" FlowDirection="LeftToRight">
+                    <TextBlock Text="Welcome to DriverUpdater"
+                               FontSize="30"
+                               FontWeight="SemiBold" />
+                    <TextBlock Margin="0,6,0,20"
+                               Style="{StaticResource WelcomeBodyStyle}"
+                               Opacity="0.8"
+                               Text="This short guide appears once. It will help you turn on the optional AI features and safely use the app." />
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Turn on AI assistance"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}"
+                                       Text="Choose one of these simple options. Gemini is easiest for most people. Ollama keeps everything on your own computer but requires a separate installation." />
+
+                            <TextBlock Margin="0,16,0,4"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Text="Option 1: Google Gemini" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. Open " />
+                                <Hyperlink NavigateUri="https://aistudio.google.com/apikey"
+                                           RequestNavigate="OnLinkRequestNavigate">Google AI Studio</Hyperlink>
+                                <Run Text=" and sign in with your Google account.&#x0a;" />
+                                <Run Text="2. Create an access key and copy it.&#x0a;" />
+                                <Run Text="3. Click Open AI settings below, choose Google Gemini, paste the key, and click Save." />
+                            </TextBlock>
+
+                            <TextBlock Margin="0,16,0,4"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Text="Option 2: Ollama on your computer" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. Download and install " />
+                                <Hyperlink NavigateUri="https://ollama.com/download"
+                                           RequestNavigate="OnLinkRequestNavigate">Ollama</Hyperlink>
+                                <Run Text=".&#x0a;" />
+                                <Run Text="2. Start Ollama.&#x0a;" />
+                                <Run Text="3. Click Open AI settings below, choose Ollama (local), and click Save." />
+                            </TextBlock>
+
+                            <TextBlock Margin="0,14,0,0"
+                                       Style="{StaticResource WelcomeBodyStyle}"
+                                       Foreground="#FFFFC857"
+                                       Text="Keep your access key private. Do not send it to another person or include it in screenshots." />
+
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Left"
+                                    Content="Open AI settings"
+                                    Style="{DynamicResource AccentButtonStyle}"
+                                    Click="OnOpenAiSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Keep DriverUpdater up to date automatically"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. Click Open automatic update settings below. The About tab will open for you.&#x0a;" />
+                                <Run Text="2. Turn on Automatically check for updates on startup. DriverUpdater will tell you when a new version is available.&#x0a;" />
+                                <Run Text="3. If you also want new versions installed without another confirmation, turn on Install updates automatically." />
+                            </TextBlock>
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Left"
+                                    Content="Open automatic update settings"
+                                    Click="OnOpenAutomaticUpdateSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="How to use DriverUpdater"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="1. Scan: " />
+                                <Run Text="Click Scan now and wait for the driver list to finish loading.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="2. Review: " />
+                                <Run Text="Look at the available version, source, and confidence before installing anything.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="3. Update: " />
+                                <Run Text="Select one or more rows and use Update selected, or use Update all when you have reviewed the list.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="4. Ask AI: " />
+                                <Run Text="Use the purple sparkle button to ask which updates are worth installing or whether an update looks safe for your computer.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="5. Check logs: " />
+                                <Run Text="Open Logs when something fails. The AI chat there stays closed until you choose to open it.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="6. Manufacturer tools: " />
+                                <Run Text="For firmware, docking stations, hotkeys, and other special hardware, also use the manufacturer tool shown by the app." />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Padding="20,9"
+                            HorizontalAlignment="Right"
+                            Content="Got it"
+                            IsDefault="True"
+                            Style="{DynamicResource AccentButtonStyle}"
+                            Click="OnClose" />
+                </StackPanel>
+
+                <StackPanel x:Name="HebrewPanel"
+                            FlowDirection="RightToLeft"
+                            Visibility="Collapsed">
+                    <TextBlock Text="ברוכים הבאים ל־DriverUpdater"
+                               FontSize="30"
+                               FontWeight="SemiBold" />
+                    <TextBlock Margin="0,6,0,20"
+                               Style="{StaticResource WelcomeBodyStyle}"
+                               Opacity="0.8"
+                               Text="המדריך הקצר הזה מופיע פעם אחת. הוא יעזור לכם להפעיל את תכונות ה־AI האופציונליות ולהשתמש באפליקציה בצורה בטוחה." />
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="הפעלת העזרה של ה־AI"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}"
+                                       Text="בחרו אחת משתי האפשרויות הפשוטות. Gemini היא האפשרות הקלה ביותר לרוב המשתמשים. Ollama פועלת על המחשב שלכם, אך דורשת התקנה נפרדת." />
+
+                            <TextBlock Margin="0,16,0,4"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Text="אפשרות 1: Google Gemini" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. פתחו את " />
+                                <Hyperlink NavigateUri="https://aistudio.google.com/apikey"
+                                           RequestNavigate="OnLinkRequestNavigate">Google AI Studio</Hyperlink>
+                                <Run Text=" והתחברו עם חשבון Google.&#x0a;" />
+                                <Run Text="2. צרו מפתח גישה והעתיקו אותו.&#x0a;" />
+                                <Run Text="3. לחצו למטה על פתיחת הגדרות AI, בחרו Google Gemini, הדביקו את המפתח ולחצו על שמירה." />
+                            </TextBlock>
+
+                            <TextBlock Margin="0,16,0,4"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Text="אפשרות 2: Ollama במחשב שלכם" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. הורידו והתקינו את " />
+                                <Hyperlink NavigateUri="https://ollama.com/download"
+                                           RequestNavigate="OnLinkRequestNavigate">Ollama</Hyperlink>
+                                <Run Text=".&#x0a;" />
+                                <Run Text="2. הפעילו את Ollama.&#x0a;" />
+                                <Run Text="3. לחצו למטה על פתיחת הגדרות AI, בחרו Ollama (מקומי) ולחצו על שמירה." />
+                            </TextBlock>
+
+                            <TextBlock Margin="0,14,0,0"
+                                       Style="{StaticResource WelcomeBodyStyle}"
+                                       Foreground="#FFFFC857"
+                                       Text="שמרו את מפתח הגישה פרטי. אל תשלחו אותו לאדם אחר ואל תציגו אותו בצילומי מסך." />
+
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Right"
+                                    Content="פתיחת הגדרות AI"
+                                    Style="{DynamicResource AccentButtonStyle}"
+                                    Click="OnOpenAiSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="עדכון אוטומטי של DriverUpdater"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. לחצו למטה על פתיחת הגדרות עדכון אוטומטי. לשונית About תיפתח עבורכם.&#x0a;" />
+                                <Run Text="2. הפעילו את Automatically check for updates on startup. DriverUpdater יודיע לכם כאשר קיימת גרסה חדשה.&#x0a;" />
+                                <Run Text="3. אם תרצו שגרסאות חדשות יותקנו ללא אישור נוסף, הפעילו גם את Install updates automatically." />
+                            </TextBlock>
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Right"
+                                    Content="פתיחת הגדרות עדכון אוטומטי"
+                                    Click="OnOpenAutomaticUpdateSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="איך משתמשים ב־DriverUpdater"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="1. סריקה: " />
+                                <Run Text="לחצו על Scan now והמתינו עד שרשימת מנהלי ההתקנים תסיים להיטען.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="2. בדיקה: " />
+                                <Run Text="בדקו את הגרסה הזמינה, המקור ורמת הביטחון לפני ההתקנה.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="3. עדכון: " />
+                                <Run Text="בחרו שורה אחת או יותר ולחצו על Update selected. השתמשו ב־Update all רק לאחר שבדקתם את הרשימה.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="4. שאלת ה־AI: " />
+                                <Run Text="לחצו על כפתור הניצוצות הסגול כדי לשאול אילו עדכונים כדאי להתקין והאם עדכון נראה בטוח עבור המחשב שלכם.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="5. בדיקת לוגים: " />
+                                <Run Text="פתחו את Logs כאשר משהו נכשל. צ׳אט ה־AI שם נשאר סגור עד שתבחרו לפתוח אותו.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="6. כלי היצרן: " />
+                                <Run Text="עבור קושחה, תחנות עגינה, מקשים מיוחדים ורכיבים ייחודיים, השתמשו גם בכלי היצרן שהאפליקציה מציגה." />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Padding="20,9"
+                            HorizontalAlignment="Left"
+                            Content="הבנתי"
+                            IsDefault="True"
+                            Style="{DynamicResource AccentButtonStyle}"
+                            Click="OnClose" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</ui:FluentWindow>

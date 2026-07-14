@@ -77,9 +77,9 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     /// <summary>True when an AI text completer was supplied, so the chat panel is worth showing.</summary>
     public bool IsAiAvailable => _aiCompleter is not null;
 
-    /// <summary>User toggle for the Ask-AI chat panel (the ✦✦ button). Open by default.</summary>
+    /// <summary>User toggle for the Ask-AI chat panel (the ✦✦ button). Closed by default.</summary>
     [ObservableProperty]
-    private bool _isChatPanelVisible = true;
+    private bool _isChatPanelVisible;
 
     /// <summary>The chat panel is shown only when AI is available AND the user has it toggled open.</summary>
     public bool IsChatPanelShown => IsAiAvailable && IsChatPanelVisible;

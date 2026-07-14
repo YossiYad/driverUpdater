@@ -1,7 +1,7 @@
-<Window x:Class="DriverUpdater.App.Views.SettingsWindow"
+<ui:FluentWindow x:Class="DriverUpdater.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -13,7 +13,6 @@
         MinWidth="640" MinHeight="500"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
-        ui:WindowHelper.UseModernWindowStyle="True"
         Loaded="OnLoaded">
     <Grid>
         <Grid.RowDefinitions>
@@ -21,9 +20,14 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0" Margin="16">
+        <TabControl x:Name="SettingsTabs" Grid.Row="0" Margin="16">
             <TabItem Header="Sources">
                 <StackPanel Margin="16">
+                    <Button Margin="0,0,0,12"
+                            Padding="14,7"
+                            HorizontalAlignment="Left"
+                            Content="{DynamicResource Settings.OpenGuide}"
+                            Click="OnOpenWelcomeGuide" />
                     <CheckBox IsChecked="{Binding EnableWindowsUpdate}"
                               Content="Windows Update (recommended)"
                               IsEnabled="False" />
@@ -317,4 +321,4 @@
             </Grid>
         </Border>
     </Grid>
-</Window>
+</ui:FluentWindow>

@@ -3,13 +3,17 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Navigation;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class SettingsWindow : Window
+public partial class SettingsWindow : FluentWindow
 {
+    private const int AiTabIndex = 4;
+    private const int AboutTabIndex = 5;
     private readonly SettingsViewModel _viewModel;
     private bool _syncingKey;
+    private WelcomeWindow? _welcomeWindow;
 
     public SettingsWindow(SettingsViewModel viewModel)
     {
@@ -17,6 +21,37 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _viewModel = viewModel;
         DataContext = viewModel;
+    }
+
+    public void SelectAiTab() => SettingsTabs.SelectedIndex = AiTabIndex;
+
+    public void SelectAboutTab() => SettingsTabs.SelectedIndex = AboutTabIndex;
+
+    private void OnOpenWelcomeGuide(object sender, RoutedEventArgs e)
+    {
+        if (_welcomeWindow is { IsVisible: true })
+        {
+            _welcomeWindow.Activate();
+            return;
+        }
+
+        var welcomeWindow = new WelcomeWindow(_viewModel.SelectedLanguage)
+        {
+            Owner = this
+        };
+        welcomeWindow.OpenAiSettingsRequested += (_, _) =>
+        {
+            SelectAiTab();
+            Activate();
+        };
+        welcomeWindow.OpenAutomaticUpdateSettingsRequested += (_, _) =>
+        {
+            SelectAboutTab();
+            Activate();
+        };
+        welcomeWindow.Closed += (_, _) => _welcomeWindow = null;
+        _welcomeWindow = welcomeWindow;
+        welcomeWindow.Show();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
