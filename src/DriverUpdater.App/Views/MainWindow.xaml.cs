@@ -70,6 +70,13 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnDriverSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateSelectedButton.Visibility = DriversGrid.SelectedItems.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         await _viewModel.InitializeAsync().ConfigureAwait(true);

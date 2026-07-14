@@ -63,6 +63,10 @@ public sealed class MotherboardSource : IUpdateSource
         {
             entries = await scraper.GetDriversAsync(oemInfo.Model, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "{Vendor} scraper failed for {Model}", oemInfo.Vendor, oemInfo.Model);

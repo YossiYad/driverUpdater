@@ -8,8 +8,8 @@ namespace DriverUpdater.Services.Web;
 /// Owns the single Playwright browser instance shared by every component that needs a real
 /// browser (Gigabyte scraping, vendor-page fetching). Boots the user's installed Chrome or
 /// Edge first so the TLS/HTTP2 fingerprint matches a real browser - Akamai-style bot managers
-/// fingerprint far below the JS layer, so bundled headless Chromium gets caught even with
-/// stealth shims. First run may download Chromium (~250 MB) via Playwright's install flow.
+    /// fingerprint far below the JS layer, so bundled headless Chromium gets caught even with
+    /// stealth shims. Chromium is downloaded only if neither Chrome nor Edge is available.
 /// </summary>
 public sealed class PlaywrightBrowserProvider : IAsyncDisposable
 {
@@ -70,7 +70,6 @@ public sealed class PlaywrightBrowserProvider : IAsyncDisposable
             UserAgent = UserAgent,
             ViewportSize = new ViewportSize { Width = 1920, Height = 1080 },
             Locale = "en-US",
-            TimezoneId = "Asia/Jerusalem",
             ExtraHTTPHeaders = new Dictionary<string, string>
             {
                 ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -100,17 +99,6 @@ public sealed class PlaywrightBrowserProvider : IAsyncDisposable
                 return;
             }
 
-            if (!_chromiumInstalled)
-            {
-                _logger.LogInformation("Playwright: installing Chromium (~250 MB download on first run)");
-                var exit = Microsoft.Playwright.Program.Main(["install", "chromium"]);
-                if (exit != 0)
-                {
-                    throw new ScraperUnavailableException($"Playwright install returned exit code {exit}");
-                }
-                _chromiumInstalled = true;
-            }
-
             _playwright = await Playwright.CreateAsync().ConfigureAwait(false);
 
             var launchOptions = new BrowserTypeLaunchOptions
@@ -120,18 +108,43 @@ public sealed class PlaywrightBrowserProvider : IAsyncDisposable
                 Args = ["--disable-blink-features=AutomationControlled"]
             };
 
-            foreach (var channel in new[] { "chrome", "msedge", string.Empty })
+            foreach (var channel in new[] { "chrome", "msedge" })
             {
                 try
                 {
-                    launchOptions.Channel = string.IsNullOrEmpty(channel) ? null : channel;
+                    launchOptions.Channel = channel;
                     _browser = await _playwright.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);
-                    _logger.LogInformation("Playwright: launched browser channel={Channel}", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel);
+                    _logger.LogInformation("Playwright: launched browser channel={Channel}", channel);
                     break;
                 }
                 catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException)
                 {
-                    _logger.LogInformation("Playwright: channel {Channel} not available ({Reason}); trying next", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel, ex.Message);
+                    _logger.LogInformation("Playwright: channel {Channel} not available ({Reason}); trying next", channel, ex.Message);
+                }
+            }
+
+            if (_browser is null)
+            {
+                if (!_chromiumInstalled)
+                {
+                    _logger.LogInformation("Playwright: Chrome and Edge unavailable; installing Chromium (~250 MB)");
+                    var exit = Microsoft.Playwright.Program.Main(["install", "chromium"]);
+                    if (exit != 0)
+                    {
+                        throw new ScraperUnavailableException($"Playwright install returned exit code {exit}");
+                    }
+                    _chromiumInstalled = true;
+                }
+
+                launchOptions.Channel = null;
+                try
+                {
+                    _browser = await _playwright.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);
+                    _logger.LogInformation("Playwright: launched bundled Chromium");
+                }
+                catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException)
+                {
+                    _logger.LogInformation("Playwright: bundled Chromium unavailable ({Reason})", ex.Message);
                 }
             }
 

@@ -13,17 +13,11 @@
     <Product>DriverUpdater</Product>
     <Authors>Yossi Yadgar</Authors>
     <Copyright>Copyright (c) 2026 Yossi Yadgar</Copyright>
-    <Version>0.1.32</Version>
-    <AssemblyVersion>0.1.32.0</AssemblyVersion>
-    <FileVersion>0.1.32.0</FileVersion>
+    <Version>0.1.33</Version>
+    <AssemblyVersion>0.1.33.0</AssemblyVersion>
+    <FileVersion>0.1.33.0</FileVersion>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- No upstream-patched SQLitePCLRaw release exists yet (fix is in SQLite 3.50.2+).
-         The database is local and written only by the app, so this advisory is not reachable here. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
-  </ItemGroup>
 
 </Project>

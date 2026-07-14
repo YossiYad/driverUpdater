@@ -101,6 +101,10 @@ public sealed class JsonIneffectiveUpdateStore : IIneffectiveUpdateStore
             var records = await JsonSerializer.DeserializeAsync<List<IneffectiveUpdateRecord>>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
             return records ?? (IReadOnlyList<IneffectiveUpdateRecord>)Array.Empty<IneffectiveUpdateRecord>();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not parse {Path}; ignoring the ineffective-update ledger", StorePath);

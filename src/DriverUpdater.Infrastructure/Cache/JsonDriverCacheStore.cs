@@ -77,6 +77,10 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
                 path, snapshot?.Entries.Count ?? 0, snapshot?.CapturedAt);
             return snapshot;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not parse {Path}; ignoring the driver cache", path);

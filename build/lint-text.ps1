@@ -4,7 +4,7 @@
 Fails the build when forbidden characters or attribution tokens slip into the repo.
 
 .DESCRIPTION
-Scans every tracked text file for:
+Scans every tracked or non-ignored text file for:
   - The em-dash character (U+2014). Project rule: use hyphen with spaces instead.
   - AI / Claude / Anthropic attribution tokens. Project rule: no AI attribution anywhere.
 
@@ -29,18 +29,21 @@ $textExtensions = @('.cs', '.xaml', '.xml', '.csproj', '.props', '.targets', '.m
                     '.json', '.yml', '.yaml', '.ps1', '.cmd', '.bat', '.sh',
                     '.editorconfig', '.gitignore', '.gitattributes', '.txt')
 
-$skipFolders = @('bin', 'obj', '.git', '.vs', 'Releases', 'packages', 'node_modules')
 $skipFileNames = @('lint-text.ps1')
 
 $hits = @()
 
-Get-ChildItem -Path $RepoRoot -Recurse -File | Where-Object {
-    $path = $_.FullName
-    $skip = $false
-    foreach ($folder in $skipFolders) {
-        if ($path -match "\\$folder\\") { $skip = $true; break }
+$relativeFiles = @(& git -C $RepoRoot ls-files --cached --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not enumerate repository files with git.'
+}
+
+$relativeFiles | ForEach-Object {
+    $fullPath = Join-Path $RepoRoot $_
+    if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+        Get-Item -LiteralPath $fullPath
     }
-    if ($skip) { return $false }
+} | Where-Object {
     if ($skipFileNames -contains $_.Name) { return $false }
     $ext = $_.Extension.ToLowerInvariant()
     if (-not $ext -and $_.Name -in @('.editorconfig', '.gitignore', '.gitattributes')) { return $true }

@@ -44,6 +44,10 @@ public sealed class JsonSettingsStore : ISettingsStore
             _logger.LogInformation("Loaded settings from {Path}", SettingsPath);
             return settings ?? new AppSettings();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not parse settings.json, using defaults");

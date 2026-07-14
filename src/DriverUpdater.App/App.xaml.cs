@@ -105,9 +105,6 @@ public partial class App : Application
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
         mainWindow.Show();
-
-        var updater = _host.Services.GetRequiredService<IAppUpdater>();
-        _ = updater.CheckAndApplyAsync();
     }
 
     private async Task RunScheduledAsync(ScheduledLaunchMode mode)

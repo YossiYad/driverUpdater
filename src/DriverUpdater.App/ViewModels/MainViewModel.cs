@@ -79,34 +79,26 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
     private bool _isScanning;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
     private int _scannedCount;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
-    private bool _isAskingAi;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(UpdateOutdatedCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DryRunOutdatedCommand))]
     private int _updatesFoundCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(InstallConfirmedCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     private int _confirmedUpdatesCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(OpenVendorChecksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     private int _vendorChecksCount;
 
     [ObservableProperty]
@@ -389,6 +381,12 @@ public partial class MainViewModel : ObservableObject
 
             _logger.LogInformation("App update {Version} is available", result.Version);
             StatusText = $"App update {result.Version} is available.";
+
+            if (_updaterSettings?.CurrentValue.AutoApply == true)
+            {
+                await UpdateAppAsync(cancellationToken).ConfigureAwait(true);
+                return;
+            }
 
             // Proactively offer to install it. The 'Update app' toolbar button stays
             // visible so the user can still update later if they decline now.
@@ -1017,57 +1015,6 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand(CanExecute = nameof(CanAskAiAll))]
-    private async Task AskAiAllAsync(CancellationToken cancellationToken)
-    {
-        if (_aiVerifier is null)
-        {
-            StatusText = "AI review is not available in this build.";
-            return;
-        }
-        if (!_aiVerifier.IsConfigured)
-        {
-            StatusText = $"AI review is not configured. Open Settings > AI to enable {_aiVerifier.Provider}.";
-            return;
-        }
-        if (Drivers.Count == 0)
-        {
-            StatusText = "Scan drivers before asking AI to check all of them.";
-            return;
-        }
-
-        IsAskingAi = true;
-        _logger.LogInformation(
-            "Ask AI all started: rows={Rows}, existingCandidates={ExistingCandidates}, rowsWithoutUpdates={RowsWithoutUpdates}, provider={Provider}",
-            Drivers.Count,
-            Drivers.Count(r => r.AvailableUpdate is not null),
-            Drivers.Count(r => r.AvailableUpdate is null),
-            _aiVerifier.Provider);
-        try
-        {
-            await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
-            await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
-            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
-            _logger.LogInformation(
-                "Ask AI all completed: rows={Rows}, installableUpdates={InstallableUpdates}, vendorChecks={VendorChecks}, confirmed={Confirmed}",
-                Drivers.Count,
-                UpdatesFoundCount,
-                VendorChecksCount,
-                ConfirmedUpdatesCount);
-        }
-        catch (OperationCanceledException)
-        {
-            StatusText = "AI review cancelled.";
-            _logger.LogInformation("Ask AI all cancelled");
-        }
-        finally
-        {
-            IsAskingAi = false;
-        }
-    }
-
-    private bool CanAskAiAll() => Drivers.Count > 0 && !IsScanning && !IsAskingAi;
-
     private async Task DiscoverLatestDriversWithAiAsync(bool onlyRowsWithoutUpdates, CancellationToken cancellationToken)
     {
         if (_aiVerifier is null)
@@ -1565,23 +1512,6 @@ public partial class MainViewModel : ObservableObject
         _logsWindowOpener.Open();
     }
 
-    [RelayCommand]
-    private void Clear()
-    {
-        Drivers.Clear();
-        ScannedCount = 0;
-        UpdatesFoundCount = 0;
-        ConfirmedUpdatesCount = 0;
-        VendorChecksCount = 0;
-        StatusText = "Cleared.";
-    }
-
-    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
-    private async Task UpdateOutdatedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
-    }
-
     [RelayCommand(CanExecute = nameof(CanUpdateAll))]
     private async Task UpdateAllAsync(CancellationToken cancellationToken)
     {
@@ -1618,18 +1548,6 @@ public partial class MainViewModel : ObservableObject
         await RunUpdatesAsync(new[] { row }, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
     }
 
-    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
-    private async Task DryRunOutdatedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: true, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
-    }
-
-    [RelayCommand(CanExecute = nameof(CanInstallConfirmed))]
-    private async Task InstallConfirmedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
-    }
-
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
     private async Task OpenVendorChecksAsync(CancellationToken cancellationToken)
     {
@@ -1647,11 +1565,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = $"Opened {pageTargets.Length} vendor update pages.";
     }
 
-    private bool CanRunAnyUpdates() => UpdatesFoundCount > 0;
-
-    private bool CanUpdateAll() => UpdatesFoundCount > 0;
-
-    private bool CanInstallConfirmed() => ConfirmedUpdatesCount > 0;
+    private bool CanUpdateAll() => ConfirmedUpdatesCount > 0 || VendorChecksCount > 0;
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
 

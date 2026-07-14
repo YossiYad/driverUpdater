@@ -2,6 +2,7 @@ using DriverUpdater.Core.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Velopack;
+using Velopack.Exceptions;
 using Velopack.Sources;
 
 namespace DriverUpdater.App.Services;
@@ -30,11 +31,27 @@ public sealed class VelopackAppUpdater : IAppUpdater
             return;
         }
 
-        var result = await CheckForUpdatesAsync(cancellationToken).ConfigureAwait(false);
-        if (result.IsUpdateAvailable && _settings.CurrentValue.AutoApply)
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            _logger.LogInformation("Auto-apply enabled, applying {Version}", result.Version);
-            await DownloadAndApplyAsync(progress: null, cancellationToken).ConfigureAwait(false);
+            var result = await CheckForUpdatesCoreAsync().ConfigureAwait(false);
+            if (result.IsUpdateAvailable && _settings.CurrentValue.AutoApply)
+            {
+                _logger.LogInformation("Auto-apply enabled, applying {Version}", result.Version);
+                await DownloadAndApplyCoreAsync(progress: null, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "App self-update failed");
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
@@ -43,36 +60,7 @@ public sealed class VelopackAppUpdater : IAppUpdater
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var manager = CreateManager();
-            if (manager is null)
-            {
-                _logger.LogDebug("Skipping update check: no update feed is configured");
-                return AppUpdateCheckResult.None;
-            }
-            if (!manager.IsInstalled)
-            {
-                _logger.LogDebug("Skipping update check: app is not installed via Velopack");
-                return AppUpdateCheckResult.None;
-            }
-
-            var info = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
-            if (info is null)
-            {
-                _pendingUpdate = null;
-                _logger.LogInformation("No app updates available");
-                return AppUpdateCheckResult.None;
-            }
-
-            _manager = manager;
-            _pendingUpdate = info;
-            var version = info.TargetFullRelease.Version.ToString();
-            _logger.LogInformation("App update {Version} available", version);
-            return new AppUpdateCheckResult(true, version);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "App self-update check failed");
-            return AppUpdateCheckResult.None;
+            return await CheckForUpdatesCoreAsync().ConfigureAwait(false);
         }
         finally
         {
@@ -82,17 +70,76 @@ public sealed class VelopackAppUpdater : IAppUpdater
 
     public async Task DownloadAndApplyAsync(IProgress<int>? progress = null, CancellationToken cancellationToken = default)
     {
-        // Re-check if we have no pending update cached (e.g. called directly).
-        if (_manager is null || _pendingUpdate is null)
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var result = await CheckForUpdatesAsync(cancellationToken).ConfigureAwait(false);
-            if (!result.IsUpdateAvailable)
+            // Re-check if we have no pending update cached (e.g. called directly).
+            if (_manager is null || _pendingUpdate is null)
             {
-                _logger.LogInformation("No app update to download");
-                return;
+                var result = await CheckForUpdatesCoreAsync().ConfigureAwait(false);
+                if (!result.IsUpdateAvailable)
+                {
+                    _logger.LogInformation("No app update to download (status: {Status})", result.Status);
+                    return;
+                }
             }
-        }
 
+            await DownloadAndApplyCoreAsync(progress, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<AppUpdateCheckResult> CheckForUpdatesCoreAsync()
+    {
+        try
+        {
+            var manager = CreateManager();
+            if (manager is null)
+            {
+                ClearPendingUpdate();
+                _logger.LogDebug("Skipping update check: no update feed is configured");
+                return AppUpdateCheckResult.NotConfigured;
+            }
+            if (!manager.IsInstalled)
+            {
+                ClearPendingUpdate();
+                _logger.LogDebug("Skipping update check: app is not installed via Velopack");
+                return AppUpdateCheckResult.NotInstalled;
+            }
+
+            var info = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
+            if (info is null)
+            {
+                ClearPendingUpdate();
+                _logger.LogInformation("No app updates available");
+                return AppUpdateCheckResult.None;
+            }
+
+            _manager = manager;
+            _pendingUpdate = info;
+            var version = info.TargetFullRelease.Version.ToString();
+            _logger.LogInformation("App update {Version} available", version);
+            return AppUpdateCheckResult.Available(version);
+        }
+        catch (NotInstalledException ex)
+        {
+            ClearPendingUpdate();
+            _logger.LogDebug(ex, "Skipping update check: app is not installed via Velopack");
+            return AppUpdateCheckResult.NotInstalled;
+        }
+        catch (Exception ex)
+        {
+            ClearPendingUpdate();
+            _logger.LogWarning(ex, "App self-update check failed");
+            return AppUpdateCheckResult.Failed;
+        }
+    }
+
+    private async Task DownloadAndApplyCoreAsync(IProgress<int>? progress, CancellationToken cancellationToken)
+    {
         var manager = _manager;
         var info = _pendingUpdate;
         if (manager is null || info is null)
@@ -108,6 +155,12 @@ public sealed class VelopackAppUpdater : IAppUpdater
 
         _logger.LogInformation("Applying app update {Version} and restarting", info.TargetFullRelease.Version);
         manager.ApplyUpdatesAndRestart(info);
+    }
+
+    private void ClearPendingUpdate()
+    {
+        _manager = null;
+        _pendingUpdate = null;
     }
 
     private UpdateManager? CreateManager()

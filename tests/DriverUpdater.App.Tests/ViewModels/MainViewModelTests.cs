@@ -64,22 +64,6 @@ public class MainViewModelTests
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(d => d.Category == DriverCategory.Display);
     }
 
-    [WpfFact]
-    public async Task Clear_command_empties_results_and_resets_status()
-    {
-        var vm = NewVm(NewDriver("X", DriverCategory.Network));
-        await vm.ScanCommand.ExecuteAsync(null);
-
-        vm.ClearCommand.Execute(null);
-
-        vm.Drivers.Should().BeEmpty();
-        vm.ScannedCount.Should().Be(0);
-        vm.UpdatesFoundCount.Should().Be(0);
-        vm.ConfirmedUpdatesCount.Should().Be(0);
-        vm.VendorChecksCount.Should().Be(0);
-        vm.StatusText.Should().Be("Cleared.");
-    }
-
     [Fact]
     public void Available_update_filters_have_user_friendly_labels()
     {

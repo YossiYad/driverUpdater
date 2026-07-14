@@ -143,11 +143,6 @@
                             Content="{DynamicResource Toolbar.Cancel}"
                             Command="{Binding ScanCancelCommand}"
                             IsEnabled="{Binding IsScanning}" />
-                    <Button Margin="8,0,0,0"
-                            MinWidth="72"
-                            Padding="14,6"
-                            Content="{DynamicResource Toolbar.Clear}"
-                            Command="{Binding ClearCommand}" />
                     <Button Margin="24,0,0,0"
                             MinWidth="108"
                             Padding="14,6"
@@ -160,27 +155,8 @@
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateSelected}"
                             Command="{Binding UpdateSelectedCommand}"
-                            CommandParameter="{Binding ElementName=DriversGrid, Path=SelectedItems}" />
-                    <Button Margin="8,0,0,0"
-                            MinWidth="132"
-                            Padding="14,6"
-                            Content="{DynamicResource Toolbar.UpdateOutdated}"
-                            Command="{Binding UpdateOutdatedCommand}" />
-                    <Button Margin="8,0,0,0"
-                            MinWidth="132"
-                            Padding="14,6"
-                            Content="{DynamicResource Toolbar.InstallConfirmed}"
-                            Command="{Binding InstallConfirmedCommand}" />
-                    <Button Margin="8,0,0,0"
-                            MinWidth="86"
-                            Padding="14,6"
-                            Content="{DynamicResource Toolbar.AskAiAll}"
-                            Command="{Binding AskAiAllCommand}" />
-                    <Button Margin="8,0,0,0"
-                            MinWidth="76"
-                            Padding="14,6"
-                            Content="{DynamicResource Toolbar.DryRun}"
-                            Command="{Binding DryRunOutdatedCommand}" />
+                            CommandParameter="{Binding ElementName=DriversGrid, Path=SelectedItems}"
+                            Visibility="Collapsed" />
                     <Button Margin="24,0,0,0"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.UpdateApp}"
@@ -239,11 +215,20 @@
                   IsReadOnly="True"
                   RowHeight="34"
                   SelectionMode="Extended"
+                  SelectionUnit="FullRow"
+                  SelectionChanged="OnDriverSelectionChanged"
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   EnableRowVirtualization="True"
                   EnableColumnVirtualization="True"
                   ItemsSource="{Binding DriversView}">
+            <DataGrid.CellStyle>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                    <Setter Property="BorderThickness" Value="0" />
+                </Style>
+            </DataGrid.CellStyle>
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Status"
                                     Binding="{Binding Status}"
