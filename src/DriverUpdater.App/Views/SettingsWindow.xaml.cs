@@ -3,10 +3,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Navigation;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class SettingsWindow : Window
+public partial class SettingsWindow : FluentWindow
 {
     private readonly SettingsViewModel _viewModel;
     private bool _syncingKey;

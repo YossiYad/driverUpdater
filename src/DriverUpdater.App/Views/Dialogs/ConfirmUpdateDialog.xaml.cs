@@ -1,10 +1,11 @@
 using System.Windows;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Models;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views.Dialogs;
 
-public partial class ConfirmUpdateDialog : Window
+public partial class ConfirmUpdateDialog : FluentWindow
 {
     public ConfirmUpdateDialogViewModel ViewModel { get; }
 

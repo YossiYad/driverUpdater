@@ -1,13 +1,15 @@
 using System.Security.Principal;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class MainWindow : Window
+public partial class MainWindow : FluentWindow
 {
     private readonly MainViewModel _viewModel;
 
@@ -38,11 +40,22 @@ public partial class MainWindow : Window
         // selection command to consume SelectedItems. Every other click clears stale rows,
         // including clicks outside the grid and in its empty area/header.
         var row = FindAncestor<DataGridRow>(source);
-        var button = FindAncestor<Button>(source);
+        var button = FindAncestor<ButtonBase>(source);
         if (row is null && !ReferenceEquals(button, UpdateSelectedButton))
         {
             DriversGrid.UnselectAll();
         }
+    }
+
+    private void OnHeaderMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source || FindAncestor<ButtonBase>(source) is not null)
+        {
+            return;
+        }
+
+        DragMove();
+        e.Handled = true;
     }
 
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject

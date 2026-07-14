@@ -2,15 +2,56 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=System.Runtime"
-             xmlns:ui="http://schemas.modernwpf.com/2019">
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ui:ThemeResources />
-                <ui:XamlControlsResources />
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
                 <ResourceDictionary Source="/DriverUpdater;component/Resources/Strings.en.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+            <!-- Compatibility resources keep the existing dark layout coherent while it uses WPF UI controls. -->
+            <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="#FF171717" />
+            <SolidColorBrush x:Key="SystemControlBackgroundChromeMediumLowBrush" Color="#FF242424" />
+            <SolidColorBrush x:Key="SystemControlBackgroundChromeMediumBrush" Color="#FF353535" />
+            <SolidColorBrush x:Key="SystemControlForegroundBaseHighBrush" Color="#FFF5F5F5" />
+            <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="#FF5B21B6" />
+
+            <Style x:Key="AccentButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#FF6D28D9" />
+                <Setter Property="BorderBrush" Value="#FF8B5CF6" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Padding" Value="16,7" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Root"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="#FF7C3AED" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="#FF5B21B6" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Root" Property="Opacity" Value="0.45" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
             <!-- Purple-to-blue gradient used for the AI sparkle (chat) buttons. -->
             <LinearGradientBrush x:Key="AiSparkleBrush" StartPoint="0,0" EndPoint="1,1">
@@ -37,6 +78,8 @@
                                Foreground="{StaticResource AiSparkleBrush}" />
                 </Grid>
             </Viewbox>
+
+            <ScaleTransform x:Key="AiSparkleScale" ScaleX="1.65" ScaleY="1.65" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

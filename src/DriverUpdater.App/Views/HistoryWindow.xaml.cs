@@ -1,9 +1,10 @@
 using System.Windows;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class HistoryWindow : Window
+public partial class HistoryWindow : FluentWindow
 {
     private readonly HistoryViewModel _viewModel;
 

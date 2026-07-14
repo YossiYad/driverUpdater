@@ -1,9 +1,10 @@
 using System.Windows;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class AiResultWindow : Window
+public partial class AiResultWindow : FluentWindow
 {
     private readonly AiResultViewModel _viewModel;
 

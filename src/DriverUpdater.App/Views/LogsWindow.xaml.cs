@@ -4,10 +4,11 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using DriverUpdater.App.Logging;
 using DriverUpdater.App.ViewModels;
+using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
 
-public partial class LogsWindow : Window
+public partial class LogsWindow : FluentWindow
 {
     private readonly LogsViewModel _viewModel;
 
