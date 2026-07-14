@@ -222,6 +222,7 @@ public sealed class WuApiClient : IWuApiClient
         string? driverProvider = TryGetString(update, "DriverProvider");
         DateOnly? driverVerDate = TryGetDateOnly(update, "DriverVerDate");
         long maxSize = TryGetLong(update, "MaxDownloadSize");
+        var rebootBehavior = TryGetRebootBehavior(update, tracked);
 
         string? downloadUrl = null;
         try
@@ -266,7 +267,29 @@ public sealed class WuApiClient : IWuApiClient
             DriverVerDate: driverVerDate,
             MaxDownloadSize: maxSize,
             DownloadUrl: downloadUrl,
-            KbArticleIds: kbList);
+            KbArticleIds: kbList,
+            RebootBehavior: rebootBehavior);
+    }
+
+    private static UpdateRebootBehavior TryGetRebootBehavior(dynamic update, Stack<object> tracked)
+    {
+        try
+        {
+            dynamic behavior = update.InstallationBehavior;
+            Track(tracked, behavior);
+            int value = (int)behavior.RebootBehavior;
+            return value switch
+            {
+                0 => UpdateRebootBehavior.NeverRequired,
+                1 => UpdateRebootBehavior.AlwaysRequired,
+                2 => UpdateRebootBehavior.MayBeRequired,
+                _ => UpdateRebootBehavior.Unknown
+            };
+        }
+        catch
+        {
+            return UpdateRebootBehavior.Unknown;
+        }
     }
 
     private static void Track(Stack<object> tracked, object? value)

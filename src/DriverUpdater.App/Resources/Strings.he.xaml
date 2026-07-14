@@ -46,6 +46,17 @@
     <sys:String x:Key="Confirm.BackupDriver">גבה את הדרייבר הנוכחי לפני ההתקנה</sys:String>
     <sys:String x:Key="Confirm.RiskHeader">זהירות:</sys:String>
     <sys:String x:Key="Confirm.RiskBody">דרייברים של אחסון ותצוגה עלולים למנוע אתחול של Windows אם הם נכשלים. נקודת השחזור והגיבוי מצמצמים אך לא מבטלים את הסיכון.</sys:String>
+    <sys:String x:Key="Confirm.ImpactHeader">לפני שממשיכים</sys:String>
+    <sys:String x:Key="Confirm.RestartRequired">לאחר העדכון יהיה צורך להפעיל מחדש את המחשב. שמור את העבודה שלך לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.RestartPossible">ייתכן שלאחר העדכון יהיה צורך להפעיל מחדש את המחשב. שמור את העבודה שלך לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Display">המסך עשוי להבהב או להשחיר זמנית. משחקים, וידאו ויישומי גרפיקה עשויים להיעצר או להיסגר.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Network">חיבור הרשת, VPN, שיחות והורדות פעילות עשויים להתנתק זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.AudioCamera">שמע, מצלמה, שיחות, הקלטות ויישומים שמשתמשים בהתקן עשויים להיעצר זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Input">המקלדת, העכבר, התקן USB או Bluetooth עשויים להתנתק זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.StorageSystem">שירותי מערכת או עבודה פעילה עשויים להיפסק. סגור יישומים חשובים ושמור קבצים פתוחים לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Printer">הדפסה ועבודות הדפסה פעילות עשויות להיעצר זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Generic">ההתקן ויישומים שמשתמשים בו עשויים לא להיות זמינים זמנית בזמן ההתקנה.</sys:String>
+    <sys:String x:Key="Confirm.Impact.VendorInstaller">תוכנית ההתקנה של היצרן עשויה לסגור יישומים קשורים או לבקש אישור נוסף.</sys:String>
     <sys:String x:Key="Confirm.CancelButton">ביטול</sys:String>
     <sys:String x:Key="Confirm.ProceedButton">המשך</sys:String>
 

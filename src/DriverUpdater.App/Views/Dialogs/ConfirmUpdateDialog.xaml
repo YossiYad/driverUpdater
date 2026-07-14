@@ -7,7 +7,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:ConfirmUpdateDialogViewModel}"
-        Title="Confirm driver update"
+        Title="{DynamicResource Confirm.Title}"
         Icon="pack://application:,,,/Assets/app.ico"
         Width="640"
         Height="660"
@@ -28,7 +28,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="Confirm driver update"
+                   Text="{DynamicResource Confirm.Title}"
                    FontSize="20"
                    FontWeight="SemiBold"
                    Margin="0,0,0,4" />
@@ -49,12 +49,12 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="Current" FontWeight="SemiBold" Opacity="0.8" />
+                    <TextBlock Text="{DynamicResource Confirm.Current}" FontWeight="SemiBold" Opacity="0.8" />
                     <TextBlock Margin="0,4,0,0" Text="{Binding Operation.TargetSnapshot.CurrentVersion, FallbackValue=Unknown}" />
                     <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.TargetSnapshot.CurrentDate, FallbackValue=Unknown}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="Available" FontWeight="SemiBold" Opacity="0.8" />
+                    <TextBlock Text="{DynamicResource Confirm.Available}" FontWeight="SemiBold" Opacity="0.8" />
                     <TextBlock Margin="0,4,0,0" Text="{Binding Operation.Candidate.NewVersion}" />
                     <TextBlock Opacity="0.6" FontSize="12" Text="{Binding Operation.Candidate.NewDate}" />
                 </StackPanel>
@@ -67,7 +67,7 @@
                 CornerRadius="6"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel>
-                <TextBlock Text="Source" FontWeight="SemiBold" Opacity="0.8" />
+                <TextBlock Text="{DynamicResource Confirm.Source}" FontWeight="SemiBold" Opacity="0.8" />
                 <TextBlock Margin="0,4,0,0" Text="{Binding Operation.Candidate.Source}" />
                 <TextBlock Opacity="0.6" FontSize="12" Text="{Binding InstallKindText}" />
                 <TextBlock Opacity="0.6" FontSize="12" Text="{Binding SizeText}" />
@@ -81,15 +81,92 @@
                 CornerRadius="6"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel>
-                <CheckBox Content="Create system restore point before installing"
+                <CheckBox Content="{DynamicResource Confirm.CreateRestorePoint}"
                           IsChecked="{Binding CreateRestorePoint}" />
                 <CheckBox Margin="0,4,0,0"
-                          Content="Back up current driver before installing"
+                          Content="{DynamicResource Confirm.BackupDriver}"
                           IsChecked="{Binding BackupCurrentDriver}" />
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="5">
+        <ScrollViewer Grid.Row="5"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
+            <Border Margin="0,12,0,0"
+                    Padding="14,10"
+                    CornerRadius="6"
+                    Background="#FFFFE8CC"
+                    Visibility="{Binding ShowInstallImpactWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource Confirm.ImpactHeader}"
+                               FontWeight="SemiBold"
+                               FontSize="13"
+                               Foreground="#FF8B4A00" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.RestartRequired}"
+                               TextWrapping="Wrap"
+                               FontWeight="SemiBold"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowRestartRequiredWarning, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.RestartPossible}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowRestartPossibleWarning, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.Display}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowDisplayImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.Network}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowNetworkImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.AudioCamera}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowAudioCameraImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.Input}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowInputDeviceImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.StorageSystem}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowStorageSystemImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.Printer}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowPrinterImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.Generic}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowGenericDeviceImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Margin="0,5,0,0"
+                               Text="{DynamicResource Confirm.Impact.VendorInstaller}"
+                               TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="#FF8B4A00"
+                               Visibility="{Binding ShowVendorInstallerImpact, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </StackPanel>
+            </Border>
+
             <Border Margin="0,12,0,0"
                     Padding="14,10"
                     CornerRadius="6"
@@ -128,23 +205,25 @@
                 <TextBlock TextWrapping="Wrap"
                            Foreground="#FF8B5A00"
                            FontSize="12">
-                    <Run FontWeight="SemiBold" Text="Caution: " />
-                    <Run Text="Storage and display drivers can prevent Windows from booting if they fail. The restore point and backup mitigate but do not eliminate this risk." />
+                    <Run FontWeight="SemiBold" Text="{DynamicResource Confirm.RiskHeader}" />
+                    <Run Text=" " />
+                    <Run Text="{DynamicResource Confirm.RiskBody}" />
                 </TextBlock>
             </Border>
         </StackPanel>
+        </ScrollViewer>
 
         <StackPanel Grid.Row="6"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,16,0,0">
             <Button MinWidth="100"
-                    Content="Cancel"
+                    Content="{DynamicResource Confirm.CancelButton}"
                     IsCancel="True"
                     Click="OnCancel" />
             <Button MinWidth="100"
                     Margin="8,0,0,0"
-                    Content="Proceed"
+                    Content="{DynamicResource Confirm.ProceedButton}"
                     IsDefault="True"
                     Style="{DynamicResource AccentButtonStyle}"
                     Click="OnProceed" />

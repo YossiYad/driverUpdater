@@ -11,4 +11,5 @@ public sealed record WuDriverUpdateRecord(
     DateOnly? DriverVerDate,
     long MaxDownloadSize,
     string? DownloadUrl,
-    IReadOnlyList<string> KbArticleIds);
+    IReadOnlyList<string> KbArticleIds,
+    UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown);

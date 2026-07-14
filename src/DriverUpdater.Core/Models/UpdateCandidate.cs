@@ -13,7 +13,8 @@ public sealed record UpdateCandidate(
     IReadOnlyList<string> SupersededIds,
     UpdateInstallKind InstallKind = UpdateInstallKind.WindowsUpdate,
     UpdateConfidence Confidence = UpdateConfidence.Confirmed,
-    AiVerdict? AiVerification = null)
+    AiVerdict? AiVerification = null,
+    UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown)
 {
     public bool IsNewerThan(DriverInfo current)
     {
