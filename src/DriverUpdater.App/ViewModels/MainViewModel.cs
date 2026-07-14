@@ -79,34 +79,26 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
     private bool _isScanning;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
     private int _scannedCount;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(AskAiAllCommand))]
-    private bool _isAskingAi;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(UpdateOutdatedCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DryRunOutdatedCommand))]
     private int _updatesFoundCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
-    [NotifyCanExecuteChangedFor(nameof(InstallConfirmedCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     private int _confirmedUpdatesCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(OpenVendorChecksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     private int _vendorChecksCount;
 
     [ObservableProperty]
@@ -222,6 +214,30 @@ public partial class MainViewModel : ObservableObject
 
     public bool HasNoDriverChat => DriverChatMessages.Count == 0;
 
+    [RelayCommand]
+    private async Task InstallAiRecommendedAsync(LogChatMessage? message, CancellationToken cancellationToken)
+    {
+        if (message?.RecommendedHardwareIds is not { Count: > 0 } ids)
+        {
+            return;
+        }
+
+        var rows = MatchRecommendedRows(ids);
+        if (rows.Length == 0)
+        {
+            StatusText = "The AI-recommended updates are no longer available. Rescan and ask again.";
+            return;
+        }
+
+        await RunUpdatesAsync(rows, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    private DriverRowViewModel[] MatchRecommendedRows(IReadOnlyList<string> hardwareIds) =>
+        Drivers
+            .Where(r => r.AvailableUpdate is not null
+                && hardwareIds.Contains(r.HardwareId, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+
     private bool CanSendDriverChat() => !IsDriverChatting && !string.IsNullOrWhiteSpace(DriverChatInput);
 
     [RelayCommand(CanExecute = nameof(CanSendDriverChat), IncludeCancelCommand = true)]
@@ -241,7 +257,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var context = BuildDriverChatContext();
-        var history = DriverChatMessages.ToArray();
+        var history = DriverChatMessages.Where(m => !string.IsNullOrWhiteSpace(m.Text)).ToArray();
         DriverChatMessages.Add(new LogChatMessage(IsUser: true, question));
         DriverChatInput = string.Empty;
         IsDriverChatting = true;
@@ -258,8 +274,33 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
-            StatusText = "AI answered. Ask a follow-up or clear the chat.";
+            var (text, recommendedIds) = DriverChatActionParser.Parse(answer);
+            var matched = MatchRecommendedRows(recommendedIds);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, text));
+            }
+            else if (matched.Length == 0)
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
+            }
+
+            if (matched.Length > 0)
+            {
+                DriverChatMessages.Add(new LogChatMessage(IsUser: false, string.Empty,
+                    matched.Select(r => r.HardwareId).ToArray()));
+                StatusText = $"AI recommends installing {matched.Length} update(s). Press the button in the chat.";
+            }
+            else
+            {
+                if (recommendedIds.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Driver chat: AI recommended {Count} hardware IDs but none matched a row with an available update",
+                        recommendedIds.Count);
+                }
+                StatusText = "AI answered. Ask a follow-up or clear the chat.";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -320,6 +361,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Off by default: only check for and offer an app update on launch when the user has
+        // opted in via Settings > "Check for updates on startup". Manual checks in Settings
+        // work regardless of this flag.
+        if (_updaterSettings?.CurrentValue.CheckOnStartup != true)
+        {
+            return;
+        }
+
         try
         {
             var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
@@ -332,6 +381,12 @@ public partial class MainViewModel : ObservableObject
 
             _logger.LogInformation("App update {Version} is available", result.Version);
             StatusText = $"App update {result.Version} is available.";
+
+            if (_updaterSettings?.CurrentValue.AutoApply == true)
+            {
+                await UpdateAppAsync(cancellationToken).ConfigureAwait(true);
+                return;
+            }
 
             // Proactively offer to install it. The 'Update app' toolbar button stays
             // visible so the user can still update later if they decline now.
@@ -463,6 +518,7 @@ public partial class MainViewModel : ObservableObject
     private async Task ScanAsync(CancellationToken cancellationToken)
     {
         IsScanning = true;
+        var previousRows = SnapshotRowsByDeviceId();
         Drivers.Clear();
         ScannedCount = 0;
         UpdatesFoundCount = 0;
@@ -480,6 +536,7 @@ public partial class MainViewModel : ObservableObject
             }
 
             var elapsed = stopwatch.Elapsed;
+            MergePreviousRows(previousRows);
             StatusText = $"Scan complete. {Drivers.Count} drivers in {elapsed.TotalSeconds:F1}s. Querying update sources...";
             _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, elapsed);
 
@@ -502,6 +559,81 @@ public partial class MainViewModel : ObservableObject
         {
             IsScanning = false;
         }
+    }
+
+    private Dictionary<string, DriverRowViewModel> SnapshotRowsByDeviceId()
+    {
+        var map = new Dictionary<string, DriverRowViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            if (!string.IsNullOrWhiteSpace(row.Driver.DeviceId))
+            {
+                map[row.Driver.DeviceId] = row;
+            }
+        }
+        return map;
+    }
+
+    // The grid (and the cache built from it) is accumulating: drivers seen in any
+    // earlier scan stay in the list even when the current WMI scan does not report
+    // them, and a pending update found earlier is kept until the installed driver
+    // catches up or a source offers something newer (DriverUpdateMatcher decides).
+    private void MergePreviousRows(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    {
+        if (previousRows.Count == 0)
+        {
+            return;
+        }
+
+        var restoredUpdates = 0;
+        var scannedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            scannedIds.Add(row.Driver.DeviceId);
+            if (row.AvailableUpdate is not null
+                || !previousRows.TryGetValue(row.Driver.DeviceId, out var previous)
+                || previous.AvailableUpdate is not { } pending)
+            {
+                continue;
+            }
+
+            if (pending.IsNewerThan(row.Driver))
+            {
+                row.AvailableUpdate = pending;
+                row.Status = previous.Status;
+                restoredUpdates++;
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Cache merge: dropped pending update for {Device} - installed driver (version={Version}, date={Date}) caught up with cached candidate {Candidate}",
+                    row.DeviceName, row.Driver.CurrentVersion, row.Driver.CurrentDate, pending.NewVersion);
+            }
+        }
+
+        var keptRows = 0;
+        foreach (var (deviceId, previous) in previousRows)
+        {
+            if (scannedIds.Contains(deviceId))
+            {
+                continue;
+            }
+            Drivers.Add(new DriverRowViewModel(previous.Driver)
+            {
+                Status = previous.Status,
+                AvailableUpdate = previous.AvailableUpdate
+            });
+            keptRows++;
+            _logger.LogDebug(
+                "Cache merge: keeping {Device} ({DeviceId}) - present in an earlier scan but missing from this one",
+                previous.DeviceName, deviceId);
+        }
+
+        ScannedCount = Drivers.Count;
+        RefreshUpdateCounts();
+        _logger.LogInformation(
+            "Cache merge: {Kept} driver(s) kept from earlier scans, {Restored} pending update(s) restored (grid now {Total} rows)",
+            keptRows, restoredUpdates, Drivers.Count);
     }
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
@@ -882,57 +1014,6 @@ public partial class MainViewModel : ObservableObject
             row.IsAiChecking = false;
         }
     }
-
-    [RelayCommand(CanExecute = nameof(CanAskAiAll))]
-    private async Task AskAiAllAsync(CancellationToken cancellationToken)
-    {
-        if (_aiVerifier is null)
-        {
-            StatusText = "AI review is not available in this build.";
-            return;
-        }
-        if (!_aiVerifier.IsConfigured)
-        {
-            StatusText = $"AI review is not configured. Open Settings > AI to enable {_aiVerifier.Provider}.";
-            return;
-        }
-        if (Drivers.Count == 0)
-        {
-            StatusText = "Scan drivers before asking AI to check all of them.";
-            return;
-        }
-
-        IsAskingAi = true;
-        _logger.LogInformation(
-            "Ask AI all started: rows={Rows}, existingCandidates={ExistingCandidates}, rowsWithoutUpdates={RowsWithoutUpdates}, provider={Provider}",
-            Drivers.Count,
-            Drivers.Count(r => r.AvailableUpdate is not null),
-            Drivers.Count(r => r.AvailableUpdate is null),
-            _aiVerifier.Provider);
-        try
-        {
-            await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
-            await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
-            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
-            _logger.LogInformation(
-                "Ask AI all completed: rows={Rows}, installableUpdates={InstallableUpdates}, vendorChecks={VendorChecks}, confirmed={Confirmed}",
-                Drivers.Count,
-                UpdatesFoundCount,
-                VendorChecksCount,
-                ConfirmedUpdatesCount);
-        }
-        catch (OperationCanceledException)
-        {
-            StatusText = "AI review cancelled.";
-            _logger.LogInformation("Ask AI all cancelled");
-        }
-        finally
-        {
-            IsAskingAi = false;
-        }
-    }
-
-    private bool CanAskAiAll() => Drivers.Count > 0 && !IsScanning && !IsAskingAi;
 
     private async Task DiscoverLatestDriversWithAiAsync(bool onlyRowsWithoutUpdates, CancellationToken cancellationToken)
     {
@@ -1431,23 +1512,6 @@ public partial class MainViewModel : ObservableObject
         _logsWindowOpener.Open();
     }
 
-    [RelayCommand]
-    private void Clear()
-    {
-        Drivers.Clear();
-        ScannedCount = 0;
-        UpdatesFoundCount = 0;
-        ConfirmedUpdatesCount = 0;
-        VendorChecksCount = 0;
-        StatusText = "Cleared.";
-    }
-
-    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
-    private async Task UpdateOutdatedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
-    }
-
     [RelayCommand(CanExecute = nameof(CanUpdateAll))]
     private async Task UpdateAllAsync(CancellationToken cancellationToken)
     {
@@ -1484,18 +1548,6 @@ public partial class MainViewModel : ObservableObject
         await RunUpdatesAsync(new[] { row }, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
     }
 
-    [RelayCommand(CanExecute = nameof(CanRunAnyUpdates))]
-    private async Task DryRunOutdatedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: true, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
-    }
-
-    [RelayCommand(CanExecute = nameof(CanInstallConfirmed))]
-    private async Task InstallConfirmedAsync(CancellationToken cancellationToken)
-    {
-        await RunUpdatesAsync(Drivers, dryRun: false, includeVendorPages: false, cancellationToken).ConfigureAwait(true);
-    }
-
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]
     private async Task OpenVendorChecksAsync(CancellationToken cancellationToken)
     {
@@ -1513,11 +1565,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = $"Opened {pageTargets.Length} vendor update pages.";
     }
 
-    private bool CanRunAnyUpdates() => UpdatesFoundCount > 0;
-
-    private bool CanUpdateAll() => UpdatesFoundCount > 0;
-
-    private bool CanInstallConfirmed() => ConfirmedUpdatesCount > 0;
+    private bool CanUpdateAll() => ConfirmedUpdatesCount > 0 || VendorChecksCount > 0;
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
 
@@ -1543,9 +1591,11 @@ public partial class MainViewModel : ObservableObject
             .Where(r => r.Status == DriverStatus.Outdated
                 && r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
             .ToArray();
+        // No Status filter here: vendor check rows are advisory and usually sit at
+        // UpToDate (AI discovery sets them so), yet their row button is enabled via
+        // CanUpdate. Filtering by Outdated made that button a silent no-op.
         var pageTargets = targets
-            .Where(r => r.Status == DriverStatus.Outdated
-                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
         // Vendor page rows go through the pipeline too: it tries to resolve a direct
@@ -1608,6 +1658,7 @@ public partial class MainViewModel : ObservableObject
 
             var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
             var displayName = DriverDisplayName(row);
+            var originalStatus = row.Status;
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
@@ -1645,11 +1696,22 @@ public partial class MainViewModel : ObservableObject
                 ApplySharedVendorInstallerResult(finished, row, originalUpdateId);
             }
 
-            if (!dryRun
-                && finished.Status == UpdateStatus.Skipped
+            if (finished.Status == UpdateStatus.Skipped
                 && finished.Candidate.InstallKind == UpdateInstallKind.VendorPage)
             {
-                vendorPageFallbacks.Add(row);
+                // Advisory vendor check rows are usually UpToDate; a skipped in-app
+                // attempt must not flip them to Outdated.
+                row.Status = originalStatus;
+                if (!dryRun)
+                {
+                    _logger.LogInformation(
+                        "Update run: {Device} could not be updated in-app from its vendor page ({Url}); " +
+                        "falling back to opening the page in a browser. Reason: {Reason}. See the 'Vendor page resolve' " +
+                        "log lines above for the links found on the page and why none were directly installable.",
+                        displayName, finished.Candidate.DownloadUrl,
+                        string.IsNullOrWhiteSpace(finished.ErrorMessage) ? "no direct installer found on the page" : finished.ErrorMessage);
+                    vendorPageFallbacks.Add(row);
+                }
             }
         }
 

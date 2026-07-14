@@ -4,6 +4,7 @@
     <Project Path="src/DriverUpdater.Core/DriverUpdater.Core.csproj" />
     <Project Path="src/DriverUpdater.Infrastructure/DriverUpdater.Infrastructure.csproj" />
     <Project Path="src/DriverUpdater.Services/DriverUpdater.Services.csproj" />
+    <Project Path="src/DriverUpdater.Setup/DriverUpdater.Setup.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DriverUpdater.App.Tests/DriverUpdater.App.Tests.csproj" />

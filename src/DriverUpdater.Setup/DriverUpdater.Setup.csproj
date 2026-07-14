@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <DebugType>none</DebugType>
+    <AssemblyName>DriverUpdater-win-Setup</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EmbeddedSetupPath)' != ''">
+    <EmbeddedResource Include="$(EmbeddedSetupPath)" LogicalName="DriverUpdater.Setup.Payload.exe" />
+  </ItemGroup>
+
+  <Target Name="RequireEmbeddedSetup" BeforeTargets="Publish" Condition="'$(EmbeddedSetupPath)' == ''">
+    <Error Text="EmbeddedSetupPath must point to the Velopack Setup executable." />
+  </Target>
+
+</Project>

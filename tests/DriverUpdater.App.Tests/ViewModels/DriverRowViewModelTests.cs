@@ -140,6 +140,31 @@ public class DriverRowViewModelTests
     }
 
     [Fact]
+    public void Available_version_shows_latest_for_ai_discovery_date_placeholder()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+
+        row.AvailableUpdate = NewCandidate() with
+        {
+            SourceUpdateId = "ai-latest:PCI\\VEN_8086&DEV_1234",
+            NewVersion = new Version(2026, 7, 13, 0),
+            NewDate = new DateOnly(2026, 7, 13)
+        };
+        row.AvailableVersionText.Should().Be("latest");
+
+        row.AvailableUpdate = NewCandidate() with
+        {
+            SourceUpdateId = "ai-latest:PCI\\VEN_8086&DEV_1234",
+            NewVersion = new Version(32, 0, 101, 7085),
+            NewDate = new DateOnly(2026, 7, 13)
+        };
+        row.AvailableVersionText.Should().Be("32.0.101.7085");
+
+        row.AvailableUpdate = NewCandidate();
+        row.AvailableVersionText.Should().Be("2.0.0.0");
+    }
+
+    [Fact]
     public void CanAskAi_requires_only_that_ai_is_not_currently_checking()
     {
         var row = new DriverRowViewModel(NewSampleDriver());

@@ -294,7 +294,7 @@ public class SettingsViewModelTests
     [WpfFact]
     public async Task CheckForUpdates_reports_latest_when_none_available()
     {
-        var updater = new FakeAppUpdater(new AppUpdateCheckResult(false, null));
+        var updater = new FakeAppUpdater(AppUpdateCheckResult.None);
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
             NullLogger<SettingsViewModel>.Instance, appUpdater: updater);
 
@@ -309,7 +309,7 @@ public class SettingsViewModelTests
     [WpfFact]
     public async Task CheckForUpdates_downloads_when_update_available_and_user_accepts()
     {
-        var updater = new FakeAppUpdater(new AppUpdateCheckResult(true, "1.2.3"));
+        var updater = new FakeAppUpdater(AppUpdateCheckResult.Available("1.2.3"));
         var prompt = new FakeAppUpdatePrompt(answer: true);
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
             NullLogger<SettingsViewModel>.Instance, appUpdater: updater, appUpdatePrompt: prompt);
@@ -323,7 +323,7 @@ public class SettingsViewModelTests
     [WpfFact]
     public async Task CheckForUpdates_does_not_download_when_user_declines()
     {
-        var updater = new FakeAppUpdater(new AppUpdateCheckResult(true, "1.2.3"));
+        var updater = new FakeAppUpdater(AppUpdateCheckResult.Available("1.2.3"));
         var prompt = new FakeAppUpdatePrompt(answer: false);
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
             NullLogger<SettingsViewModel>.Instance, appUpdater: updater, appUpdatePrompt: prompt);
@@ -332,6 +332,31 @@ public class SettingsViewModelTests
 
         updater.DownloadCalls.Should().Be(0);
         vm.StatusText.Should().Contain("1.2.3");
+    }
+
+    [WpfFact]
+    public async Task CheckForUpdates_explains_when_portable_install_cannot_self_update()
+    {
+        var updater = new FakeAppUpdater(AppUpdateCheckResult.NotInstalled);
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance, appUpdater: updater);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        vm.StatusText.Should().Contain("Setup installer");
+        vm.StatusText.Should().Contain("GitHub");
+    }
+
+    [WpfFact]
+    public async Task CheckForUpdates_does_not_report_latest_when_check_failed()
+    {
+        var updater = new FakeAppUpdater(AppUpdateCheckResult.Failed);
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance, appUpdater: updater);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        vm.StatusText.Should().Be("Could not check for updates. See logs for details.");
     }
 
     private sealed class FakeAppUpdater : IAppUpdater

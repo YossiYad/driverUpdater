@@ -14,7 +14,7 @@
     <PackageVersion Include="System.Management" Version="9.0.0" />
     <PackageVersion Include="HtmlAgilityPack" Version="1.11.71" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.0" />
-    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageVersion Include="Dapper" Version="2.1.35" />
     <PackageVersion Include="TaskScheduler" Version="2.11.0" />
     <PackageVersion Include="Serilog" Version="4.2.0" />

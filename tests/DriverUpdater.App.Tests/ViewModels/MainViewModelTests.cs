@@ -25,15 +25,15 @@ public class MainViewModelTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_clears_previous_results_before_each_run()
+    public async Task ScanAsync_keeps_rows_from_previous_runs()
     {
         var vm = NewVm(NewDriver("Only", DriverCategory.Display));
         vm.Drivers.Add(new DriverRowViewModel(NewDriver("Stale", DriverCategory.Other)));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers.Should().HaveCount(1);
-        vm.Drivers[0].DeviceName.Should().Be("Only");
+        vm.Drivers.Should().HaveCount(2);
+        vm.Drivers.Select(r => r.DeviceName).Should().BeEquivalentTo(new[] { "Only", "Stale" });
     }
 
     [WpfFact]
@@ -62,22 +62,6 @@ public class MainViewModelTests
         vm.CategoryFilter = DriverCategory.Display;
 
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(d => d.Category == DriverCategory.Display);
-    }
-
-    [WpfFact]
-    public async Task Clear_command_empties_results_and_resets_status()
-    {
-        var vm = NewVm(NewDriver("X", DriverCategory.Network));
-        await vm.ScanCommand.ExecuteAsync(null);
-
-        vm.ClearCommand.Execute(null);
-
-        vm.Drivers.Should().BeEmpty();
-        vm.ScannedCount.Should().Be(0);
-        vm.UpdatesFoundCount.Should().Be(0);
-        vm.ConfirmedUpdatesCount.Should().Be(0);
-        vm.VendorChecksCount.Should().Be(0);
-        vm.StatusText.Should().Be("Cleared.");
     }
 
     [Fact]

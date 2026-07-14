@@ -13,6 +13,7 @@ using DriverUpdater.Services.Sources.Internal.Motherboard.Asrock;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Asus;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 using DriverUpdater.Services.Sources.Internal.Motherboard.Msi;
+using DriverUpdater.Services.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -54,6 +55,8 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton(sp => new GigabyteApiScraper(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(GigabyteApiScraper.HttpClientName),
             sp.GetRequiredService<ILogger<GigabyteApiScraper>>()));
+        services.AddSingleton<PlaywrightBrowserProvider>();
+        services.AddSingleton<IBrowserHtmlFetcher, PlaywrightHtmlFetcher>();
         services.AddSingleton<GigabytePlaywrightScraper>();
         services.AddSingleton<HybridGigabyteScraper>(sp => new HybridGigabyteScraper(
             sp.GetRequiredService<GigabyteApiScraper>(),
@@ -84,7 +87,11 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRestorePointService, RestorePointService>();
         ConfigureVendorPageResolverHttpClient(services);
-        services.AddSingleton<IVendorPageInstallerResolver, VendorPageInstallerResolver>();
+        services.AddSingleton<IVendorPageInstallerResolver>(sp => new VendorPageInstallerResolver(
+            sp.GetRequiredService<IHttpClientFactory>(),
+            sp.GetRequiredService<ILogger<VendorPageInstallerResolver>>(),
+            new Lazy<IBrowserHtmlFetcher>(() => sp.GetRequiredService<IBrowserHtmlFetcher>()),
+            sp.GetRequiredService<IOptionsMonitor<ScraperSettings>>()));
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
         services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 
@@ -107,7 +114,22 @@ public static class ServicesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(90);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        });
+        })
+        // Gemini's free tier returns 429 (TooManyRequests) under light bursts and 503 when
+        // the model is briefly overloaded. Without a retry a single 429 makes "Ask AI" fail
+        // outright. Retry those, honouring the Retry-After header when the server sends one.
+        .AddTransientHttpErrorPolicy(builder => builder
+            .OrResult(response => response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            .WaitAndRetryAsync(
+                retryCount: 4,
+                sleepDurationProvider: (attempt, outcome, _) =>
+                {
+                    var retryAfter = outcome.Result?.Headers.RetryAfter?.Delta;
+                    return retryAfter is { } delta && delta > TimeSpan.Zero
+                        ? delta
+                        : TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                },
+                onRetryAsync: (_, _, _, _) => Task.CompletedTask));
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)
@@ -180,13 +202,22 @@ public static class ServicesServiceCollectionExtensions
     {
         // Vendor support pages (AMD, Gigabyte, ...) 403 or redirect non-browser
         // User-Agents, so the resolver mimics Chrome like the downloads client does.
+        // Gigabyte's Akamai edge additionally checks the Chrome client-hint and
+        // Sec-Fetch headers before serving the page, hence the full fingerprint.
         services.AddHttpClient(VendorPageInstallerResolver.HttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua", "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
         })
         .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
             retryCount: 3,

@@ -10,9 +10,8 @@ public interface IAppUpdater
     Task CheckAndApplyAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Checks the configured feed (GitHub by default) for a newer release. Safe to call at
-    /// any time; returns <see cref="AppUpdateCheckResult.None"/> when the app is not
-    /// installed via Velopack, no feed is configured, or no update is available.
+    /// Checks the configured feed (GitHub by default) for a newer release. The result
+    /// distinguishes no update from a portable/non-Velopack install and from a failed check.
     /// </summary>
     Task<AppUpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default);
 
@@ -23,7 +22,24 @@ public interface IAppUpdater
     Task DownloadAndApplyAsync(IProgress<int>? progress = null, CancellationToken cancellationToken = default);
 }
 
-public sealed record AppUpdateCheckResult(bool IsUpdateAvailable, string? Version)
+public enum AppUpdateCheckStatus
 {
-    public static readonly AppUpdateCheckResult None = new(false, null);
+    NoUpdate,
+    UpdateAvailable,
+    NotInstalled,
+    NotConfigured,
+    Failed
+}
+
+public sealed record AppUpdateCheckResult(AppUpdateCheckStatus Status, string? Version = null)
+{
+    public bool IsUpdateAvailable => Status == AppUpdateCheckStatus.UpdateAvailable;
+
+    public static readonly AppUpdateCheckResult None = new(AppUpdateCheckStatus.NoUpdate);
+    public static readonly AppUpdateCheckResult NotInstalled = new(AppUpdateCheckStatus.NotInstalled);
+    public static readonly AppUpdateCheckResult NotConfigured = new(AppUpdateCheckStatus.NotConfigured);
+    public static readonly AppUpdateCheckResult Failed = new(AppUpdateCheckStatus.Failed);
+
+    public static AppUpdateCheckResult Available(string version) =>
+        new(AppUpdateCheckStatus.UpdateAvailable, version);
 }

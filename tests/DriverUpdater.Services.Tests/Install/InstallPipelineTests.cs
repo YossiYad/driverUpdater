@@ -156,6 +156,49 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_reuses_the_restore_point_within_the_batch_window()
+    {
+        var rp = new FakeRestorePointService();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance);
+
+        var first = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        var second = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        var third = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+
+        rp.Invocations.Should().Be(1);
+        first.RestorePointSequenceNumber.Should().Be("42");
+        second.RestorePointSequenceNumber.Should().Be("42");
+        third.RestorePointSequenceNumber.Should().Be("42");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_creates_a_fresh_restore_point_after_the_window_expires()
+    {
+        var rp = new FakeRestorePointService();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var clock = new MutableClock(new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero));
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance, clock: clock);
+
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        clock.Advance(InstallPipeline.RestorePointReuseWindow + TimeSpan.FromMinutes(1));
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+
+        rp.Invocations.Should().Be(2);
+    }
+
+    private sealed class MutableClock : TimeProvider
+    {
+        private DateTimeOffset _now;
+
+        public MutableClock(DateTimeOffset now) => _now = now;
+
+        public void Advance(TimeSpan by) => _now += by;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    [Fact]
     public async Task ExecuteAsync_continues_installation_when_backup_fails()
     {
         var bk = new FakeBackupService { BackupFailure = ResultError.From("BACKUP_PNPUTIL_FAILED", "permission denied") };

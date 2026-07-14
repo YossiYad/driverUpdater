@@ -3,6 +3,7 @@ using DriverUpdater.Core.Options;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Velopack;
 
 namespace DriverUpdater.App.Tests.Services;
 
@@ -11,7 +12,7 @@ public class VelopackAppUpdaterTests
     [Fact]
     public async Task CheckAndApplyAsync_does_nothing_when_disabled()
     {
-        var settings = new UpdaterSettings { CheckOnStartup = false, FeedUrl = null };
+        var settings = new UpdaterSettings { CheckOnStartup = false, GitHubRepoUrl = null, FeedUrl = null };
         var updater = NewUpdater(settings);
 
         Func<Task> act = () => updater.CheckAndApplyAsync();
@@ -22,7 +23,7 @@ public class VelopackAppUpdaterTests
     [Fact]
     public async Task CheckAndApplyAsync_does_nothing_when_feed_url_is_blank()
     {
-        var settings = new UpdaterSettings { CheckOnStartup = true, FeedUrl = " " };
+        var settings = new UpdaterSettings { CheckOnStartup = true, GitHubRepoUrl = null, FeedUrl = " " };
         var updater = NewUpdater(settings);
 
         Func<Task> act = () => updater.CheckAndApplyAsync();
@@ -36,6 +37,7 @@ public class VelopackAppUpdaterTests
         var settings = new UpdaterSettings
         {
             CheckOnStartup = true,
+            GitHubRepoUrl = null,
             FeedUrl = "https://invalid-host-does-not-exist.example.invalid/feed"
         };
         var updater = NewUpdater(settings);
@@ -54,6 +56,7 @@ public class VelopackAppUpdaterTests
         var result = await updater.CheckForUpdatesAsync();
 
         result.IsUpdateAvailable.Should().BeFalse();
+        result.Status.Should().Be(AppUpdateCheckStatus.NotConfigured);
         result.Version.Should().BeNull();
     }
 
@@ -62,12 +65,14 @@ public class VelopackAppUpdaterTests
     {
         // The GitHub repo is configured but the test host is not a Velopack install, so the
         // updater must report no update rather than attempt to download anything.
+        VelopackApp.Build().Run();
         var settings = new UpdaterSettings { GitHubRepoUrl = "https://github.com/YossiYad/driverUpdater" };
         var updater = NewUpdater(settings);
 
         var result = await updater.CheckForUpdatesAsync();
 
         result.IsUpdateAvailable.Should().BeFalse();
+        result.Status.Should().Be(AppUpdateCheckStatus.NotInstalled);
     }
 
     [Fact]

@@ -66,6 +66,10 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             htmlLength = html.Length;
             parsed = TryParseLatestRelease(html, out var release) ? release : null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "AMD chipset driver check failed");

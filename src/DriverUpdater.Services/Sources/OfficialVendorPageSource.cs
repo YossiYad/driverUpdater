@@ -139,6 +139,10 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
                 InstallKind: UpdateInstallKind.VendorInstaller,
                 Confidence: UpdateConfidence.Confirmed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not resolve a direct vendor installer from {Page}", page);

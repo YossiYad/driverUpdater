@@ -63,6 +63,10 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
             responseLength = json.Length;
             release = TryParseLatestRelease(json, out var parsed) ? parsed : null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "NVIDIA driver check failed");

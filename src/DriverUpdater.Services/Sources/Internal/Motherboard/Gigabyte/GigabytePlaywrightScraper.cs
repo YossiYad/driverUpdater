@@ -1,4 +1,5 @@
 using DriverUpdater.Services.Sources.Internal.Motherboard;
+using DriverUpdater.Services.Web;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
@@ -9,54 +10,24 @@ namespace DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 // can run its JavaScript and bypass Akamai's User-Agent heuristics. First run downloads
 // ~250 MB of browser binaries via Playwright's install flow. Guarded behind the
 // EnablePlaywrightFallback setting.
-public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDisposable
+public sealed class GigabytePlaywrightScraper : IMotherboardScraper
 {
     internal const int PageLoadTimeoutMs = 30_000;
 
-    private const string StealthScript = """
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        Object.defineProperty(navigator, 'plugins', { get: () => [
-            { name: 'PDF Viewer' },
-            { name: 'Chrome PDF Viewer' },
-            { name: 'Chromium PDF Viewer' },
-            { name: 'Microsoft Edge PDF Viewer' },
-            { name: 'WebKit built-in PDF' }
-        ] });
-        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 16 });
-        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-        window.chrome = { runtime: {}, loadTimes: function() {}, csi: function() {}, app: {} };
-        const originalQuery = window.navigator.permissions ? window.navigator.permissions.query : null;
-        if (originalQuery) {
-            window.navigator.permissions.query = parameters =>
-                parameters.name === 'notifications'
-                    ? Promise.resolve({ state: Notification.permission, name: 'notifications' })
-                    : originalQuery(parameters);
-        }
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(parameter) {
-            if (parameter === 37445) { return 'Intel Inc.'; }
-            if (parameter === 37446) { return 'Intel Iris OpenGL Engine'; }
-            return getParameter.apply(this, [parameter]);
-        };
-        """;
-
+    private readonly PlaywrightBrowserProvider _browserProvider;
     private readonly ILogger<GigabytePlaywrightScraper> _logger;
-    private readonly SemaphoreSlim _initLock = new(1, 1);
-    private IPlaywright? _playwright;
-    private IBrowser? _browser;
-    private bool _chromiumInstalled;
 
-    public GigabytePlaywrightScraper(ILogger<GigabytePlaywrightScraper> logger)
+    public GigabytePlaywrightScraper(PlaywrightBrowserProvider browserProvider, ILogger<GigabytePlaywrightScraper> logger)
     {
+        ArgumentNullException.ThrowIfNull(browserProvider);
         ArgumentNullException.ThrowIfNull(logger);
+        _browserProvider = browserProvider;
         _logger = logger;
     }
 
     public async Task<IReadOnlyList<MotherboardDriverEntry>> GetDriversAsync(string motherboardModel, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
-        await EnsureBrowserAsync(cancellationToken).ConfigureAwait(false);
 
         var normalized = GigabyteApiScraper.NormalizeModel(motherboardModel);
         // The Support tab is React-gated and only renders the driver list when the URL
@@ -65,26 +36,7 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDispo
         var url = $"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support#Support-Driver";
         _logger.LogInformation("GigabytePlaywright: navigating to {Url}", url);
 
-        await using var context = await _browser!.NewContextAsync(new BrowserNewContextOptions
-        {
-            UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            ViewportSize = new ViewportSize { Width = 1920, Height = 1080 },
-            Locale = "en-US",
-            TimezoneId = "Asia/Jerusalem",
-            ExtraHTTPHeaders = new Dictionary<string, string>
-            {
-                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                ["Accept-Language"] = "en-US,en;q=0.9",
-                ["Sec-CH-UA"] = "\"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\", \"Not?A_Brand\";v=\"24\"",
-                ["Sec-CH-UA-Mobile"] = "?0",
-                ["Sec-CH-UA-Platform"] = "\"Windows\""
-            }
-        }).ConfigureAwait(false);
-
-        // Inject stealth shims BEFORE any page script runs. These erase the
-        // navigator.webdriver flag, fake a small plugins/languages set, and define
-        // window.chrome - the four signals Akamai's bot manager checks first.
-        await context.AddInitScriptAsync(StealthScript).ConfigureAwait(false);
+        await using var context = await _browserProvider.NewStealthContextAsync(cancellationToken).ConfigureAwait(false);
 
         var page = await context.NewPageAsync().ConfigureAwait(false);
         try
@@ -249,83 +201,6 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper, IAsyncDispo
             @"_(?<version>\d+(?:\.\d+){2,3})\.(?:zip|exe)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return match.Success ? match.Groups["version"].Value : null;
-    }
-
-    private async Task EnsureBrowserAsync(CancellationToken cancellationToken)
-    {
-        if (_browser is not null)
-        {
-            return;
-        }
-
-        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_browser is not null)
-            {
-                return;
-            }
-
-            if (!_chromiumInstalled)
-            {
-                _logger.LogInformation("Playwright: installing Chromium (~250 MB download on first run)");
-                var exit = Microsoft.Playwright.Program.Main(["install", "chromium"]);
-                if (exit != 0)
-                {
-                    throw new ScraperUnavailableException($"Playwright install returned exit code {exit}");
-                }
-                _chromiumInstalled = true;
-            }
-
-            _playwright = await Playwright.CreateAsync().ConfigureAwait(false);
-
-            // First try the user's installed Chrome (or Edge) so the TLS/HTTP2
-            // fingerprint matches the browser they use day-to-day. Akamai's bot
-            // manager fingerprints far below the JS layer, so the bundled headless
-            // Chromium gets caught even with stealth shims. Real Chrome via the
-            // chrome channel keeps the realistic fingerprint but still drives via
-            // CDP. Falls back to bundled Chromium if neither channel is installed.
-            var launchOptions = new BrowserTypeLaunchOptions
-            {
-                Headless = true,
-                Timeout = PageLoadTimeoutMs,
-                Args = ["--disable-blink-features=AutomationControlled"]
-            };
-
-            foreach (var channel in new[] { "chrome", "msedge", string.Empty })
-            {
-                try
-                {
-                    launchOptions.Channel = string.IsNullOrEmpty(channel) ? null : channel;
-                    _browser = await _playwright.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);
-                    _logger.LogInformation("Playwright: launched browser channel={Channel}", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel);
-                    break;
-                }
-                catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException)
-                {
-                    _logger.LogInformation("Playwright: channel {Channel} not available ({Reason}); trying next", string.IsNullOrEmpty(channel) ? "chromium-bundled" : channel, ex.Message);
-                }
-            }
-
-            if (_browser is null)
-            {
-                throw new ScraperUnavailableException("No Chromium-based browser channel could be launched");
-            }
-        }
-        finally
-        {
-            _initLock.Release();
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_browser is not null)
-        {
-            await _browser.CloseAsync().ConfigureAwait(false);
-        }
-        _playwright?.Dispose();
-        _initLock.Dispose();
     }
 
     private static string? ExtractVersion(string text)

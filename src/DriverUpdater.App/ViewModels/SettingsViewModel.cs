@@ -46,7 +46,7 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
     private AiProvider _selectedAiProvider = AiProvider.Off;
     [ObservableProperty] private string _geminiApiKey = string.Empty;
-    [ObservableProperty] private string _geminiModel = "gemini-2.5-flash";
+    [ObservableProperty] private string _geminiModel = "gemini-3.5-flash";
     [ObservableProperty] private bool _enableAiWebSearch = true;
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
     [ObservableProperty] private string _ollamaModel = "llama3.1";
@@ -114,7 +114,14 @@ public partial class SettingsViewModel : ObservableObject
             var result = await _appUpdater.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(true);
             if (!result.IsUpdateAvailable)
             {
-                StatusText = "You're on the latest version.";
+                StatusText = result.Status switch
+                {
+                    AppUpdateCheckStatus.NotInstalled =>
+                        "Automatic updates require the Setup installer. Download and run the latest Setup from GitHub.",
+                    AppUpdateCheckStatus.NotConfigured => "No app update source is configured.",
+                    AppUpdateCheckStatus.Failed => "Could not check for updates. See logs for details.",
+                    _ => "You're on the latest version."
+                };
                 return;
             }
 

@@ -360,46 +360,6 @@ public class MainViewModelAiTests
         vm.VendorChecksCount.Should().Be(0);
     }
 
-    [WpfFact]
-    public async Task AskAiAllAsync_verifies_existing_updates_and_discovers_missing_updates()
-    {
-        var candidateDriver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
-        var missingDriver = NewDriver("Intel Network", "PCI\\VEN_8086&DEV_1234", new Version(1, 0, 0, 0));
-        var candidate = NewCandidate(candidateDriver.HardwareId, new Version(2, 0, 0, 0), "realtek-audio");
-        var verifier = new StubAiVerifier(isConfigured: true)
-        {
-            Verdicts =
-            {
-                ["realtek-audio"] = new AiVerdict(true, AiRiskLevel.Caution, "Use caution", "Mixed reports.", "2.0.0.0"),
-                ["ai-latest:PCI\\VEN_8086&DEV_1234"] = new AiVerdict(
-                    true,
-                    AiRiskLevel.Safe,
-                    "Recommended",
-                    "Intel lists a newer package for this hardware.",
-                    "3.0.0.0",
-                    new DateOnly(2026, 3, 4),
-                    "https://example.com/intel-driver")
-            }
-        };
-        var vm = NewVm(Array.Empty<DriverInfo>(), Array.Empty<UpdateCandidate>(), verifier);
-        vm.Drivers.Add(new DriverRowViewModel(candidateDriver)
-        {
-            Status = DriverStatus.Outdated,
-            AvailableUpdate = candidate
-        });
-        vm.Drivers.Add(new DriverRowViewModel(missingDriver));
-        vm.ScannedCount = 2;
-
-        await vm.AskAiAllCommand.ExecuteAsync(null);
-
-        vm.Drivers[0].AvailableUpdate!.AiVerification.Should().NotBeNull();
-        vm.Drivers[0].AiRiskText.Should().Be("Caution");
-        vm.Drivers[1].AvailableUpdate.Should().NotBeNull();
-        vm.Drivers[1].AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
-        vm.VendorChecksCount.Should().Be(1);
-        vm.StatusText.Should().Contain("AI latest-driver search complete");
-    }
-
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,

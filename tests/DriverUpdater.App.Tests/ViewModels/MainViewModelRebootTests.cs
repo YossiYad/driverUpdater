@@ -18,7 +18,7 @@ public class MainViewModelRebootTests
         var vm = NewVm(new RebootRequiredPipeline(), prompt);
         AddConfirmedOutdatedRow(vm, "Intel Iris Xe Graphics");
 
-        await vm.InstallConfirmedCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
 
         prompt.ConfirmCalls.Should().ContainSingle().Which.Should().Be(1);
         prompt.RestartCalled.Should().BeTrue();
@@ -31,7 +31,7 @@ public class MainViewModelRebootTests
         var vm = NewVm(new RebootRequiredPipeline(), prompt);
         AddConfirmedOutdatedRow(vm, "Intel Iris Xe Graphics");
 
-        await vm.InstallConfirmedCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
 
         prompt.ConfirmCalls.Should().ContainSingle();
         prompt.RestartCalled.Should().BeFalse();
@@ -44,7 +44,7 @@ public class MainViewModelRebootTests
         var vm = NewVm(new NoRebootPipeline(), prompt);
         AddConfirmedOutdatedRow(vm, "Intel Iris Xe Graphics");
 
-        await vm.InstallConfirmedCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
 
         prompt.ConfirmCalls.Should().BeEmpty();
         prompt.RestartCalled.Should().BeFalse();

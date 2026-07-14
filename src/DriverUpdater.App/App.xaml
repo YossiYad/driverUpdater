@@ -19,21 +19,21 @@
                 <GradientStop Color="#3B82F6" Offset="1" />
             </LinearGradientBrush>
 
-            <!-- AI sparkle icon: a large four-point star at the lower-left with a smaller one at
-                 the upper-right. x:Shared="False" so each button gets its own visual instance. -->
+            <!-- AI sparkle icon: a large four-point star at the upper-left with a smaller one at
+                 the lower-right. x:Shared="False" so each button gets its own visual instance. -->
             <Viewbox x:Key="AiSparkleIcon" x:Shared="False" Width="18" Height="18" Stretch="Uniform">
                 <Grid Width="22" Height="22">
                     <TextBlock Text="&#x2726;"
                                FontSize="16"
                                FontWeight="Bold"
                                HorizontalAlignment="Left"
-                               VerticalAlignment="Bottom"
+                               VerticalAlignment="Top"
                                Foreground="{StaticResource AiSparkleBrush}" />
                     <TextBlock Text="&#x2726;"
                                FontSize="9"
                                FontWeight="Bold"
                                HorizontalAlignment="Right"
-                               VerticalAlignment="Top"
+                               VerticalAlignment="Bottom"
                                Foreground="{StaticResource AiSparkleBrush}" />
                 </Grid>
             </Viewbox>
