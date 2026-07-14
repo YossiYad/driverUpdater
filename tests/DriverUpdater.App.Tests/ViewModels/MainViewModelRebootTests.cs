@@ -50,6 +50,20 @@ public class MainViewModelRebootTests
         prompt.RestartCalled.Should().BeFalse();
     }
 
+    [WpfFact]
+    public async Task Install_sends_completed_operations_to_post_update_verification()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator();
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+        AddConfirmedOutdatedRow(vm, "Intel Iris Xe Graphics");
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        coordinator.CompletedRuns.Should().ContainSingle();
+        coordinator.CompletedRuns[0].Should().ContainSingle();
+        coordinator.CompletedRuns[0].Single().Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
     private static void AddConfirmedOutdatedRow(MainViewModel vm, string name)
     {
         var driver = new DriverInfo(
@@ -86,7 +100,10 @@ public class MainViewModelRebootTests
         vm.ScannedCount = vm.Drivers.Count;
     }
 
-    private static MainViewModel NewVm(IInstallPipeline pipeline, IRebootPrompt rebootPrompt) =>
+    private static MainViewModel NewVm(
+        IInstallPipeline pipeline,
+        IRebootPrompt rebootPrompt,
+        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null) =>
         new(new FakeScanService(),
             Array.Empty<IUpdateSource>(),
             new NullOemDetectionService(),
@@ -96,7 +113,8 @@ public class MainViewModelRebootTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            rebootPrompt: rebootPrompt);
+            rebootPrompt: rebootPrompt,
+            postUpdateSummaryCoordinator: postUpdateSummaryCoordinator);
 
     private sealed class FakeRebootPrompt : IRebootPrompt
     {
@@ -143,6 +161,19 @@ public class MainViewModelRebootTests
                 ErrorMessage = null,
                 CompletedAt = DateTimeOffset.UtcNow
             });
+    }
+
+    private sealed class FakePostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
+    {
+        public List<IReadOnlyCollection<UpdateOperation>> CompletedRuns { get; } = new();
+
+        public Task CompleteRunAsync(
+            IReadOnlyCollection<UpdateOperation> operations,
+            CancellationToken cancellationToken = default)
+        {
+            CompletedRuns.Add(operations);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeScanService : IDriverScanService

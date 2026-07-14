@@ -41,6 +41,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IRebootPrompt? _rebootPrompt;
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
     private readonly IAiTextCompleter? _driverChatCompleter;
+    private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
 
     // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
     // Used for exact-target suppression from precise sources (vendor/OEM/AI).
@@ -153,7 +154,8 @@ public partial class MainViewModel : ObservableObject
         IAppUpdatePrompt? appUpdatePrompt = null,
         IRebootPrompt? rebootPrompt = null,
         IIneffectiveUpdateStore? ineffectiveUpdateStore = null,
-        IAiTextCompleter? driverChatCompleter = null)
+        IAiTextCompleter? driverChatCompleter = null,
+        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -182,6 +184,7 @@ public partial class MainViewModel : ObservableObject
         _rebootPrompt = rebootPrompt;
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _driverChatCompleter = driverChatCompleter;
+        _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _logger = logger;
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
@@ -1693,7 +1696,7 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                ApplySharedVendorInstallerResult(finished, row, originalUpdateId);
+                outcomes.AddRange(ApplySharedVendorInstallerResult(finished, row, originalUpdateId));
             }
 
             if (finished.Status == UpdateStatus.Skipped
@@ -1736,6 +1739,15 @@ public partial class MainViewModel : ObservableObject
             // was actually installed (succeeded rows now have AvailableUpdate cleared);
             // otherwise the cache would keep showing them as Outdated until the next scan.
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+
+            if (_postUpdateSummaryCoordinator is not null)
+            {
+                StatusText = "Verifying installed drivers and preparing the summary...";
+                await _postUpdateSummaryCoordinator.CompleteRunAsync(
+                    outcomes.Select(o => o.Operation).ToArray(),
+                    cancellationToken).ConfigureAwait(true);
+                StatusText = "Driver updates checked. Review the summary for the final result.";
+            }
 
             MaybePromptForRestart(outcomes);
         }
@@ -1878,7 +1890,10 @@ public partial class MainViewModel : ObservableObject
         _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
     }
 
-    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow, string originalUpdateId)
+    private IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> ApplySharedVendorInstallerResult(
+        UpdateOperation finished,
+        DriverRowViewModel masterRow,
+        string originalUpdateId)
     {
         // Every row that shares the SourceUpdateId is really the same install (think 18
         // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
@@ -1889,20 +1904,33 @@ public partial class MainViewModel : ObservableObject
         // explicitly without having to rescan.
         // A vendor page candidate that was resolved to a direct installer finishes with a
         // rewritten SourceUpdateId; sibling rows still carry the original id, so match both.
+        var sharedOutcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         foreach (var row in Drivers.Where(r =>
             r.AvailableUpdate?.SourceUpdateId is { } id
             && (string.Equals(id, finished.Candidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(id, originalUpdateId, StringComparison.OrdinalIgnoreCase))))
         {
+            var rowOperation = ReferenceEquals(row, masterRow)
+                ? finished
+                : finished with
+                {
+                    OperationId = Guid.NewGuid(),
+                    TargetSnapshot = row.Driver
+                };
             row.Status = MapOperationStatus(finished.Status);
-            row.LastOperation = finished;
+            row.LastOperation = rowOperation;
             if (finished.Status == UpdateStatus.Succeeded || !ReferenceEquals(row, masterRow))
             {
                 row.AvailableUpdate = null;
             }
+            if (!ReferenceEquals(row, masterRow))
+            {
+                sharedOutcomes.Add((row, rowOperation));
+            }
         }
 
         RefreshUpdateCounts();
+        return sharedOutcomes;
     }
 
     private async Task OpenVendorPagesAsync(IEnumerable<DriverRowViewModel> targets, CancellationToken cancellationToken)

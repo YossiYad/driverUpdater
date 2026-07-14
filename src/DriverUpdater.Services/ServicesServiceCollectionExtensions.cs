@@ -103,6 +103,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<GeminiAiTextCompleter>();
         services.AddSingleton<OllamaAiTextCompleter>();
         services.AddSingleton<IAiTextCompleter, AiTextCompleterSelector>();
+        services.AddSingleton<IPostUpdateVerifier, PostUpdateVerifier>();
 
         return services;
     }

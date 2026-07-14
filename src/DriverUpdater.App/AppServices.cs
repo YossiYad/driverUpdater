@@ -25,6 +25,8 @@ public static class AppServices
         services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
         services.AddSingleton<IAppUpdatePrompt, DialogAppUpdatePrompt>();
         services.AddSingleton<IRebootPrompt, DialogRebootPrompt>();
+        services.AddSingleton<IUpdateSummaryWindowOpener, UpdateSummaryWindowOpener>();
+        services.AddSingleton<IPostUpdateSummaryCoordinator, PostUpdateSummaryCoordinator>();
         services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
         services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
         services.AddSingleton<ILogsWindowOpener, LogsWindowOpener>();
