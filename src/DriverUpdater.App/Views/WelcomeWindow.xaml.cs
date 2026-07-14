@@ -11,6 +11,7 @@ namespace DriverUpdater.App.Views;
 public partial class WelcomeWindow : FluentWindow
 {
     public event EventHandler? OpenAiSettingsRequested;
+    public event EventHandler? OpenAutomaticUpdateSettingsRequested;
 
     public WelcomeWindow(AppLanguage language)
     {
@@ -40,6 +41,11 @@ public partial class WelcomeWindow : FluentWindow
     private void OnOpenAiSettings(object sender, RoutedEventArgs e)
     {
         OpenAiSettingsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnOpenAutomaticUpdateSettings(object sender, RoutedEventArgs e)
+    {
+        OpenAutomaticUpdateSettingsRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();

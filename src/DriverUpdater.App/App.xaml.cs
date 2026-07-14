@@ -130,6 +130,13 @@ public partial class App : Application
                 settingsWindow.Owner = welcomeWindow;
                 settingsWindow.ShowDialog();
             };
+            welcomeWindow.OpenAutomaticUpdateSettingsRequested += (_, _) =>
+            {
+                var settingsWindow = _host.Services.GetRequiredService<SettingsWindow>();
+                settingsWindow.SelectAboutTab();
+                settingsWindow.Owner = welcomeWindow;
+                settingsWindow.ShowDialog();
+            };
             welcomeWindow.ShowDialog();
 
             WelcomeExperience.MarkShown(settings);

@@ -133,6 +133,23 @@
 
                     <Border Style="{StaticResource WelcomeCardStyle}">
                         <StackPanel>
+                            <TextBlock Text="Keep DriverUpdater up to date automatically"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. Click Open automatic update settings below. The About tab will open for you.&#x0a;" />
+                                <Run Text="2. Turn on Automatically check for updates on startup. DriverUpdater will tell you when a new version is available.&#x0a;" />
+                                <Run Text="3. If you also want new versions installed without another confirmation, turn on Install updates automatically." />
+                            </TextBlock>
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Left"
+                                    Content="Open automatic update settings"
+                                    Click="OnOpenAutomaticUpdateSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
                             <TextBlock Text="How to use DriverUpdater"
                                        Style="{StaticResource WelcomeSectionTitleStyle}" />
                             <TextBlock Style="{StaticResource WelcomeBodyStyle}">
@@ -215,6 +232,23 @@
                                     Content="פתיחת הגדרות AI"
                                     Style="{DynamicResource AccentButtonStyle}"
                                     Click="OnOpenAiSettings" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="עדכון אוטומטי של DriverUpdater"
+                                       Style="{StaticResource WelcomeSectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run Text="1. לחצו למטה על פתיחת הגדרות עדכון אוטומטי. לשונית About תיפתח עבורכם.&#x0a;" />
+                                <Run Text="2. הפעילו את Automatically check for updates on startup. DriverUpdater יודיע לכם כאשר קיימת גרסה חדשה.&#x0a;" />
+                                <Run Text="3. אם תרצו שגרסאות חדשות יותקנו ללא אישור נוסף, הפעילו גם את Install updates automatically." />
+                            </TextBlock>
+                            <Button Margin="0,16,0,0"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Right"
+                                    Content="פתיחת הגדרות עדכון אוטומטי"
+                                    Click="OnOpenAutomaticUpdateSettings" />
                         </StackPanel>
                     </Border>
 

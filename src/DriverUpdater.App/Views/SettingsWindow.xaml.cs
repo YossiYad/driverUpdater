@@ -10,6 +10,7 @@ namespace DriverUpdater.App.Views;
 public partial class SettingsWindow : FluentWindow
 {
     private const int AiTabIndex = 4;
+    private const int AboutTabIndex = 5;
     private readonly SettingsViewModel _viewModel;
     private bool _syncingKey;
     private WelcomeWindow? _welcomeWindow;
@@ -23,6 +24,8 @@ public partial class SettingsWindow : FluentWindow
     }
 
     public void SelectAiTab() => SettingsTabs.SelectedIndex = AiTabIndex;
+
+    public void SelectAboutTab() => SettingsTabs.SelectedIndex = AboutTabIndex;
 
     private void OnOpenWelcomeGuide(object sender, RoutedEventArgs e)
     {
@@ -39,6 +42,11 @@ public partial class SettingsWindow : FluentWindow
         welcomeWindow.OpenAiSettingsRequested += (_, _) =>
         {
             SelectAiTab();
+            Activate();
+        };
+        welcomeWindow.OpenAutomaticUpdateSettingsRequested += (_, _) =>
+        {
+            SelectAboutTab();
             Activate();
         };
         welcomeWindow.Closed += (_, _) => _welcomeWindow = null;
