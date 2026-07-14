@@ -20,7 +20,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0" Margin="16">
+        <TabControl x:Name="SettingsTabs" Grid.Row="0" Margin="16">
             <TabItem Header="Sources">
                 <StackPanel Margin="16">
                     <CheckBox IsChecked="{Binding EnableWindowsUpdate}"
@@ -145,6 +145,11 @@
             <TabItem Header="{DynamicResource Settings.Tab.Ai}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="16">
+                        <Button Margin="0,0,0,12"
+                                Padding="14,7"
+                                HorizontalAlignment="Left"
+                                Content="{DynamicResource Settings.Ai.OpenGuide}"
+                                Click="OnOpenWelcomeGuide" />
                         <TextBlock TextWrapping="Wrap"
                                    Opacity="0.8"
                                    FontSize="12"

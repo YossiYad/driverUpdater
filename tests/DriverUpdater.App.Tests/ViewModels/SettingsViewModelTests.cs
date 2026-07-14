@@ -282,6 +282,22 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task SaveAsync_preserves_the_welcome_guide_marker()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Onboarding = new OnboardingSettings { LastShownVersion = WelcomeExperience.CurrentVersion }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Onboarding.LastShownVersion.Should().Be(WelcomeExperience.CurrentVersion);
+    }
+
+    [WpfFact]
     public void CheckForUpdates_is_unavailable_without_an_updater()
     {
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), new FakeScheduler(),

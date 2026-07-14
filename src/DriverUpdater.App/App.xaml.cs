@@ -105,6 +105,40 @@ public partial class App : Application
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
         mainWindow.Show();
+        await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+    }
+
+    private async Task ShowWelcomeIfNeededAsync(Window owner, DriverUpdater.Core.Models.AppLanguage language)
+    {
+        try
+        {
+            var settingsStore = _host!.Services.GetRequiredService<ISettingsStore>();
+            var settings = await settingsStore.LoadAsync().ConfigureAwait(true);
+            if (!WelcomeExperience.ShouldShow(settings))
+            {
+                return;
+            }
+
+            var welcomeWindow = new WelcomeWindow(language)
+            {
+                Owner = owner
+            };
+            welcomeWindow.OpenAiSettingsRequested += (_, _) =>
+            {
+                var settingsWindow = _host.Services.GetRequiredService<SettingsWindow>();
+                settingsWindow.SelectAiTab();
+                settingsWindow.Owner = welcomeWindow;
+                settingsWindow.ShowDialog();
+            };
+            welcomeWindow.ShowDialog();
+
+            WelcomeExperience.MarkShown(settings);
+            await settingsStore.SaveAsync(settings).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "The welcome guide could not be shown or saved");
+        }
     }
 
     private async Task RunScheduledAsync(ScheduledLaunchMode mode)
