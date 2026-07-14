@@ -47,17 +47,6 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private void OnHeaderMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is not DependencyObject source || FindAncestor<ButtonBase>(source) is not null)
-        {
-            return;
-        }
-
-        DragMove();
-        e.Handled = true;
-    }
-
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
     {
         while (current is not null)

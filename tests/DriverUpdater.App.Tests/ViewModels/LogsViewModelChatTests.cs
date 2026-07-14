@@ -35,15 +35,15 @@ public class LogsViewModelChatTests
     }
 
     [WpfFact]
-    public void ChatPanel_is_shown_by_default_and_toggles_with_the_ai_button()
+    public void ChatPanel_is_closed_by_default_and_toggles_with_the_ai_button()
     {
         var sink = new InMemoryLogSink();
         var completer = new StubTextCompleter(isConfigured: true, reply: "ok");
         var vm = new LogsViewModel(sink, completer);
 
         vm.IsAiAvailable.Should().BeTrue();
-        vm.IsChatPanelVisible.Should().BeTrue();
-        vm.IsChatPanelShown.Should().BeTrue();
+        vm.IsChatPanelVisible.Should().BeFalse();
+        vm.IsChatPanelShown.Should().BeFalse();
 
         vm.IsChatPanelVisible = false;
         vm.IsChatPanelShown.Should().BeFalse("the ✦✦ toggle hides the panel");

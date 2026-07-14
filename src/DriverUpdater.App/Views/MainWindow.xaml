@@ -73,17 +73,15 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0"
-                Padding="20,12"
-                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                MouseLeftButtonDown="OnHeaderMouseLeftButtonDown">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title=""
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}">
+            <ui:TitleBar.Header>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="{DynamicResource App.Title}"
                                FontSize="22"
                                FontWeight="SemiBold"
@@ -105,8 +103,10 @@
                                Opacity="0.7"
                                Text="{DynamicResource App.Version}" />
                 </StackPanel>
+            </ui:TitleBar.Header>
 
-                <StackPanel Grid.Column="1"
+            <ui:TitleBar.TrailingContent>
+                <StackPanel
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <Button Style="{StaticResource HeaderIconButtonStyle}"
@@ -122,8 +122,8 @@
                             ToolTip="{DynamicResource Toolbar.Settings}"
                             Command="{Binding OpenSettingsCommand}" />
                 </StackPanel>
-            </Grid>
-        </Border>
+            </ui:TitleBar.TrailingContent>
+        </ui:TitleBar>
 
         <Border Grid.Row="1"
                 Padding="20,10"
