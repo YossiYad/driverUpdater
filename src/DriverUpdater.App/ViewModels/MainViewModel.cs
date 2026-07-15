@@ -1669,6 +1669,7 @@ public partial class MainViewModel : ObservableObject
         var outcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         var skipped = new List<(DriverRowViewModel Row, string Reason)>();
         var vendorPageFallbacks = new List<DriverRowViewModel>();
+        var installAttemptCount = 0;
         foreach (var row in installTargets)
         {
             if (row.AvailableUpdate is null)
@@ -1701,6 +1702,7 @@ public partial class MainViewModel : ObservableObject
                 displayName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
                 row.AvailableUpdate.Source, row.AvailableUpdate.InstallKind, row.AvailableUpdate.DownloadUrl);
 
+            installAttemptCount++;
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
                 row.ActiveOperation = report;
@@ -1753,7 +1755,7 @@ public partial class MainViewModel : ObservableObject
             await OpenVendorPagesAsync(vendorPageFallbacks, cancellationToken).ConfigureAwait(true);
         }
 
-        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, outcomes, skipped);
+        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, installAttemptCount, outcomes, skipped);
 
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
@@ -1824,6 +1826,7 @@ public partial class MainViewModel : ObservableObject
         bool dryRun,
         IReadOnlyList<DriverRowViewModel> vendorPageFallbacks,
         IReadOnlyList<DriverRowViewModel> installTargets,
+        int installAttemptCount,
         IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes,
         IReadOnlyList<(DriverRowViewModel Row, string Reason)> skipped)
     {
@@ -1835,11 +1838,14 @@ public partial class MainViewModel : ObservableObject
         var sb = new System.Text.StringBuilder();
         sb.Append("Update run summary").Append(dryRun ? " (dry run)" : string.Empty)
             .Append(" - elapsed ").Append(elapsed.ToString(@"mm\:ss"))
-            .Append(", install targets ").Append(installTargets.Count)
+            .Append(", selected rows ").Append(installTargets.Count)
+            .Append(", installer attempts ").Append(installAttemptCount)
+            .Append(", component outcomes ").Append(outcomes.Count)
             .Append(", vendor pages opened ").Append(vendorPageFallbacks.Count)
             .Append(", succeeded ").Append(succeeded.Length)
             .Append(", failed ").Append(failed.Length)
-            .Append(", skipped ").Append(pipelineSkipped.Length + skipped.Count)
+            .Append(", manual or skipped outcomes ").Append(pipelineSkipped.Length)
+            .Append(", covered by shared package ").Append(skipped.Count)
             .AppendLine();
 
         if (succeeded.Length > 0)
@@ -1880,7 +1886,7 @@ public partial class MainViewModel : ObservableObject
         }
         if (skipped.Count > 0)
         {
-            sb.AppendLine("  Skipped before pipeline:");
+            sb.AppendLine("  Covered by a shared package, not separate install attempts:");
             foreach (var (row, reason) in skipped)
             {
                 sb.Append("    - ").Append(row.DeviceName).Append(": ").AppendLine(reason);
@@ -1945,7 +1951,15 @@ public partial class MainViewModel : ObservableObject
                 : finished with
                 {
                     OperationId = Guid.NewGuid(),
-                    TargetSnapshot = row.Driver
+                    TargetSnapshot = row.Driver,
+                    Candidate = finished.Candidate with
+                    {
+                        ForHardwareId = row.AvailableUpdate!.ForHardwareId,
+                        NewVersion = row.AvailableUpdate.NewVersion,
+                        NewDate = row.AvailableUpdate.NewDate,
+                        Confidence = row.AvailableUpdate.Confidence,
+                        AiVerification = row.AvailableUpdate.AiVerification
+                    }
                 };
             row.Status = MapOperationStatus(finished.Status);
             row.LastOperation = rowOperation;

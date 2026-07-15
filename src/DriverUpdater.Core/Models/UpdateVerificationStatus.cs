@@ -7,5 +7,6 @@ public enum UpdateVerificationStatus
     NotUpdated,
     Failed,
     Skipped,
+    ManualActionRequired,
     Inconclusive
 }

@@ -75,10 +75,11 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
         var baseStatus = ClassifyTerminalStatus(operation);
         if (baseStatus is not null)
         {
-            return CreateItem(operation, current: null, baseStatus.Value);
+            return CreateItem(operation, Snapshot(before), baseStatus.Value);
         }
 
-        var requiresRestart = operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true;
+        var requiresRestart = operation.Status == UpdateStatus.Succeeded
+            && operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true;
         if (requiresRestart && !isAfterRestart)
         {
             return CreateItem(operation, current: null, UpdateVerificationStatus.PendingRestart);
@@ -97,7 +98,12 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
 
         if (current is null || (current.Version is null && current.Date is null))
         {
-            return CreateItem(operation, current, UpdateVerificationStatus.Inconclusive);
+            return CreateItem(
+                operation,
+                current,
+                operation.Status == UpdateStatus.Failed
+                    ? UpdateVerificationStatus.Failed
+                    : UpdateVerificationStatus.Inconclusive);
         }
 
         var changed = !Equals(current.Version, before.CurrentVersion)
@@ -105,22 +111,32 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
         return CreateItem(
             operation,
             current,
-            changed ? UpdateVerificationStatus.VerifiedUpdated : UpdateVerificationStatus.NotUpdated);
+            changed
+                ? UpdateVerificationStatus.VerifiedUpdated
+                : operation.Status == UpdateStatus.Failed
+                    ? UpdateVerificationStatus.Failed
+                    : UpdateVerificationStatus.NotUpdated);
     }
 
     private static UpdateVerificationStatus? ClassifyTerminalStatus(UpdateOperation operation) =>
         operation.Status switch
         {
-            UpdateStatus.Failed => UpdateVerificationStatus.Failed,
             UpdateStatus.Cancelled => UpdateVerificationStatus.Skipped,
             UpdateStatus.RolledBack => UpdateVerificationStatus.NotUpdated,
+            UpdateStatus.Skipped when operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
+                || operation.ErrorMessage?.Contains("Open the official vendor page", StringComparison.OrdinalIgnoreCase) == true
+                => UpdateVerificationStatus.ManualActionRequired,
             UpdateStatus.Skipped when operation.ErrorMessage?.Contains("kept the existing", StringComparison.OrdinalIgnoreCase) == true
                 || operation.ErrorMessage?.Contains("version unchanged", StringComparison.OrdinalIgnoreCase) == true
                 => UpdateVerificationStatus.NotUpdated,
             UpdateStatus.Skipped => UpdateVerificationStatus.Skipped,
+            UpdateStatus.Failed => null,
             UpdateStatus.Succeeded => null,
             _ => UpdateVerificationStatus.Inconclusive
         };
+
+    private static InstalledDriverState Snapshot(DriverInfo driver) =>
+        new(driver.CurrentVersion, driver.CurrentDate);
 
     private static UpdateVerificationItem CreateItem(
         UpdateOperation operation,
@@ -139,5 +155,11 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             CurrentVersion: current?.Version,
             CurrentDate: current?.Date,
             Status: status,
-            TechnicalDetail: operation.ErrorMessage);
+            TechnicalDetail: operation.ErrorMessage,
+            InstallerStatus: operation.Status,
+            InstallKind: operation.Candidate.InstallKind,
+            Confidence: operation.Candidate.Confidence,
+            ActionUrl: operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
+                ? operation.Candidate.DownloadUrl
+                : null);
 }

@@ -38,6 +38,23 @@ public class UpdateSummaryViewModelTests
         vm.Items[0].StatusText.Should().Be("Waiting for restart");
     }
 
+    [Fact]
+    public void Manual_vendor_follow_up_is_not_described_as_failed_or_uninstalled()
+    {
+        var report = NewReport(
+            UpdateVerificationStatus.ManualActionRequired,
+            aiSummary: null,
+            aiWasUsed: false);
+
+        var vm = new UpdateSummaryViewModel(report, AppLanguage.English);
+
+        vm.ManualActionCountText.Should().Contain("1 continue on vendor website");
+        vm.SummaryText.Should().Contain("No automatic installation was attempted");
+        vm.Items[0].StatusText.Should().Be("Continue on vendor website");
+        vm.Items[0].Explanation.Should().Contain("vendor page was opened");
+        vm.Items[0].VersionText.Should().Contain("No automatic change was made");
+    }
+
     private static UpdateVerificationReport NewReport(
         UpdateVerificationStatus status,
         string? aiSummary,
@@ -54,6 +71,10 @@ public class UpdateSummaryViewModelTests
             status == UpdateVerificationStatus.VerifiedUpdated ? new Version(2, 0) : null,
             status == UpdateVerificationStatus.VerifiedUpdated ? new DateOnly(2026, 1, 1) : null,
             status,
+            null,
+            UpdateStatus.Succeeded,
+            UpdateInstallKind.WindowsUpdate,
+            UpdateConfidence.Confirmed,
             null);
         return new UpdateVerificationReport(
             Guid.NewGuid(),

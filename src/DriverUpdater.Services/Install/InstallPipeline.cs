@@ -897,25 +897,33 @@ public sealed class InstallPipeline : IInstallPipeline
     // the actual cause in the app log instead of a bare "exit 2, <empty>".
     internal static string TryHarvestInstallerLogTails(DateTimeOffset installStart, string sourceUpdateId)
     {
-        var search = new List<string>();
-        TryAddIfExists(search, Path.GetTempPath());
-        TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"));
-
-        // Per-vendor hint folders.
+        var search = new List<(string Path, SearchOption SearchOption)>();
         if (sourceUpdateId.Contains("amd", StringComparison.OrdinalIgnoreCase))
         {
-            TryAddIfExists(search, @"C:\AMD");
-            TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"));
+            TryAddIfExists(search, @"C:\AMD", SearchOption.AllDirectories);
+            TryAddIfExists(
+                search,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"),
+                SearchOption.AllDirectories);
+        }
+        else
+        {
+            TryAddIfExists(search, Path.GetTempPath(), SearchOption.TopDirectoryOnly);
+            TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), SearchOption.TopDirectoryOnly);
+            TryAddIfExists(
+                search,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"),
+                SearchOption.TopDirectoryOnly);
         }
 
         var sb = new System.Text.StringBuilder();
         var cutoff = installStart.UtcDateTime.AddSeconds(-2);
-        foreach (var dir in search)
+        foreach (var (dir, searchOption) in search)
         {
             try
             {
-                var hits = Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly)
+                var hits = Directory.EnumerateFiles(dir, "*.log", searchOption)
+                    .Where(p => !Path.GetFileName(p).StartsWith("Microsoft.NET.Workload_", StringComparison.OrdinalIgnoreCase))
                     .Where(p =>
                     {
                         try { return File.GetLastWriteTimeUtc(p) >= cutoff; }
@@ -942,13 +950,16 @@ public sealed class InstallPipeline : IInstallPipeline
         return sb.ToString();
     }
 
-    private static void TryAddIfExists(List<string> list, string path)
+    private static void TryAddIfExists(
+        List<(string Path, SearchOption SearchOption)> list,
+        string path,
+        SearchOption searchOption)
     {
         try
         {
             if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             {
-                list.Add(path);
+                list.Add((path, searchOption));
             }
         }
         catch { /* skip */ }

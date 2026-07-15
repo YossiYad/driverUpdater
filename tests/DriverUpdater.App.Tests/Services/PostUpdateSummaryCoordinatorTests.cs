@@ -143,7 +143,11 @@ public class PostUpdateSummaryCoordinatorTests
                 isAfterRestart ? operation.Candidate.NewVersion : null,
                 isAfterRestart ? operation.Candidate.NewDate : null,
                 _status,
-                operation.ErrorMessage);
+                operation.ErrorMessage,
+                operation.Status,
+                operation.Candidate.InstallKind,
+                operation.Candidate.Confidence,
+                null);
             return Task.FromResult(new UpdateVerificationReport(
                 batch.BatchId,
                 batch.CreatedAt,

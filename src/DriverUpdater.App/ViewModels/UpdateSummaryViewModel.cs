@@ -28,6 +28,9 @@ public sealed class UpdateSummaryViewModel
         PendingCountText = hebrew
             ? $"{report.PendingRestartCount} ממתינים להפעלה מחדש"
             : $"{report.PendingRestartCount} waiting for restart";
+        ManualActionCountText = hebrew
+            ? $"{report.ManualActionCount} להמשך באתר היצרן"
+            : $"{report.ManualActionCount} continue on vendor website";
         AttentionCountText = hebrew
             ? $"{report.AttentionCount} דורשים תשומת לב"
             : $"{report.AttentionCount} need attention";
@@ -45,6 +48,7 @@ public sealed class UpdateSummaryViewModel
     public string ResultsHeader { get; }
     public string VerifiedCountText { get; }
     public string PendingCountText { get; }
+    public string ManualActionCountText { get; }
     public string AttentionCountText { get; }
     public string CopyButtonText { get; }
     public string CloseButtonText { get; }
@@ -53,20 +57,36 @@ public sealed class UpdateSummaryViewModel
 
     private static string BuildFallbackSummary(UpdateVerificationReport report, bool hebrew)
     {
-        if (hebrew)
+        var parts = new List<string>();
+        if (report.VerifiedCount > 0)
         {
-            return report.PendingRestartCount > 0
-                ? $"Windows אישר ש־{report.VerifiedCount} עדכונים כבר פעילים. {report.PendingRestartCount} עדכונים נוספים ייבדקו לאחר הפעלה מחדש של המחשב."
-                : report.AttentionCount > 0
-                    ? $"Windows אישר ש־{report.VerifiedCount} עדכונים הצליחו. {report.AttentionCount} פריטים לא עודכנו או לא ניתנים לאימות ודורשים בדיקה."
-                    : $"Windows אישר שכל {report.VerifiedCount} העדכונים הותקנו והם פעילים.";
+            parts.Add(hebrew
+                ? $"Windows אישר ש־{report.VerifiedCount} עדכונים פעילים."
+                : $"Windows confirmed that {report.VerifiedCount} updates are active.");
         }
-
-        return report.PendingRestartCount > 0
-            ? $"Windows confirmed that {report.VerifiedCount} updates are already active. Another {report.PendingRestartCount} will be checked after the computer restarts."
-            : report.AttentionCount > 0
-                ? $"Windows confirmed that {report.VerifiedCount} updates succeeded. {report.AttentionCount} items were not updated or could not be verified and need attention."
-                : $"Windows confirmed that all {report.VerifiedCount} updates are installed and active.";
+        if (report.PendingRestartCount > 0)
+        {
+            parts.Add(hebrew
+                ? $"{report.PendingRestartCount} עדכונים ייבדקו לאחר הפעלה מחדש של המחשב."
+                : $"{report.PendingRestartCount} updates will be checked after the computer restarts.");
+        }
+        if (report.AttentionCount > 0)
+        {
+            parts.Add(hebrew
+                ? $"{report.AttentionCount} פריטים לא השתנו או לא ניתנים לאימות ודורשים בדיקה."
+                : $"{report.AttentionCount} items did not change or could not be verified and need attention.");
+        }
+        if (report.ManualActionCount > 0)
+        {
+            parts.Add(hebrew
+                ? $"עבור {report.ManualActionCount} פריטים לא בוצעה התקנה אוטומטית, ונפתח דף היצרן להמשך ידני."
+                : $"No automatic installation was attempted for {report.ManualActionCount} items, and their vendor pages were opened for manual follow-up.");
+        }
+        if (parts.Count == 0)
+        {
+            parts.Add(hebrew ? "לא נדרש שינוי בדרייברים." : "No driver changes were required.");
+        }
+        return string.Join(' ', parts);
     }
 
     private string BuildCopyText()

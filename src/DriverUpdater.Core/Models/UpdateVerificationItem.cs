@@ -11,4 +11,8 @@ public sealed record UpdateVerificationItem(
     Version? CurrentVersion,
     DateOnly? CurrentDate,
     UpdateVerificationStatus Status,
-    string? TechnicalDetail);
+    string? TechnicalDetail,
+    UpdateStatus InstallerStatus,
+    UpdateInstallKind InstallKind,
+    UpdateConfidence Confidence,
+    Uri? ActionUrl);

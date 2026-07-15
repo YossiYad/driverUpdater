@@ -12,6 +12,8 @@ public sealed record UpdateVerificationReport(
 
     public int PendingRestartCount => Items.Count(i => i.Status == UpdateVerificationStatus.PendingRestart);
 
+    public int ManualActionCount => Items.Count(i => i.Status == UpdateVerificationStatus.ManualActionRequired);
+
     public int AttentionCount => Items.Count(i => i.Status is UpdateVerificationStatus.NotUpdated
         or UpdateVerificationStatus.Failed
         or UpdateVerificationStatus.Inconclusive);

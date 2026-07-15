@@ -26,6 +26,8 @@ public class PostUpdateVerifierTests
         report.AiSummary.Should().Be("העדכון הצליח.");
         ai.LastPrompt.Should().Contain("Write the answer in clear, natural Hebrew.");
         ai.LastPrompt.Should().Contain("Windows read-back results");
+        ai.LastPrompt.Should().Contain("Installer process result: Succeeded");
+        ai.LastPrompt.Should().Contain("Delivery type: WindowsUpdate");
     }
 
     [Fact]
@@ -59,9 +61,9 @@ public class PostUpdateVerifierTests
     }
 
     [Fact]
-    public async Task Failed_install_is_reported_without_driver_probe()
+    public async Task Failed_install_reads_back_windows_before_reporting_the_previous_driver()
     {
-        var probe = new FakeProbe(null);
+        var probe = new FakeProbe(new InstalledDriverState(new Version(1, 0, 0, 0), new DateOnly(2025, 1, 1)));
         var verifier = NewVerifier(probe, new FakeCompleter(false, null));
 
         var report = await verifier.VerifyAsync(
@@ -70,8 +72,35 @@ public class PostUpdateVerifierTests
             AppLanguage.English);
 
         report.Items.Should().ContainSingle().Which.Status.Should().Be(UpdateVerificationStatus.Failed);
-        probe.CallCount.Should().Be(0);
+        probe.CallCount.Should().Be(1);
+        report.Items[0].CurrentVersion.Should().Be(new Version(1, 0, 0, 0));
         report.AiWasUsed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Vendor_page_fallback_is_manual_action_not_failed_install()
+    {
+        var probe = new FakeProbe(null);
+        var verifier = NewVerifier(probe, new FakeCompleter(false, null));
+        var operation = NewOperation(UpdateStatus.Skipped, "Open the official vendor page to install this update") with
+        {
+            Candidate = NewOperation(UpdateStatus.Skipped).Candidate with
+            {
+                InstallKind = UpdateInstallKind.VendorPage,
+                Confidence = UpdateConfidence.Advisory,
+                DownloadUrl = new Uri("https://vendor.example.com/support")
+            }
+        };
+
+        var report = await verifier.VerifyAsync(
+            NewBatch(operation),
+            isAfterRestart: false,
+            AppLanguage.English);
+
+        report.Items.Should().ContainSingle().Which.Status.Should().Be(UpdateVerificationStatus.ManualActionRequired);
+        report.Items[0].CurrentVersion.Should().Be(new Version(1, 0, 0, 0));
+        report.Items[0].ActionUrl.Should().Be(new Uri("https://vendor.example.com/support"));
+        probe.CallCount.Should().Be(0);
     }
 
     private static PostUpdateVerifier NewVerifier(IInstalledDriverProbe probe, IAiTextCompleter ai) =>
