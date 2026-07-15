@@ -584,10 +584,9 @@ public partial class MainViewModel : ObservableObject
         return map;
     }
 
-    // The grid (and the cache built from it) is accumulating: drivers seen in any
-    // earlier scan stay in the list even when the current WMI scan does not report
-    // them, and a pending update found earlier is kept until the installed driver
-    // catches up or a source offers something newer (DriverUpdateMatcher decides).
+    // Restore pending candidates only for devices that the current WMI scan still
+    // reports. Keeping devices that disappeared from Windows makes the grid grow on
+    // every scan and can leave unverifiable virtual devices eligible for updates.
     private void MergePreviousRows(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
     {
         if (previousRows.Count == 0)
@@ -621,29 +620,14 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        var keptRows = 0;
-        foreach (var (deviceId, previous) in previousRows)
-        {
-            if (scannedIds.Contains(deviceId))
-            {
-                continue;
-            }
-            Drivers.Add(new DriverRowViewModel(previous.Driver)
-            {
-                Status = previous.Status,
-                AvailableUpdate = previous.AvailableUpdate
-            });
-            keptRows++;
-            _logger.LogDebug(
-                "Cache merge: keeping {Device} ({DeviceId}) - present in an earlier scan but missing from this one",
-                previous.DeviceName, deviceId);
-        }
+        var droppedRows = previousRows.Keys.Count(deviceId => !scannedIds.Contains(deviceId));
 
         ScannedCount = Drivers.Count;
         RefreshUpdateCounts();
         _logger.LogInformation(
-            "Cache merge: {Kept} driver(s) kept from earlier scans, {Restored} pending update(s) restored (grid now {Total} rows)",
-            keptRows, restoredUpdates, Drivers.Count);
+            "Cache merge: {Dropped} stale driver(s) absent from the current Windows inventory were dropped, " +
+            "{Restored} pending update(s) restored (grid now {Total} rows)",
+            droppedRows, restoredUpdates, Drivers.Count);
     }
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
