@@ -68,11 +68,9 @@ public partial class MainViewModel : ObservableObject
 
     public IReadOnlyList<DriverUpdateFilterOption> AvailableUpdateFilters { get; } =
     [
-        new(DriverUpdateFilter.All, "All updates"),
-        new(DriverUpdateFilter.ConfirmedUpdates, "Confirmed"),
-        new(DriverUpdateFilter.VendorChecks, "Vendor checks"),
-        new(DriverUpdateFilter.Installable, "Installable"),
-        new(DriverUpdateFilter.NoUpdate, "No update")
+        new(DriverUpdateFilter.AllDrivers, "All drivers"),
+        new(DriverUpdateFilter.UpdatesAvailable, "Updates available"),
+        new(DriverUpdateFilter.NoUpdateAvailable, "No update available")
     ];
 
     [ObservableProperty]
@@ -119,7 +117,7 @@ public partial class MainViewModel : ObservableObject
     private DriverCategory? _categoryFilter;
 
     [ObservableProperty]
-    private DriverUpdateFilter _updateFilter = DriverUpdateFilter.All;
+    private DriverUpdateFilter _updateFilter = DriverUpdateFilter.AllDrivers;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -1678,12 +1676,10 @@ public partial class MainViewModel : ObservableObject
         }
         var options = confirmResult;
 
-        // Switch the grid to show only installable rows so the user does not have
+        // Switch the grid to show only rows with available updates so the user does not have
         // to scrub through 250 unrelated entries to follow the active driver. The
-        // user can pick a different filter later; we leave it on Installable when
-        // the run finishes so the result of each install (UpToDate / Failed) is
-        // visible at a glance.
-        UpdateFilter = DriverUpdateFilter.Installable;
+        // user can pick a different filter later.
+        UpdateFilter = DriverUpdateFilter.UpdatesAvailable;
 
         var runStartedAt = DateTimeOffset.UtcNow;
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2119,11 +2115,9 @@ public partial class MainViewModel : ObservableObject
 
     private bool MatchesUpdateFilter(DriverRowViewModel row) => UpdateFilter switch
     {
-        DriverUpdateFilter.All => true,
-        DriverUpdateFilter.ConfirmedUpdates => row.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed,
-        DriverUpdateFilter.VendorChecks => row.AvailableUpdate?.Confidence == UpdateConfidence.Advisory,
-        DriverUpdateFilter.Installable => row.AvailableUpdate?.InstallKind is UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller or UpdateInstallKind.VendorPage,
-        DriverUpdateFilter.NoUpdate => row.AvailableUpdate is null,
+        DriverUpdateFilter.AllDrivers => true,
+        DriverUpdateFilter.UpdatesAvailable => row.AvailableUpdate is not null,
+        DriverUpdateFilter.NoUpdateAvailable => row.AvailableUpdate is null,
         _ => true
     };
 }

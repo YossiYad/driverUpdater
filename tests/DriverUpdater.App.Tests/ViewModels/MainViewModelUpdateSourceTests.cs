@@ -297,11 +297,11 @@ public class MainViewModelUpdateSourceTests
         var scrolledRows = new List<DriverRowViewModel>();
         vm.ScrollToRowRequested += (_, row) => scrolledRows.Add(row);
 
-        vm.UpdateFilter = DriverUpdateFilter.All;
+        vm.UpdateFilter = DriverUpdateFilter.AllDrivers;
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateAllCommand.ExecuteAsync(null);
 
-        vm.UpdateFilter.Should().Be(DriverUpdateFilter.Installable);
+        vm.UpdateFilter.Should().Be(DriverUpdateFilter.UpdatesAvailable);
         scrolledRows.Should().HaveCount(3);
         scrolledRows.Select(r => r.DeviceName)
             .Should().BeEquivalentTo(new[] { "Intel Display", "AMD Display", "Realtek Audio" });
@@ -624,7 +624,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task Update_filter_narrows_confirmed_vendor_and_no_update_rows()
+    public async Task Update_filter_narrows_rows_with_and_without_available_updates()
     {
         var confirmedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
@@ -639,16 +639,10 @@ public class MainViewModelUpdateSourceTests
         var vm = NewVm(new[] { confirmedDriver, vendorDriver, currentDriver }, new[] { confirmed, advisory });
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.UpdateFilter = DriverUpdateFilter.ConfirmedUpdates;
-        vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "Intel Display");
-
-        vm.UpdateFilter = DriverUpdateFilter.VendorChecks;
-        vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "NVIDIA Display");
-
-        vm.UpdateFilter = DriverUpdateFilter.Installable;
+        vm.UpdateFilter = DriverUpdateFilter.UpdatesAvailable;
         vm.DriversView.Cast<DriverRowViewModel>().Should().HaveCount(2);
 
-        vm.UpdateFilter = DriverUpdateFilter.NoUpdate;
+        vm.UpdateFilter = DriverUpdateFilter.NoUpdateAvailable;
         vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "Current Display");
     }
 

@@ -69,13 +69,10 @@ public class MainViewModelTests
     {
         var vm = NewVm();
 
-        vm.AvailableUpdateFilters.Select(f => f.Label).Should().Contain([
-            "All updates",
-            "Confirmed",
-            "Vendor checks",
-            "Installable",
-            "No update"
-        ]);
+        vm.AvailableUpdateFilters.Select(f => f.Label).Should().Equal(
+            "All drivers",
+            "Updates available",
+            "No update available");
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>
