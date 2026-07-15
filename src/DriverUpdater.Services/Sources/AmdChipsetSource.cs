@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using DriverUpdater.Core.Abstractions;
@@ -44,8 +45,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         ArgumentNullException.ThrowIfNull(drivers);
 
         var matched = drivers.Where(IsSupportedAmdChipsetDriver)
-            .GroupBy(d => d.HardwareId, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
+            .DistinctBy(d => d.DeviceId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         _logger.LogInformation("AMD Chipset source matched {Count} chipset/system drivers", matched.Length);
@@ -91,19 +91,45 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             "AMD Chipset: parsed release version={Version}, date={Date}, sizeBytes={Size}, directInstaller={HasInstaller}",
             resolved.Version, resolved.ReleaseDate, resolved.SizeBytes ?? 0, resolved.DirectInstallerUrl is not null);
 
+        string? releaseNotesHtml = null;
+        try
+        {
+            var releaseNotesUri = BuildReleaseNotesUri(resolved.Version);
+            _logger.LogInformation("AMD Chipset: fetching component versions from {Uri}", releaseNotesUri);
+            releaseNotesHtml = await _httpClient.GetStringAsync(releaseNotesUri, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "AMD Chipset: component manifest could not be read. The package will not be offered because its bundle version cannot be compared safely with individual driver versions.");
+        }
+
         foreach (var driver in matched)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (driver.CurrentDate is { } currentDate && resolved.ReleaseDate <= currentDate)
+            if (releaseNotesHtml is null
+                || !TryFindComponentVersion(releaseNotesHtml, driver, out var componentVersion))
             {
                 _logger.LogInformation(
-                    "AMD Chipset: local driver for {Device} dated {CurrentDate} is already at or newer than upstream {ReleaseDate}; skipping",
-                    driver.DeviceName, currentDate, resolved.ReleaseDate);
+                    "AMD Chipset: no authoritative component version was found for {Device}; skipping the package-level comparison",
+                    driver.DeviceName);
                 continue;
             }
 
-            var candidate = BuildCandidate(driver, resolved);
+            if (driver.CurrentVersion is { } currentVersion && currentVersion >= componentVersion)
+            {
+                _logger.LogInformation(
+                    "AMD Chipset: {Device} is already current at {CurrentVersion}; package {PackageVersion} contains {ComponentVersion}",
+                    driver.DeviceName, currentVersion, resolved.Version, componentVersion);
+                continue;
+            }
+
+            var candidate = BuildCandidate(driver, resolved, componentVersion);
             _logger.LogInformation(
                 "AMD Chipset: yielding {InstallKind} candidate for {Device} -> {Url}",
                 candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
@@ -111,14 +137,17 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         }
     }
 
-    internal static UpdateCandidate BuildCandidate(DriverInfo driver, AmdChipsetRelease release)
+    internal static UpdateCandidate BuildCandidate(
+        DriverInfo driver,
+        AmdChipsetRelease release,
+        Version componentVersion)
     {
         if (release.DirectInstallerUrl is { } installerUrl)
         {
             return new UpdateCandidate(
                 ForHardwareId: driver.HardwareId,
                 Source: UpdateSource.Oem,
-                NewVersion: DateToVersion(release.ReleaseDate),
+                NewVersion: componentVersion,
                 NewDate: release.ReleaseDate,
                 DownloadUrl: installerUrl,
                 SizeBytes: release.SizeBytes ?? 0,
@@ -132,7 +161,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
         return new UpdateCandidate(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,
-            NewVersion: DateToVersion(release.ReleaseDate),
+            NewVersion: componentVersion,
             NewDate: release.ReleaseDate,
             DownloadUrl: new Uri(ChipsetSupportHubUrl),
             SizeBytes: release.SizeBytes ?? 0,
@@ -162,7 +191,7 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             Confidence: UpdateConfidence.Advisory);
     }
 
-    internal static bool IsSupportedAmdChipsetDriver(DriverInfo driver)
+    public static bool IsSupportedAmdChipsetDriver(DriverInfo driver)
     {
         if (driver.Category is not (DriverCategory.Chipset or DriverCategory.System))
         {
@@ -174,10 +203,81 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             return false;
         }
 
-        return Contains(driver.Provider, "Advanced Micro Devices")
+        var isAmd = Contains(driver.Provider, "Advanced Micro Devices")
             || Contains(driver.Manufacturer, "Advanced Micro Devices")
-            || (Contains(driver.DeviceName, "AMD") && !Contains(driver.DeviceName, "Radeon"));
+            || Contains(driver.DeviceName, "AMD");
+        return isAmd && ComponentMarkers(driver).Count > 0;
     }
+
+    internal static bool TryFindComponentVersion(string html, DriverInfo driver, out Version version)
+    {
+        ArgumentNullException.ThrowIfNull(html);
+        ArgumentNullException.ThrowIfNull(driver);
+
+        var text = WebUtility.HtmlDecode(HtmlTagPattern().Replace(html, " "));
+        text = WhitespacePattern().Replace(text, " ");
+        foreach (var marker in ComponentMarkers(driver))
+        {
+            var markerIndex = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+            {
+                continue;
+            }
+
+            var section = text.Substring(markerIndex, Math.Min(300, text.Length - markerIndex));
+            var versions = DriverVersionPattern().Matches(section)
+                .Take(2)
+                .Select(m => Version.TryParse(m.Value, out var parsed) ? parsed : null)
+                .Where(v => v is not null)
+                .Cast<Version>()
+                .Distinct()
+                .ToArray();
+            if (versions.Length == 0)
+            {
+                continue;
+            }
+
+            var sameFamily = driver.CurrentVersion is { } current
+                ? versions.Where(v => v.Major == current.Major).ToArray()
+                : Array.Empty<Version>();
+            version = (sameFamily.Length > 0 ? sameFamily : versions).Max()!;
+            return true;
+        }
+
+        version = null!;
+        return false;
+    }
+
+    private static IReadOnlyList<string> ComponentMarkers(DriverInfo driver)
+    {
+        var name = driver.DeviceName;
+        if (Contains(name, "SFH I2C")) { return ["AMD SFH I2C Driver"]; }
+        if (Contains(name, "I2C")) { return ["AMD I2C Driver"]; }
+        if (Contains(name, "GPIO")) { return ["AMD GPIO2 Driver", "PT GPIO Driver"]; }
+        if (Contains(name, "Provisioning Packages") || Contains(name, "PPM Provisioning")) { return ["AMD PPM Provisioning File Driver"]; }
+        if (Contains(name, "3D V-Cache")) { return ["AMD 3D V-Cache Performance Optimizer Driver"]; }
+        if (Contains(name, "Application Compatibility Database")) { return ["AMD Application Compatibility Database Driver"]; }
+        if (Contains(name, "SMBUS")) { return ["AMD Interface Driver", "AMD SMBUS Driver"]; }
+        if (Contains(name, "PCI")) { return ["AMD Interface Driver", "AMD PCI Device Driver"]; }
+        if (Contains(name, "UART")) { return ["AMD UART Driver"]; }
+        if (Contains(name, "PSP")) { return ["AMD PSP Driver"]; }
+        if (Contains(name, "IOV")) { return ["AMD IOV Driver"]; }
+        if (Contains(name, "AS4 ACPI")) { return ["AMD AS4 ACPI Driver"]; }
+        if (Contains(name, "SFH")) { return ["AMD SFH Driver", "AMD SFH1.1 Driver"]; }
+        if (Contains(name, "USB Filter")) { return ["AMD USB Filter Driver"]; }
+        if (Contains(name, "USB4")) { return ["AMD USB4 CM Driver"]; }
+        if (Contains(name, "CIR")) { return ["AMD CIR Driver"]; }
+        if (Contains(name, "MicroPEP")) { return ["AMD MicroPEP Driver"]; }
+        if (Contains(name, "Wireless Button")) { return ["AMD Wireless Button Driver"]; }
+        if (Contains(name, "AMS Mailbox")) { return ["AMD AMS Mailbox Driver"]; }
+        if (Contains(name, "S0i3")) { return ["AMD S0i3 Filter Driver"]; }
+        if (Contains(name, "HSMP")) { return ["AMD HSMP Driver"]; }
+        if (Contains(name, "PMF")) { return ["AMD PMF-8000Series Driver", "AMD PMF-7040 Series Driver", "AMD PMF-6000 Series Driver"]; }
+        return Array.Empty<string>();
+    }
+
+    private static Uri BuildReleaseNotesUri(string version) =>
+        new($"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-{version.Replace('.', '-')}.html");
 
     internal static bool TryParseLatestRelease(string html, out AmdChipsetRelease release)
     {
@@ -237,6 +337,15 @@ public sealed partial class AmdChipsetSource : IUpdateSource
 
     [GeneratedRegex(@"(?<url>https://drivers\.amd\.com/drivers/amd_chipset_software_[\d.]+\.exe)", RegexOptions.IgnoreCase)]
     private static partial Regex DirectInstallerUrlPattern();
+
+    [GeneratedRegex(@"<[^>]+>")]
+    private static partial Regex HtmlTagPattern();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespacePattern();
+
+    [GeneratedRegex(@"\b\d+(?:\.\d+){2,3}\b")]
+    private static partial Regex DriverVersionPattern();
 
     internal readonly record struct AmdChipsetRelease(string Version, DateOnly ReleaseDate, long? SizeBytes, Uri? DirectInstallerUrl = null);
 }

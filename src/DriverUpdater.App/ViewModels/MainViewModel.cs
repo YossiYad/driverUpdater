@@ -12,6 +12,7 @@ using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Scanning;
+using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -1040,8 +1041,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        var hardwareWithCandidate = Drivers
+            .Where(r => r.AvailableUpdate is not null)
+            .Select(r => r.HardwareId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var targets = Drivers
-            .Where(r => !onlyRowsWithoutUpdates || r.AvailableUpdate is null)
+            .Where(r => !onlyRowsWithoutUpdates
+                || (r.AvailableUpdate is null && !hardwareWithCandidate.Contains(r.HardwareId)))
             .ToArray();
         if (targets.Length == 0)
         {
@@ -1203,6 +1210,15 @@ public partial class MainViewModel : ObservableObject
             ?? BuildDateBasedVersion(verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
         var candidateDate = verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var url = TryCreateAbsoluteUri(verdict.LatestKnownUrl) ?? BuildSearchUrl(row);
+        if (AmdChipsetSource.IsSupportedAmdChipsetDriver(row.Driver)
+            && url.AbsolutePath.Contains("/chipsets/", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "AI latest-driver lead for {Device} rejected: {Version} is an AMD chipset bundle version, not the version of this individual component. The deterministic AMD source will compare the component manifest instead.",
+                row.DeviceName, verdict.LatestKnownVersion ?? candidateVersion.ToString());
+            LogAiAdvisorDetails("latest-driver discovery rejected as AMD bundle version", row, verdict);
+            return false;
+        }
         if (!IsActionableAiDiscoveryLead(row, url))
         {
             _logger.LogInformation(
