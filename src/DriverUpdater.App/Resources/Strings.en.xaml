@@ -21,6 +21,9 @@
     <sys:String x:Key="Reboot.RequiredTitle">Restart required</sys:String>
     <sys:String x:Key="Reboot.RequiredMessage">{0} driver update(s) need a restart to finish. Restart the computer now?</sys:String>
     <sys:String x:Key="Reboot.ShutdownComment">DriverUpdater is restarting to finish driver installation.</sys:String>
+    <sys:String x:Key="AiQuota.Title">AI quota reached</sys:String>
+    <sys:String x:Key="AiQuota.DailyMessage">The Gemini AI request and token quota has been used up. Daily quotas reset at midnight Pacific time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
+    <sys:String x:Key="AiQuota.TemporaryMessage">Gemini is temporarily limiting AI requests because too many requests or tokens were used in a short time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>

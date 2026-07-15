@@ -2,6 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
+    <sys:String x:Key="AiQuota.Title">מכסת ה-AI הסתיימה</sys:String>
+    <sys:String x:Key="AiQuota.DailyMessage">מכסת הבקשות והטוקנים של Gemini הסתיימה. המכסה היומית מתאפסת בחצות לפי שעון החוף המערבי בארצות הברית. ה-AI אמור לחזור להיות זמין בסביבות {0}. סריקת הדרייברים והעדכונים יכולים להמשיך גם בלי AI.</sys:String>
+    <sys:String x:Key="AiQuota.TemporaryMessage">Gemini מגביל זמנית את בקשות ה-AI מפני שנשלחו יותר מדי בקשות או טוקנים בזמן קצר. ה-AI אמור לחזור להיות זמין בסביבות {0}. סריקת הדרייברים והעדכונים יכולים להמשיך גם בלי AI.</sys:String>
+
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
     <sys:String x:Key="App.Version">v0.1.27</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>

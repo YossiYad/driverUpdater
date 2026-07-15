@@ -99,6 +99,7 @@ public partial class App : Application
         var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
         var localization = _host.Services.GetRequiredService<ILocalizationService>();
         localization.ApplyLanguage(languageSettings.Language);
+        _host.Services.GetRequiredService<AiQuotaNotificationService>().Start();
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;

@@ -27,6 +27,7 @@ public static class AppServices
         services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
         services.AddSingleton<IAiResultTranslator, AiResultTranslator>();
         services.AddSingleton<IAiResultWindowOpener, AiResultWindowOpener>();
+        services.AddSingleton<AiQuotaNotificationService>();
         services.AddSingleton<IAppUpdater, VelopackAppUpdater>();
         services.AddSingleton<IAppUpdatePrompt, DialogAppUpdatePrompt>();
         services.AddSingleton<IRebootPrompt, DialogRebootPrompt>();
