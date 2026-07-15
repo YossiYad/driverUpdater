@@ -112,13 +112,19 @@ public class GeminiAiVerifierTests
     [Fact]
     public async Task VerifyAsync_returns_empty_on_http_error_status()
     {
+        var handler = new CapturingHandler(
+            "Quota exceeded: GenerateRequestsPerDay",
+            System.Net.HttpStatusCode.TooManyRequests);
         var verifier = NewVerifier(
             new AiSettings { Provider = AiProvider.Gemini, GeminiApiKey = "k" },
-            new CapturingHandler("quota exceeded", System.Net.HttpStatusCode.TooManyRequests));
+            handler);
 
-        var result = await verifier.VerifyAsync(new[] { NewRequest("corr-1") });
+        var first = await verifier.VerifyAsync(new[] { NewRequest("corr-1") });
+        var second = await verifier.VerifyAsync(new[] { NewRequest("corr-1") });
 
-        result.Should().BeEmpty();
+        first.Should().BeEmpty();
+        second.Should().BeEmpty();
+        handler.RequestCount.Should().Be(1, "the quota gate should stop repeated requests until reset");
     }
 
     [Fact]
@@ -138,6 +144,7 @@ public class GeminiAiVerifierTests
     private static GeminiAiVerifier NewVerifier(AiSettings settings, HttpMessageHandler handler) =>
         new(new SingleClientHttpClientFactory(handler),
             AiTestSettings.Monitor(settings),
+            new GeminiQuotaGate(),
             NullLogger<GeminiAiVerifier>.Instance);
 
     private static string CannedResponse(string id, bool genuinelyNewer, string risk) =>

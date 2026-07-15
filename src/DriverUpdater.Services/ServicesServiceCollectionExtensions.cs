@@ -96,6 +96,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 
         ConfigureAiHttpClient(services);
+        services.AddSingleton<GeminiQuotaGate>();
         services.AddSingleton<GeminiAiVerifier>();
         services.AddSingleton<OllamaAiVerifier>();
         services.AddSingleton<IAiVerifier, AiVerifierSelector>();
@@ -116,11 +117,9 @@ public static class ServicesServiceCollectionExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         })
-        // Gemini's free tier returns 429 (TooManyRequests) under light bursts and 503 when
-        // the model is briefly overloaded. Without a retry a single 429 makes "Ask AI" fail
-        // outright. Retry those, honouring the Retry-After header when the server sends one.
+        // Retry transient network and server failures. A 429 is handled by GeminiQuotaGate,
+        // because retrying an exhausted daily quota only delays the UI and cannot succeed.
         .AddTransientHttpErrorPolicy(builder => builder
-            .OrResult(response => response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             .WaitAndRetryAsync(
                 retryCount: 4,
                 sleepDurationProvider: (attempt, outcome, _) =>

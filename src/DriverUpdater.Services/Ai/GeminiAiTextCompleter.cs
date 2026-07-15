@@ -14,18 +14,22 @@ public sealed class GeminiAiTextCompleter : IAiTextCompleter
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptionsMonitor<AiSettings> _settings;
+    private readonly GeminiQuotaGate _quotaGate;
     private readonly ILogger<GeminiAiTextCompleter> _logger;
 
     public GeminiAiTextCompleter(
         IHttpClientFactory httpClientFactory,
         IOptionsMonitor<AiSettings> settings,
+        GeminiQuotaGate quotaGate,
         ILogger<GeminiAiTextCompleter> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(quotaGate);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClientFactory = httpClientFactory;
         _settings = settings;
+        _quotaGate = quotaGate;
         _logger = logger;
     }
 
@@ -41,6 +45,12 @@ public sealed class GeminiAiTextCompleter : IAiTextCompleter
         if (!IsConfigured)
         {
             return null;
+        }
+        if (_quotaGate.TryGetBlockedMessage(out var quotaMessage))
+        {
+            throw new AiTextCompletionException(
+                AiTextCompletionFailureReason.QuotaExceeded,
+                quotaMessage);
         }
 
         var settings = _settings.CurrentValue;
@@ -74,6 +84,14 @@ public sealed class GeminiAiTextCompleter : IAiTextCompleter
         {
             _logger.LogWarning("Gemini text completion failed: HTTP {Status} after {ElapsedMs} ms. Body: {Body}",
                 (int)response.StatusCode, stopwatch.ElapsedMilliseconds, GeminiAiVerifier.Truncate(json, 2000));
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                _quotaGate.RecordTooManyRequests(response, json);
+                _quotaGate.TryGetBlockedMessage(out var message);
+                throw new AiTextCompletionException(
+                    AiTextCompletionFailureReason.QuotaExceeded,
+                    message);
+            }
             return null;
         }
 
