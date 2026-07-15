@@ -19,8 +19,9 @@ public class PostUpdateSummaryCoordinatorTests
         var opener = new FakeWindowOpener();
         var coordinator = NewCoordinator(verifier, store, startup, opener, DateTimeOffset.MinValue);
 
-        await coordinator.CompleteRunAsync(new[] { operation });
+        var report = await coordinator.CompleteRunAsync(new[] { operation });
 
+        report.Should().NotBeNull();
         store.Batch.Should().NotBeNull();
         store.Batch!.Operations.Should().ContainSingle().Which.OperationId.Should().Be(operation.OperationId);
         startup.RegisterCalls.Should().Be(1);

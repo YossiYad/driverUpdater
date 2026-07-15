@@ -65,6 +65,23 @@ public class MainViewModelRebootTests
     }
 
     [WpfFact]
+    public async Task Install_applies_the_verified_windows_result_to_the_grid()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator
+        {
+            ResultStatus = UpdateVerificationStatus.NotUpdated
+        };
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+        AddConfirmedOutdatedRow(vm, "AMD Special Tools Driver");
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.NotUpdated);
+        vm.Drivers[0].StatusText.Should().Be("Not updated");
+    }
+
+    [WpfFact]
     public async Task Initialize_resumes_pending_post_restart_verification()
     {
         var coordinator = new FakePostUpdateSummaryCoordinator();
@@ -178,13 +195,44 @@ public class MainViewModelRebootTests
     {
         public List<IReadOnlyCollection<UpdateOperation>> CompletedRuns { get; } = new();
         public int ResumeCalls { get; private set; }
+        public UpdateVerificationStatus? ResultStatus { get; set; }
 
-        public Task CompleteRunAsync(
+        public Task<UpdateVerificationReport?> CompleteRunAsync(
             IReadOnlyCollection<UpdateOperation> operations,
+            Action<UpdateVerificationReport>? beforeSummaryOpen = null,
             CancellationToken cancellationToken = default)
         {
             CompletedRuns.Add(operations);
-            return Task.CompletedTask;
+            if (ResultStatus is not { } status)
+            {
+                return Task.FromResult<UpdateVerificationReport?>(null);
+            }
+
+            var items = operations.Select(operation => new UpdateVerificationItem(
+                operation.OperationId,
+                operation.TargetSnapshot.DeviceName,
+                operation.TargetSnapshot.Category,
+                operation.TargetSnapshot.CurrentVersion,
+                operation.TargetSnapshot.CurrentDate,
+                operation.Candidate.NewVersion,
+                operation.Candidate.NewDate,
+                operation.TargetSnapshot.CurrentVersion,
+                operation.TargetSnapshot.CurrentDate,
+                status,
+                operation.ErrorMessage,
+                operation.Status,
+                operation.Candidate.InstallKind,
+                operation.Candidate.Confidence,
+                null)).ToArray();
+            var report = new UpdateVerificationReport(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                false,
+                items,
+                null,
+                false);
+            beforeSummaryOpen?.Invoke(report);
+            return Task.FromResult<UpdateVerificationReport?>(report);
         }
 
         public Task ResumeAfterRestartAsync(CancellationToken cancellationToken = default)

@@ -104,6 +104,10 @@ public partial class DriverRowViewModel : ObservableObject
         DriverStatus.Outdated => "Update available",
         DriverStatus.NotFound => "No update found",
         DriverStatus.Error => "Check failed",
+        DriverStatus.NotUpdated => "Not updated",
+        DriverStatus.ManualActionRequired => "Continue on vendor website",
+        DriverStatus.RestartRequired => "Restart required",
+        DriverStatus.VerificationInconclusive => "Could not verify",
         _ => Status.ToString()
     };
 

@@ -40,14 +40,15 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         _logger = logger;
     }
 
-    public async Task CompleteRunAsync(
+    public async Task<UpdateVerificationReport?> CompleteRunAsync(
         IReadOnlyCollection<UpdateOperation> operations,
+        Action<UpdateVerificationReport>? beforeSummaryOpen = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(operations);
         if (operations.Count == 0)
         {
-            return;
+            return null;
         }
 
         try
@@ -91,7 +92,9 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
                     report.PendingRestartCount);
             }
 
+            beforeSummaryOpen?.Invoke(report);
             _windowOpener.Open(report, _localization.CurrentLanguage);
+            return report;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -100,6 +103,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         catch (Exception ex)
         {
             _logger.LogError(ex, "Could not complete post-update verification and summary");
+            return null;
         }
     }
 

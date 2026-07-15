@@ -368,6 +368,7 @@ public class MainViewModelAiTests
         verifier.LastRequests[0].FindLatestWhenNoCandidate.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
         vm.Drivers[0].AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
         vm.VendorChecksCount.Should().Be(1);
     }
 

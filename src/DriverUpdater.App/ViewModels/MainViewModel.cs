@@ -1292,7 +1292,7 @@ public partial class MainViewModel : ObservableObject
             verdict.Summary);
         LogAiAdvisorDetails("latest-driver discovery found candidate", row, verdict);
         row.AvailableUpdate = candidate;
-        row.Status = DriverStatus.UpToDate;
+        row.Status = DriverStatus.Outdated;
         return true;
     }
 
@@ -1709,7 +1709,6 @@ public partial class MainViewModel : ObservableObject
 
             var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
             var displayName = DriverDisplayName(row);
-            var originalStatus = row.Status;
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
@@ -1751,9 +1750,7 @@ public partial class MainViewModel : ObservableObject
             if (finished.Status == UpdateStatus.Skipped
                 && finished.Candidate.InstallKind == UpdateInstallKind.VendorPage)
             {
-                // Advisory vendor check rows are usually UpToDate; a skipped in-app
-                // attempt must not flip them to Outdated.
-                row.Status = originalStatus;
+                row.Status = DriverStatus.ManualActionRequired;
                 if (!dryRun)
                 {
                     _logger.LogInformation(
@@ -1784,22 +1781,57 @@ public partial class MainViewModel : ObservableObject
 
         if (!dryRun)
         {
-            // Persist the post-install state so the next launch's cached view reflects what
-            // was actually installed (succeeded rows now have AvailableUpdate cleared);
-            // otherwise the cache would keep showing them as Outdated until the next scan.
-            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
-
             if (_postUpdateSummaryCoordinator is not null)
             {
                 StatusText = "Verifying installed drivers and preparing the summary...";
                 await _postUpdateSummaryCoordinator.CompleteRunAsync(
                     outcomes.Select(o => o.Operation).ToArray(),
+                    report => ApplyPostUpdateVerification(report, outcomes),
                     cancellationToken).ConfigureAwait(true);
                 StatusText = "Driver updates checked. Review the summary for the final result.";
             }
 
+            // Save only after Windows verification has reconciled the grid. This prevents
+            // an installer exit code from being cached as a successful driver update when
+            // Windows still reports the previous version.
+            await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+
             MaybePromptForRestart(outcomes);
         }
+    }
+
+    private void ApplyPostUpdateVerification(
+        UpdateVerificationReport report,
+        IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes)
+    {
+        var rowsByOperationId = outcomes
+            .GroupBy(outcome => outcome.Operation.OperationId)
+            .ToDictionary(group => group.Key, group => group.First().Row);
+
+        foreach (var item in report.Items)
+        {
+            if (!rowsByOperationId.TryGetValue(item.OperationId, out var row))
+            {
+                _logger.LogWarning(
+                    "Post-update verification returned an unknown operation {OperationId} for {Device}",
+                    item.OperationId,
+                    item.DeviceName);
+                continue;
+            }
+
+            row.Status = item.Status switch
+            {
+                UpdateVerificationStatus.VerifiedUpdated => DriverStatus.UpToDate,
+                UpdateVerificationStatus.PendingRestart => DriverStatus.RestartRequired,
+                UpdateVerificationStatus.NotUpdated => DriverStatus.NotUpdated,
+                UpdateVerificationStatus.Failed => DriverStatus.Error,
+                UpdateVerificationStatus.ManualActionRequired => DriverStatus.ManualActionRequired,
+                UpdateVerificationStatus.Inconclusive => DriverStatus.VerificationInconclusive,
+                _ => DriverStatus.Outdated
+            };
+        }
+
+        RefreshUpdateCounts();
     }
 
     // When at least one driver update finished with "reboot required", ask the user (once, at

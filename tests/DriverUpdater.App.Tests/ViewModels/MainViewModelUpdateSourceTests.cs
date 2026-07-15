@@ -857,7 +857,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_on_up_to_date_vendor_check_row_runs_pipeline_and_keeps_status()
+    public async Task UpdateSingleAsync_on_vendor_check_row_shows_manual_action_after_opening_page()
     {
         var driver = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -887,7 +887,7 @@ public class MainViewModelUpdateSourceTests
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
         opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
-        vm.Drivers[0].Status.Should().Be(DriverStatus.UpToDate);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.ManualActionRequired);
     }
 
     private sealed class StubDriverCacheStore : IDriverCacheStore
