@@ -583,6 +583,58 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_unresolvable_vendor_page_creates_no_restore_point_and_no_backup()
+    {
+        var rp = new FakeRestorePointService();
+        var bk = new FakeBackupService();
+        var pipeline = new InstallPipeline(
+            rp,
+            bk,
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null));
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: true, BackupCurrentDriver: true));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        rp.Invocations.Should().Be(0);
+        bk.BackupInvocations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_resolved_vendor_page_still_creates_restore_point_and_backup()
+    {
+        var rp = new FakeRestorePointService();
+        var bk = new FakeBackupService();
+        var resolver = new FakeVendorPageResolver(candidate => candidate with
+        {
+            DownloadUrl = new Uri("https://download.example.com/driver.msi"),
+            InstallKind = UpdateInstallKind.VendorInstaller,
+            SourceUpdateId = $"vendor-installer:msi-wrapper:resolved:{candidate.SourceUpdateId}"
+        });
+        var pipeline = new InstallPipeline(
+            rp,
+            bk,
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: resolver);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: true, BackupCurrentDriver: true));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        rp.Invocations.Should().Be(1);
+        bk.BackupInvocations.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_skips_vendor_page_without_resolver()
     {
         var pipeline = new InstallPipeline(

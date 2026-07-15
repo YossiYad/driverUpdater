@@ -92,6 +92,18 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            // Resolve vendor-page rows before touching the system: rows that end up merely
+            // opening a browser page must not cost a restore point and a driver backup
+            // (a GPU driver export alone can exceed 1 GB).
+            if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
+            {
+                operation = await StepResolveVendorPageAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+                if (operation.Status == UpdateStatus.Skipped)
+                {
+                    return operation;
+                }
+            }
+
             if (options.CreateRestorePoint)
             {
                 operation = await StepCreateRestorePointAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
@@ -362,6 +374,37 @@ public sealed class InstallPipeline : IInstallPipeline
         return operation;
     }
 
+    private async Task<UpdateOperation> StepResolveVendorPageAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        var resolved = _vendorPageResolver is null
+            ? null
+            : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
+        if (resolved is not null)
+        {
+            _logger.LogInformation(
+                "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
+                operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
+            return operation with { Candidate = resolved };
+        }
+
+        _logger.LogInformation(
+            "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
+            operation.TargetSnapshot.DeviceName,
+            _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
+            operation.Candidate.DownloadUrl);
+        operation = operation with
+        {
+            Status = UpdateStatus.Skipped,
+            ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
+    }
+
     private async Task<UpdateOperation> StepDownloadAndInstallAsync(
         UpdateOperation operation,
         IProgress<UpdateOperation>? progress,
@@ -369,23 +412,6 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
         {
-            var resolved = _vendorPageResolver is null
-                ? null
-                : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
-            if (resolved is not null)
-            {
-                _logger.LogInformation(
-                    "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
-                    operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
-                operation = operation with { Candidate = resolved };
-                return await StepInstallVendorInstallerAsync(operation, progress, cancellationToken).ConfigureAwait(false);
-            }
-
-            _logger.LogInformation(
-                "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
-                operation.TargetSnapshot.DeviceName,
-                _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
-                operation.Candidate.DownloadUrl);
             operation = operation with
             {
                 Status = UpdateStatus.Skipped,
