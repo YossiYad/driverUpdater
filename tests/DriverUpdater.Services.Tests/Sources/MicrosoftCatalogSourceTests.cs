@@ -60,6 +60,25 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_ignores_display_names_that_are_not_PnP_hardware_ids()
+    {
+        var fakeClient = new FakeCatalogClient
+        {
+            HitsByQuery =
+            {
+                ["Microsoft Print to PDF"] =
+                    new[] { Hit("obsolete-print-driver", "Microsoft Print to PDF", new Version(2006, 6, 20, 0), new DateOnly(2006, 6, 20)) }
+            }
+        };
+        var source = NewSource(fakeClient, enabled: true);
+
+        var results = await source.SearchAsync(new[] { NewDriver("Microsoft Print to PDF") }).ToListAsync();
+
+        results.Should().BeEmpty();
+        fakeClient.SearchInvocations.Should().Be(0);
+    }
+
+    [Fact]
     public async Task SearchAsync_queries_catalog_for_alternate_hardware_ids()
     {
         var fakeClient = new FakeCatalogClient

@@ -53,6 +53,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
 
         var hardwareIds = drivers
             .SelectMany(d => d.HardwareIds.Count > 0 ? d.HardwareIds : new[] { d.HardwareId })
+            .Where(IsPnPHardwareId)
             .SelectMany(ExpandHardwareIdQueries)
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -94,6 +95,17 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         }
 
         await producers.ConfigureAwait(false);
+    }
+
+    internal static bool IsPnPHardwareId(string? hardwareId)
+    {
+        if (string.IsNullOrWhiteSpace(hardwareId))
+        {
+            return false;
+        }
+
+        var separator = hardwareId.IndexOf('\\');
+        return separator > 0 && separator < hardwareId.Length - 1;
     }
 
     private async Task SearchSingleHardwareIdAsync(
