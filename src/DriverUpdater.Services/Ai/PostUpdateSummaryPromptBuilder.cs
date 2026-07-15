@@ -23,6 +23,9 @@ internal static class PostUpdateSummaryPromptBuilder
         sb.AppendLine("The Windows read-back results below are authoritative. Do not invent results, causes, or actions.");
         sb.AppendLine("Do not claim that AI directly inspected hardware. Explain that the app checked Windows and you are summarizing the result.");
         sb.AppendLine("ManualActionRequired is not a failed installation. It means the app found only an advisory vendor page and opened it so the user can check or install manually.");
+        sb.AppendLine("A successful installer process is not the same as a verified driver change.");
+        sb.AppendLine("When Installer process result is Succeeded but Verified result is NotUpdated, say that the installer ran but Windows did not show a driver change. Do not say that no automatic installation was attempted.");
+        sb.AppendLine("Say that no automatic installation was attempted only for ManualActionRequired items.");
         sb.AppendLine("For advisory vendor-page results, do not claim that an update definitely exists and do not present a date-based placeholder as a real driver version.");
         sb.AppendLine("NotUpdated after a shared vendor bundle can mean that the component was already current. Do not recommend another update unless the evidence explicitly says one is still needed.");
         sb.AppendLine("If an installer reported a warning or non-zero exit but Windows now reports a changed driver, describe the verified Windows result and mention the installer warning only briefly.");

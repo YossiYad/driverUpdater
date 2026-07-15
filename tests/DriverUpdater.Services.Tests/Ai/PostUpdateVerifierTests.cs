@@ -61,6 +61,26 @@ public class PostUpdateVerifierTests
     }
 
     [Fact]
+    public async Task Summary_prompt_distinguishes_a_completed_installer_from_a_verified_driver_change()
+    {
+        var probe = new FakeProbe(new InstalledDriverState(
+            new Version(1, 0, 0, 0),
+            new DateOnly(2025, 1, 1)));
+        var ai = new FakeCompleter(true, "The installer ran, but Windows did not show a driver change.");
+        var verifier = NewVerifier(probe, ai);
+
+        await verifier.VerifyAsync(
+            NewBatch(NewOperation(UpdateStatus.Succeeded)),
+            isAfterRestart: false,
+            AppLanguage.English);
+
+        ai.LastPrompt.Should().Contain("successful installer process is not the same as a verified driver change");
+        ai.LastPrompt.Should().Contain("Do not say that no automatic installation was attempted");
+        ai.LastPrompt.Should().Contain("Verified result: NotUpdated");
+        ai.LastPrompt.Should().Contain("Installer process result: Succeeded");
+    }
+
+    [Fact]
     public async Task Failed_install_reads_back_windows_before_reporting_the_previous_driver()
     {
         var probe = new FakeProbe(new InstalledDriverState(new Version(1, 0, 0, 0), new DateOnly(2025, 1, 1)));
