@@ -35,6 +35,17 @@ public sealed record UpdateCandidate(
             return false;
         }
 
+        // Version formats are not comparable across every driver family. A package can
+        // report a high Windows build number while the installed component uses its own
+        // product version. An explicitly older driver date is reliable evidence that the
+        // package is not an upgrade, regardless of the numeric version format.
+        if (current.CurrentDate is { } installedDate
+            && NewDate != DateOnly.MinValue
+            && NewDate < installedDate)
+        {
+            return false;
+        }
+
         // Most reliable comparison: both the candidate and the installed driver expose a date.
         if (IsDateBasedVersion(NewVersion, NewDate) && current.CurrentDate is { } currentDate)
         {
