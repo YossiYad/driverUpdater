@@ -410,6 +410,47 @@ public class MainViewModelAiTests
         vm.VendorChecksCount.Should().Be(0);
     }
 
+    [WpfFact]
+    public async Task ScanAsync_rejects_an_amd_chipset_bundle_version_for_an_individual_component()
+    {
+        var driver = new DriverInfo(
+            DeviceId: "PCI\\AMD_SMBUS",
+            HardwareId: "PCI\\VEN_1022&DEV_790B",
+            DeviceName: "AMD SMBUS",
+            Category: DriverCategory.Chipset,
+            Provider: "Advanced Micro Devices, Inc.",
+            Manufacturer: "Advanced Micro Devices, Inc.",
+            CurrentVersion: new Version(2, 0, 0, 26),
+            CurrentDate: new DateOnly(2025, 12, 4),
+            InfName: "oem85.inf",
+            InfPath: null,
+            IsSigned: true,
+            DeviceClass: "SYSTEM");
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            Verdicts =
+            {
+                ["ai-latest:PCI\\VEN_1022&DEV_790B"] = new AiVerdict(
+                    true,
+                    AiRiskLevel.Safe,
+                    "Recommended",
+                    "The latest AMD chipset driver package is version 8.05.04.516 and includes an SMBUS driver.",
+                    "8.05.04.516",
+                    new DateOnly(2026, 5, 18),
+                    "https://www.amd.com/en/support/downloads/drivers.html",
+                    CandidateSuitability: "The SMBUS driver is included in the latest AMD chipset package.",
+                    AdvisorNote: "Install the latest AMD chipset driver package.")
+            }
+        };
+        var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.Drivers[0].Status.Should().NotBe(DriverStatus.Outdated);
+        vm.VendorChecksCount.Should().Be(0);
+    }
+
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,

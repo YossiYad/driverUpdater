@@ -1229,8 +1229,7 @@ public partial class MainViewModel : ObservableObject
             ?? BuildDateBasedVersion(verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
         var candidateDate = verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var url = TryCreateAbsoluteUri(verdict.LatestKnownUrl) ?? BuildSearchUrl(row);
-        if (AmdChipsetSource.IsSupportedAmdChipsetDriver(row.Driver)
-            && url.AbsolutePath.Contains("/chipsets/", StringComparison.OrdinalIgnoreCase))
+        if (IsAmdChipsetBundleLead(row, verdict, url))
         {
             _logger.LogInformation(
                 "AI latest-driver lead for {Device} rejected: {Version} is an AMD chipset bundle version, not the version of this individual component. The deterministic AMD source will compare the component manifest instead.",
@@ -1294,6 +1293,31 @@ public partial class MainViewModel : ObservableObject
         row.AvailableUpdate = candidate;
         row.Status = DriverStatus.Outdated;
         return true;
+    }
+
+    private static bool IsAmdChipsetBundleLead(
+        DriverRowViewModel row,
+        AiVerdict verdict,
+        Uri url)
+    {
+        if (!AmdChipsetSource.IsSupportedAmdChipsetDriver(row.Driver))
+        {
+            return false;
+        }
+
+        if (url.AbsolutePath.Contains("/chipsets/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var evidence = string.Join(' ',
+            verdict.Rationale,
+            verdict.CandidateSuitability,
+            verdict.AdvisorNote,
+            verdict.Summary);
+        return evidence.Contains("chipset driver", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("chipset package", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("chipset software", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool ApplyAiVerdict(DriverRowViewModel row, AiVerdict verdict)
