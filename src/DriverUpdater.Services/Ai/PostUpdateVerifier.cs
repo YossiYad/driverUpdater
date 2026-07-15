@@ -39,7 +39,18 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
 
         string? aiSummary = null;
         var aiWasUsed = false;
-        if (_aiTextCompleter.IsConfigured)
+        // When every row ended as "open the vendor page yourself" or was skipped outright,
+        // there is no installation outcome to explain - the static summary already covers it.
+        // Spending an AI request (Gemini quota is a hard daily limit) on that adds nothing.
+        var hasInstallOutcome = items.Any(static item =>
+            item.Status is not (UpdateVerificationStatus.ManualActionRequired or UpdateVerificationStatus.Skipped));
+        if (!hasInstallOutcome)
+        {
+            _logger.LogInformation(
+                "AI post-update summary skipped: all {Count} outcome(s) are manual or skipped, nothing was installed",
+                items.Count);
+        }
+        else if (_aiTextCompleter.IsConfigured)
         {
             try
             {

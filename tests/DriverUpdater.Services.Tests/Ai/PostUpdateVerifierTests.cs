@@ -123,6 +123,33 @@ public class PostUpdateVerifierTests
         probe.CallCount.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Manual_only_batch_does_not_spend_an_ai_request()
+    {
+        var probe = new FakeProbe(null);
+        var ai = new FakeCompleter(isConfigured: true, response: "should not be requested");
+        var verifier = NewVerifier(probe, ai);
+        var operation = NewOperation(UpdateStatus.Skipped, "Open the official vendor page to install this update") with
+        {
+            Candidate = NewOperation(UpdateStatus.Skipped).Candidate with
+            {
+                InstallKind = UpdateInstallKind.VendorPage,
+                Confidence = UpdateConfidence.Advisory,
+                DownloadUrl = new Uri("https://vendor.example.com/support")
+            }
+        };
+
+        var report = await verifier.VerifyAsync(
+            NewBatch(operation),
+            isAfterRestart: false,
+            AppLanguage.Hebrew);
+
+        report.Items.Should().ContainSingle().Which.Status.Should().Be(UpdateVerificationStatus.ManualActionRequired);
+        report.AiWasUsed.Should().BeFalse();
+        report.AiSummary.Should().BeNull();
+        ai.LastPrompt.Should().BeNull();
+    }
+
     private static PostUpdateVerifier NewVerifier(IInstalledDriverProbe probe, IAiTextCompleter ai) =>
         new(probe, ai, NullLogger<PostUpdateVerifier>.Instance);
 
