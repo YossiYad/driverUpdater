@@ -109,6 +109,16 @@ public sealed class MotherboardSource : IUpdateSource
             // date only when one side has no parseable version.
             var catalogVersion = TryParseEntryVersion(match.Version);
             if (catalogVersion is not null
+                && driver.CurrentVersion is { } installedVersion
+                && IsEquivalentRealtekLanPackage(driver, installedVersion, catalogVersion))
+            {
+                _logger.LogInformation(
+                    "{Vendor}: skipping {Device} - installed Realtek version {Installed} matches package version {Catalog}",
+                    oemInfo.Vendor, driver.DeviceName, installedVersion, catalogVersion);
+                continue;
+            }
+
+            if (catalogVersion is not null
                 && driver.CurrentVersion is not null
                 && AreComparableDriverVersions(driver.CurrentVersion, catalogVersion))
             {
@@ -316,6 +326,28 @@ public sealed class MotherboardSource : IUpdateSource
         }
 
         return true;
+    }
+
+    internal static bool IsEquivalentRealtekLanPackage(
+        DriverInfo driver,
+        Version installed,
+        Version catalog)
+    {
+        if (driver.Category != DriverCategory.Network
+            || (!Contains(driver.Provider, "Realtek") && !Contains(driver.DeviceName, "Realtek")))
+        {
+            return false;
+        }
+
+        // Gigabyte labels current Windows 11 Realtek LAN packages as 11.x.y.zzzz,
+        // while Windows reports the installed INF as 11YY.x.y.zzzz. For example,
+        // package 11.29.50.0202 is the same payload as installed 1125.29.50.202.
+        return installed.Major is >= 1000 and <= 9999
+            && catalog.Major is 10 or 11
+            && installed.Major / 100 == catalog.Major
+            && installed.Minor == catalog.Minor
+            && installed.Build == catalog.Build
+            && installed.Revision == catalog.Revision;
     }
 
     private static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
