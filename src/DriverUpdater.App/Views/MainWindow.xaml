@@ -283,7 +283,10 @@
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
+                  CanUserReorderColumns="False"
+                  CanUserResizeColumns="False"
                   CanUserResizeRows="False"
+                  FrozenColumnCount="1"
                   GridLinesVisibility="None"
                   HeadersVisibility="Column"
                   IsReadOnly="True"
@@ -295,6 +298,7 @@
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   EnableRowVirtualization="True"
                   EnableColumnVirtualization="True"
+                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                   ItemsSource="{Binding DriversView}">
             <DataGrid.CellStyle>
                 <Style TargetType="DataGridCell">
@@ -304,76 +308,86 @@
                 </Style>
             </DataGrid.CellStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Status"
-                                    Binding="{Binding Status}"
-                                    Width="74" />
-                <DataGridTextColumn Header="Device"
+                <DataGridTextColumn Header="{DynamicResource Grid.Device}"
                                     Binding="{Binding DeviceName}"
-                                    Width="2*"
+                                    Width="*"
                                     MinWidth="260" />
-                <DataGridTextColumn Header="Category"
-                                    Binding="{Binding Category}"
-                                    Width="92" />
-                <DataGridTextColumn Header="Version"
-                                    Binding="{Binding CurrentVersionText}"
-                                    Width="92" />
-                <DataGridTextColumn Header="Date"
-                                    Binding="{Binding CurrentDateText}"
-                                    Width="82" />
-                <DataGridTextColumn Header="Available"
-                                    Binding="{Binding AvailableVersionText}"
-                                    Width="96" />
-                <DataGridTextColumn Header="Avail. date"
-                                    Binding="{Binding AvailableDateText}"
-                                    Width="92" />
-                <DataGridTextColumn Header="Source"
-                                    Binding="{Binding SourceText}"
-                                    Width="86" />
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Progress}" Width="170">
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Status}"
+                                        Width="170"
+                                        MinWidth="170">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Grid VerticalAlignment="Center"
-                                  Margin="4,0"
-                                  Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <ProgressBar Grid.Row="0"
-                                             Height="6"
-                                             Minimum="0"
-                                             Maximum="100"
-                                             Value="{Binding DownloadPercent, Mode=OneWay}"
-                                             Visibility="{Binding HasDeterminateProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                <ProgressBar Grid.Row="0"
-                                             Height="6"
-                                             IsIndeterminate="True">
-                                    <ProgressBar.Style>
-                                        <Style TargetType="ProgressBar">
-                                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Grid Margin="4,0" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="{Binding StatusText}"
+                                           TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible" />
                                             <Style.Triggers>
-                                                <MultiDataTrigger>
-                                                    <MultiDataTrigger.Conditions>
-                                                        <Condition Binding="{Binding IsBusy}" Value="True" />
-                                                        <Condition Binding="{Binding HasDeterminateProgress}" Value="False" />
-                                                    </MultiDataTrigger.Conditions>
-                                                    <Setter Property="Visibility" Value="Visible" />
-                                                </MultiDataTrigger>
+                                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </ProgressBar.Style>
-                                </ProgressBar>
-                                <TextBlock Grid.Row="1"
-                                           Margin="0,2,0,0"
-                                           FontSize="11"
-                                           Opacity="0.8"
-                                           Text="{Binding ProgressStatusText}"
-                                           TextTrimming="CharacterEllipsis" />
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <Grid Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <ProgressBar Grid.Row="0"
+                                                 Height="6"
+                                                 Minimum="0"
+                                                 Maximum="100"
+                                                 Value="{Binding DownloadPercent, Mode=OneWay}"
+                                                 Visibility="{Binding HasDeterminateProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                    <ProgressBar Grid.Row="0"
+                                                 Height="6"
+                                                 IsIndeterminate="True">
+                                        <ProgressBar.Style>
+                                            <Style TargetType="ProgressBar">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding IsBusy}" Value="True" />
+                                                            <Condition Binding="{Binding HasDeterminateProgress}" Value="False" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ProgressBar.Style>
+                                    </ProgressBar>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,2,0,0"
+                                               FontSize="11"
+                                               Opacity="0.8"
+                                               Text="{Binding ProgressStatusText}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </Grid>
                             </Grid>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Update}" Width="118">
+                <DataGridTextColumn Header="{DynamicResource Grid.DriverVersion}"
+                                    Binding="{Binding VersionSummaryText}"
+                                    Width="190"
+                                    MinWidth="190">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            <Setter Property="ToolTip" Value="{Binding DriverDetailsTooltip}" />
+                            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Update}"
+                                        Width="112"
+                                        MinWidth="112">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Button Content="{Binding UpdateActionText}"
@@ -385,10 +399,9 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Confidence"
-                                    Binding="{Binding ConfidenceText}"
-                                    Width="96" />
-                <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}" Width="170" MinWidth="150">
+                <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}"
+                                        Width="190"
+                                        MinWidth="190">
                     <DataGridTemplateColumn.CellStyle>
                         <Style TargetType="DataGridCell">
                             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -489,9 +502,6 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Provider"
-                                    Binding="{Binding Provider}"
-                                    Width="140" />
             </DataGrid.Columns>
         </DataGrid>
 

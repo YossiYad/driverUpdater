@@ -37,6 +37,7 @@
     <sys:String x:Key="Grid.Update">Update</sys:String>
     <sys:String x:Key="Grid.Ai">AI check</sys:String>
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
+    <sys:String x:Key="Grid.DriverVersion">Driver version</sys:String>
 
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
     <sys:String x:Key="Confirm.Current">Current</sys:String>

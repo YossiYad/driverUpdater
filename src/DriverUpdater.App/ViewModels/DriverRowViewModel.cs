@@ -10,6 +10,7 @@ public partial class DriverRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private DriverStatus _status = DriverStatus.Unknown;
 
     [ObservableProperty]
@@ -24,6 +25,8 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(AiRiskText))]
     [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
     [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
+    [NotifyPropertyChangedFor(nameof(VersionSummaryText))]
+    [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
     [NotifyPropertyChangedFor(nameof(CanAskAi))]
@@ -93,6 +96,44 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateConfidence.Advisory => "Check vendor",
         _ => string.Empty
     };
+
+    public string StatusText => Status switch
+    {
+        DriverStatus.Unknown => "Checking...",
+        DriverStatus.UpToDate => "Up to date",
+        DriverStatus.Outdated => "Update available",
+        DriverStatus.NotFound => "No update found",
+        DriverStatus.Error => "Check failed",
+        _ => Status.ToString()
+    };
+
+    public string VersionSummaryText => string.IsNullOrWhiteSpace(AvailableVersionText)
+        ? CurrentVersionText ?? "Unknown"
+        : $"{CurrentVersionText ?? "Unknown"}  to  {AvailableVersionText}";
+
+    public string DriverDetailsTooltip
+    {
+        get
+        {
+            var details = new List<string>
+            {
+                $"Category: {Category}",
+                $"Provider: {Provider}",
+                $"Installed version: {CurrentVersionText ?? "Unknown"}",
+                $"Installed date: {CurrentDateText ?? "Unknown"}"
+            };
+
+            if (AvailableUpdate is not null)
+            {
+                details.Add($"Available version: {AvailableVersionText ?? "Unknown"}");
+                details.Add($"Available date: {AvailableDateText ?? "Unknown"}");
+                details.Add($"Source: {SourceText ?? "Unknown"}");
+                details.Add($"Confidence: {ConfidenceText}");
+            }
+
+            return string.Join(Environment.NewLine, details);
+        }
+    }
 
     public bool HasAiVerdict => AvailableUpdate?.AiVerification is not null;
 
