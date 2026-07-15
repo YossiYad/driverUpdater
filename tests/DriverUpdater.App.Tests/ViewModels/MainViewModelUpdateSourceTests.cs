@@ -778,7 +778,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_drops_cached_drivers_missing_from_current_scan()
+    public async Task ScanAsync_keeps_cached_drivers_missing_from_current_scan()
     {
         var scannedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var missingDriver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
@@ -803,10 +803,13 @@ public class MainViewModelUpdateSourceTests
         await vm.InitializeAsync();
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers.Should().ContainSingle();
-        vm.Drivers[0].DeviceName.Should().Be("Intel Display");
-        vm.ScannedCount.Should().Be(1);
-        cache.Saved.Should().ContainSingle().Which.Entries.Should().ContainSingle();
+        vm.Drivers.Should().HaveCount(2);
+        vm.ScannedCount.Should().Be(2);
+        var kept = vm.Drivers.Single(r => r.DeviceName == "Realtek Audio");
+        kept.AvailableUpdate.Should().NotBeNull();
+        kept.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
+        kept.Status.Should().Be(DriverStatus.Outdated);
+        cache.Saved.Should().ContainSingle().Which.Entries.Should().HaveCount(2);
     }
 
     [WpfFact]

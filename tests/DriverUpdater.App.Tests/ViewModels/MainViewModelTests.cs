@@ -25,15 +25,16 @@ public class MainViewModelTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_drops_rows_missing_from_current_run()
+    public async Task ScanAsync_keeps_rows_missing_from_current_run()
     {
         var vm = NewVm(NewDriver("Only", DriverCategory.Display));
-        vm.Drivers.Add(new DriverRowViewModel(NewDriver("Stale", DriverCategory.Other)));
+        vm.Drivers.Add(new DriverRowViewModel(NewDriver("Known", DriverCategory.Other)));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers.Should().ContainSingle();
-        vm.Drivers[0].DeviceName.Should().Be("Only");
+        vm.Drivers.Should().HaveCount(2);
+        vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo("Only", "Known");
+        vm.ScannedCount.Should().Be(2);
     }
 
     [WpfFact]

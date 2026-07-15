@@ -546,11 +546,12 @@ public partial class MainViewModel : ObservableObject
             }
 
             var elapsed = stopwatch.Elapsed;
-            MergePreviousRows(previousRows);
+            RestoreMissingDevices(previousRows);
             StatusText = $"Scan complete. {Drivers.Count} drivers in {elapsed.TotalSeconds:F1}s. Querying update sources...";
             _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, elapsed);
 
             await QueryUpdateSourcesAsync(cancellationToken);
+            RestorePendingUpdates(previousRows);
 
             StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} vendor checks.";
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
@@ -584,10 +585,53 @@ public partial class MainViewModel : ObservableObject
         return map;
     }
 
-    // Restore pending candidates only for devices that the current WMI scan still
-    // reports. Keeping devices that disappeared from Windows makes the grid grow on
-    // every scan and can leave unverifiable virtual devices eligible for updates.
-    private void MergePreviousRows(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    // WMI inventory is not stable between scans: devices come and go transiently, so a
+    // single scan that misses a device must not erase everything we already know about
+    // it. Devices seen before are re-added (without their pending update, so the update
+    // sources re-check them like any other row) and stay part of the grid and the cache.
+    private void RestoreMissingDevices(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    {
+        if (previousRows.Count == 0)
+        {
+            return;
+        }
+
+        var scannedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Drivers)
+        {
+            scannedIds.Add(row.Driver.DeviceId);
+        }
+
+        var restored = 0;
+        foreach (var (deviceId, previous) in previousRows)
+        {
+            if (scannedIds.Contains(deviceId))
+            {
+                continue;
+            }
+
+            Drivers.Add(new DriverRowViewModel(previous.Driver)
+            {
+                Status = previous.Status == DriverStatus.Outdated ? DriverStatus.UpToDate : previous.Status
+            });
+            restored++;
+        }
+
+        if (restored > 0)
+        {
+            _logger.LogInformation(
+                "Cache merge: {Restored} known driver(s) missing from the current WMI inventory were kept (grid now {Total} rows)",
+                restored, Drivers.Count);
+        }
+
+        ScannedCount = Drivers.Count;
+    }
+
+    // Runs after every update source (and the AI pass) had its chance on the fresh scan:
+    // a candidate found before that no source re-confirmed this time (flaky vendor pages,
+    // exhausted AI quota) is restored instead of silently lost. Fresh results win; the
+    // stale-downgrade guard still drops candidates the installed driver caught up with.
+    private void RestorePendingUpdates(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
     {
         if (previousRows.Count == 0)
         {
@@ -595,10 +639,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         var restoredUpdates = 0;
-        var scannedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in Drivers)
         {
-            scannedIds.Add(row.Driver.DeviceId);
             if (row.AvailableUpdate is not null
                 || !previousRows.TryGetValue(row.Driver.DeviceId, out var previous)
                 || previous.AvailableUpdate is not { } pending)
@@ -620,14 +662,10 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        var droppedRows = previousRows.Keys.Count(deviceId => !scannedIds.Contains(deviceId));
-
-        ScannedCount = Drivers.Count;
         RefreshUpdateCounts();
         _logger.LogInformation(
-            "Cache merge: {Dropped} stale driver(s) absent from the current Windows inventory were dropped, " +
-            "{Restored} pending update(s) restored (grid now {Total} rows)",
-            droppedRows, restoredUpdates, Drivers.Count);
+            "Cache merge: {Restored} pending update(s) restored after source queries (grid now {Total} rows)",
+            restoredUpdates, Drivers.Count);
     }
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
