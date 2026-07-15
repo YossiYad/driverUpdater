@@ -107,9 +107,18 @@ public sealed class GeminiAiVerifier : IAiVerifier
             }
             return verdicts;
         }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "Gemini verification timed out after {ElapsedMs} ms; skipping this batch so the scan can continue",
+                stopwatch.ElapsedMilliseconds);
+            return empty;
+        }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Gemini verification cancelled after {ElapsedMs} ms", stopwatch.ElapsedMilliseconds);
+            _logger.LogInformation(
+                "Gemini verification cancelled by the user after {ElapsedMs} ms",
+                stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)

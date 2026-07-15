@@ -84,6 +84,32 @@ public class GeminiAiVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_returns_empty_when_http_request_times_out()
+    {
+        var verifier = NewVerifier(
+            new AiSettings { Provider = AiProvider.Gemini, GeminiApiKey = "k" },
+            new TimeoutHandler());
+
+        var result = await verifier.VerifyAsync(new[] { NewRequest("corr-1") });
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_still_throws_when_the_caller_cancels()
+    {
+        var verifier = NewVerifier(
+            new AiSettings { Provider = AiProvider.Gemini, GeminiApiKey = "k" },
+            new CallerCancellationHandler());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var act = () => verifier.VerifyAsync(new[] { NewRequest("corr-1") }, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task VerifyAsync_returns_empty_on_http_error_status()
     {
         var verifier = NewVerifier(
@@ -127,4 +153,20 @@ public class GeminiAiVerifierTests
         CandidateDate: new DateOnly(2026, 1, 1),
         Source: UpdateSource.Oem,
         DownloadUrl: "https://example.com/driver.exe");
+
+    private sealed class TimeoutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new TaskCanceledException("The request timed out.");
+    }
+
+    private sealed class CallerCancellationHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromCanceled<HttpResponseMessage>(cancellationToken);
+    }
 }

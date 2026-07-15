@@ -704,8 +704,11 @@ public partial class MainViewModel : ObservableObject
                 }
         }
 
-        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
-        await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
+        var rowsReviewedAsCandidates = await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+        await DiscoverLatestDriversWithAiAsync(
+            onlyRowsWithoutUpdates: true,
+            rowsReviewedAsCandidates,
+            cancellationToken).ConfigureAwait(true);
 
         LogScanSummary();
     }
@@ -831,28 +834,30 @@ public partial class MainViewModel : ObservableObject
     // candidate in one batched call to (1) suppress updates that are not genuinely
     // newer than what is installed and (2) annotate the rest with a risk assessment.
     // Any failure leaves the scan results exactly as they were.
-    private async Task VerifyCandidatesWithAiAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlySet<DriverRowViewModel>> VerifyCandidatesWithAiAsync(
+        CancellationToken cancellationToken)
     {
         if (_aiVerifier is null)
         {
             _logger.LogDebug("AI verification skipped: no verifier is registered");
-            return;
+            return new HashSet<DriverRowViewModel>();
         }
         if (!_aiVerifier.IsConfigured)
         {
             _logger.LogInformation(
                 "AI verification skipped: provider {Provider} is not configured", _aiVerifier.Provider);
-            return;
+            return new HashSet<DriverRowViewModel>();
         }
 
         var targets = Drivers
-            .Where(r => r.AvailableUpdate is { InstallKind: not UpdateInstallKind.VendorPage })
+            .Where(r => r.AvailableUpdate is not null)
             .ToArray();
         if (targets.Length == 0)
         {
-            _logger.LogInformation("AI verification skipped: no installable candidates to verify");
-            return;
+            _logger.LogInformation("AI verification skipped: no existing candidates to verify");
+            return new HashSet<DriverRowViewModel>();
         }
+        var reviewedRows = targets.ToHashSet();
 
         // Many rows can share one installer (e.g. an AMD chipset package that drives 18
         // device rows, all with the same SourceUpdateId). Send each installer to the AI
@@ -875,7 +880,7 @@ public partial class MainViewModel : ObservableObject
         IReadOnlyDictionary<string, AiVerdict> verdicts;
         try
         {
-            StatusText = "Verifying updates with AI...";
+            StatusText = $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
             verdicts = await _aiVerifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(true);
             stopwatch.Stop();
         }
@@ -890,7 +895,7 @@ public partial class MainViewModel : ObservableObject
             _logger.LogWarning(ex,
                 "AI verification failed after {ElapsedMs} ms; leaving scan results unchanged",
                 stopwatch.ElapsedMilliseconds);
-            return;
+            return reviewedRows;
         }
 
         if (verdicts.Count == 0)
@@ -899,7 +904,7 @@ public partial class MainViewModel : ObservableObject
                 "AI verification returned no verdicts after {ElapsedMs} ms; leaving all {Count} candidate(s) unchanged",
                 stopwatch.ElapsedMilliseconds, requests.Length);
             StatusText = "AI verification returned no usable result; scan results unchanged.";
-            return;
+            return reviewedRows;
         }
 
         var suppressed = 0;
@@ -936,6 +941,7 @@ public partial class MainViewModel : ObservableObject
             "AI verification applied in {ElapsedMs} ms: {Suppressed} suppressed, {Annotated} annotated, {WithoutVerdict} left untouched (no verdict)",
             stopwatch.ElapsedMilliseconds, suppressed, annotated, withoutVerdict);
         StatusText = $"AI verification complete. {suppressed} suppressed, {annotated} annotated.";
+        return reviewedRows;
     }
 
     [RelayCommand]
@@ -1027,7 +1033,10 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async Task DiscoverLatestDriversWithAiAsync(bool onlyRowsWithoutUpdates, CancellationToken cancellationToken)
+    private async Task DiscoverLatestDriversWithAiAsync(
+        bool onlyRowsWithoutUpdates,
+        IReadOnlySet<DriverRowViewModel> alreadyReviewed,
+        CancellationToken cancellationToken)
     {
         if (_aiVerifier is null)
         {
@@ -1041,14 +1050,9 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var hardwareWithCandidate = Drivers
-            .Where(r => r.AvailableUpdate is not null)
-            .Select(r => r.HardwareId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var targets = Drivers
-            .Where(r => !onlyRowsWithoutUpdates
-                || (r.AvailableUpdate is null && !hardwareWithCandidate.Contains(r.HardwareId)))
+            .Where(r => !alreadyReviewed.Contains(r))
+            .Where(r => !onlyRowsWithoutUpdates || r.AvailableUpdate is null)
             .ToArray();
         if (targets.Length == 0)
         {
@@ -1073,17 +1077,33 @@ public partial class MainViewModel : ObservableObject
             try
             {
                 var requests = batch.Select(BuildAiDiscoveryRequest).ToArray();
+                var overallStart = alreadyReviewed.Count + processed + 1;
+                var overallEnd = alreadyReviewed.Count + processed + batch.Length;
                 StatusText =
-                    $"Asking AI to find latest drivers... {processed + 1}-{processed + batch.Length} of {targets.Length}";
+                    $"Asking AI to find latest drivers... {overallStart}-{overallEnd} of {Drivers.Count}. Waiting for AI response...";
                 _logger.LogInformation(
-                    "AI latest-driver discovery: provider={Provider}, sending batch {Start}-{End} of {Total}",
-                    _aiVerifier.Provider, processed + 1, processed + batch.Length, targets.Length);
+                    "AI latest-driver discovery: provider={Provider}, sending discovery batch {DiscoveryStart}-{DiscoveryEnd} of {DiscoveryTotal}, overall rows {OverallStart}-{OverallEnd} of {OverallTotal}",
+                    _aiVerifier.Provider,
+                    processed + 1,
+                    processed + batch.Length,
+                    targets.Length,
+                    overallStart,
+                    overallEnd,
+                    Drivers.Count);
                 foreach (var request in requests)
                 {
                     LogAiRequest("latest-driver discovery", request);
                 }
 
                 var verdicts = await _aiVerifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(true);
+                if (verdicts.Count == 0)
+                {
+                    failedBatches++;
+                    _logger.LogWarning(
+                        "AI latest-driver discovery returned no usable results for overall rows {Start}-{End}; continuing with the next batch",
+                        overallStart,
+                        overallEnd);
+                }
                 foreach (var row in batch)
                 {
                     var id = BuildAiDiscoveryCorrelationId(row);
@@ -1114,6 +1134,7 @@ public partial class MainViewModel : ObservableObject
             catch (Exception ex)
             {
                 failedBatches++;
+                withoutVerdict += batch.Length;
                 _logger.LogWarning(ex, "AI latest-driver discovery batch failed");
             }
             finally
@@ -1127,11 +1148,11 @@ public partial class MainViewModel : ObservableObject
         }
 
         StatusText =
-            $"AI latest-driver search complete. {found} vendor checks found, {noNewer} already current, {withoutVerdict} no result."
+            $"AI latest-driver search complete. {alreadyReviewed.Count + processed} of {Drivers.Count} drivers processed, {found} vendor checks found, {noNewer} already current, {withoutVerdict} no result."
             + (failedBatches > 0 ? $" {failedBatches} batch(es) failed." : string.Empty);
         _logger.LogInformation(
-            "AI latest-driver discovery complete: targets={Targets}, found={Found}, noNewer={NoNewer}, withoutVerdict={WithoutVerdict}, failedBatches={FailedBatches}",
-            targets.Length, found, noNewer, withoutVerdict, failedBatches);
+            "AI latest-driver discovery complete: reviewedCandidates={ReviewedCandidates}, discoveryTargets={Targets}, totalDrivers={TotalDrivers}, found={Found}, noNewer={NoNewer}, withoutVerdict={WithoutVerdict}, failedBatches={FailedBatches}",
+            alreadyReviewed.Count, targets.Length, Drivers.Count, found, noNewer, withoutVerdict, failedBatches);
     }
 
     private static AiVerificationRequest BuildAiDiscoveryRequest(DriverRowViewModel row) =>
