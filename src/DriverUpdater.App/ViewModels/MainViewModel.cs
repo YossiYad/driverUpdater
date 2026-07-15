@@ -1707,7 +1707,8 @@ public partial class MainViewModel : ObservableObject
             }
             cancellationToken.ThrowIfCancellationRequested();
 
-            var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
+            var originalCandidate = row.AvailableUpdate;
+            var originalUpdateId = originalCandidate.SourceUpdateId;
             var displayName = DriverDisplayName(row);
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
@@ -1744,7 +1745,7 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                outcomes.AddRange(ApplySharedVendorInstallerResult(finished, row, originalUpdateId));
+                outcomes.AddRange(ApplySharedVendorInstallerResult(finished, row, originalCandidate));
             }
 
             if (finished.Status == UpdateStatus.Skipped
@@ -1978,7 +1979,7 @@ public partial class MainViewModel : ObservableObject
     private IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> ApplySharedVendorInstallerResult(
         UpdateOperation finished,
         DriverRowViewModel masterRow,
-        string originalUpdateId)
+        UpdateCandidate originalCandidate)
     {
         // Every row that shares the SourceUpdateId is really the same install (think 18
         // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
@@ -1987,13 +1988,22 @@ public partial class MainViewModel : ObservableObject
         // filter makes it look like there is still work pending when there is not.
         // The master row keeps its AvailableUpdate on failure so the user can retry it
         // explicitly without having to rescan.
-        // A vendor page candidate that was resolved to a direct installer finishes with a
-        // rewritten SourceUpdateId; sibling rows still carry the original id, so match both.
+        // A vendor page candidate that was resolved to a direct AMD chipset installer finishes
+        // with a per-row SourceUpdateId. Sibling AMD components still point at the same original
+        // chipset page, so treat them as one shared package and verify each component afterward.
+        var isResolvedAmdChipsetPackage =
+            finished.Candidate.SourceUpdateId.StartsWith(
+                "vendor-installer:amd-chipset:",
+                StringComparison.OrdinalIgnoreCase)
+            && originalCandidate.InstallKind == UpdateInstallKind.VendorPage;
         var sharedOutcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         foreach (var row in Drivers.Where(r =>
             r.AvailableUpdate?.SourceUpdateId is { } id
             && (string.Equals(id, finished.Candidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(id, originalUpdateId, StringComparison.OrdinalIgnoreCase))))
+                || string.Equals(id, originalCandidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
+                || (isResolvedAmdChipsetPackage
+                    && r.AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage
+                    && r.AvailableUpdate.DownloadUrl == originalCandidate.DownloadUrl))))
         {
             var rowOperation = ReferenceEquals(row, masterRow)
                 ? finished

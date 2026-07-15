@@ -275,6 +275,50 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task UpdateAllAsync_runs_a_resolved_amd_chipset_package_only_once_for_shared_components()
+    {
+        var driverA = NewDriver("AMD Special Tools Driver", "ROOT\\SYSTEM\\0001", new Version(1, 0, 0, 0));
+        var driverB = NewDriver("AMD I2C Controller", "ACPI\\AMDI0010", new Version(1, 0, 0, 0));
+        var driverC = NewDriver("AMD SMBUS", "PCI\\VEN_1022&DEV_790B", new Version(1, 0, 0, 0));
+        var chipsetPage = new Uri("https://www.amd.com/en/support/downloads/drivers.html");
+        var candidates = new[]
+        {
+            NewCandidate(driverA.HardwareId, new Version(1, 7, 29, 0), UpdateInstallKind.VendorPage) with
+            {
+                SourceUpdateId = "ai-latest:ROOT\\SYSTEM\\0001",
+                DownloadUrl = chipsetPage
+            },
+            NewCandidate(driverB.HardwareId, new Version(1, 2, 0, 126), UpdateInstallKind.VendorPage) with
+            {
+                SourceUpdateId = "ai-latest:ACPI\\AMDI0010",
+                DownloadUrl = chipsetPage
+            },
+            NewCandidate(driverC.HardwareId, new Version(2, 0, 0, 26), UpdateInstallKind.VendorPage) with
+            {
+                SourceUpdateId = "ai-latest:PCI\\VEN_1022&DEV_790B",
+                DownloadUrl = chipsetPage
+            }
+        };
+        var pipeline = new ResolvingAmdChipsetPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driverA, driverB, driverC }),
+            new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        pipeline.Operations.Should().ContainSingle();
+        vm.Drivers.All(row => row.AvailableUpdate is null).Should().BeTrue();
+    }
+
+    [WpfFact]
     public async Task UpdateAllAsync_switches_filter_to_installable_and_scrolls_to_each_row()
     {
         var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
@@ -1210,6 +1254,33 @@ public class MainViewModelUpdateSourceTests
                     Status = UpdateStatus.Succeeded,
                     CompletedAt = DateTimeOffset.UtcNow
                 };
+            progress?.Report(finished);
+            return Task.FromResult(finished);
+        }
+    }
+
+    private sealed class ResolvingAmdChipsetPipeline : IInstallPipeline
+    {
+        public List<UpdateOperation> Operations { get; } = new();
+
+        public Task<UpdateOperation> ExecuteAsync(
+            UpdateOperation operation,
+            InstallOptions options,
+            IProgress<UpdateOperation>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Operations.Add(operation);
+            var finished = operation with
+            {
+                Candidate = operation.Candidate with
+                {
+                    InstallKind = UpdateInstallKind.VendorInstaller,
+                    SourceUpdateId = $"vendor-installer:amd-chipset:resolved:{operation.Candidate.SourceUpdateId}",
+                    DownloadUrl = new Uri("https://drivers.amd.com/drivers/amd_chipset_software.exe")
+                },
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = DateTimeOffset.UtcNow
+            };
             progress?.Report(finished);
             return Task.FromResult(finished);
         }
