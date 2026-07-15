@@ -1,4 +1,5 @@
 using System.Net;
+using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Services.Sources;
 using FluentAssertions;
@@ -42,6 +43,20 @@ public class AmdGraphicsSourceTests
             """);
 
         var results = await source.SearchAsync(new[] { NewAmdDriver(new DateOnly(2026, 5, 14)) }).ToListAsync();
+
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SearchAsync_skips_when_same_Adrenalin_package_is_already_installed()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.6.4 (WHQL Recommended)</p>
+            <p>Release Date</p><p>2026-06-29</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.6.4-win11-b.exe">Download</a>
+            """, installedAmdSoftwareVersion: "26.6.4");
+
+        var results = await source.SearchAsync(new[] { NewAmdDriver(new DateOnly(2026, 6, 28)) }).ToListAsync();
 
         results.Should().BeEmpty();
     }
@@ -214,13 +229,16 @@ public class AmdGraphicsSourceTests
         uri.AbsoluteUri.Should().Be(AmdGraphicsSource.AmdSupportUrl);
     }
 
-    private static AmdGraphicsSource NewSource(string html)
+    private static AmdGraphicsSource NewSource(string html, string? installedAmdSoftwareVersion = null)
     {
         var client = new HttpClient(new StaticHtmlHandler(html))
         {
             BaseAddress = new Uri("https://www.amd.com/")
         };
-        return new AmdGraphicsSource(client, NullLogger<AmdGraphicsSource>.Instance);
+        return new AmdGraphicsSource(
+            client,
+            new StubInstalledSoftwareVersionProvider(installedAmdSoftwareVersion),
+            NullLogger<AmdGraphicsSource>.Instance);
     }
 
     private static DriverInfo NewAmdDriver(DateOnly currentDate) => new(
@@ -251,5 +269,10 @@ public class AmdGraphicsSourceTests
             {
                 Content = new StringContent(_html)
             });
+    }
+
+    private sealed class StubInstalledSoftwareVersionProvider(string? version) : IInstalledSoftwareVersionProvider
+    {
+        public string? GetVersion(string displayName) => version;
     }
 }

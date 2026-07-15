@@ -7,6 +7,7 @@ using DriverUpdater.Infrastructure.PnPUtil;
 using DriverUpdater.Infrastructure.Powershell;
 using DriverUpdater.Infrastructure.Scheduling;
 using DriverUpdater.Infrastructure.Settings;
+using DriverUpdater.Infrastructure.Software;
 using DriverUpdater.Infrastructure.VendorInstallers;
 using DriverUpdater.Infrastructure.Wmi;
 using DriverUpdater.Infrastructure.WuApi;
@@ -26,6 +27,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IPnPUtilRunner, PnPUtilRunner>();
         services.AddSingleton<IPowerShellInvoker, PowerShellInvoker>();
         services.AddSingleton<IVendorInstallerRunner, VendorInstallerRunner>();
+        services.AddSingleton<IInstalledSoftwareVersionProvider, WindowsInstalledSoftwareVersionProvider>();
         services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();
         services.AddSingleton<ISettingsStore>(sp =>

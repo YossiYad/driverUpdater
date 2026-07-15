@@ -40,6 +40,7 @@ public static class ServicesServiceCollectionExtensions
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(AmdGraphicsSource.HttpClientName),
+            sp.GetRequiredService<IInstalledSoftwareVersionProvider>(),
             sp.GetRequiredService<ILogger<AmdGraphicsSource>>()));
         services.AddSingleton<IAmdSocketDetector, AmdSocketDetector>();
         services.AddSingleton<IUpdateSource>(sp => new AmdChipsetSource(
