@@ -59,6 +59,29 @@ public class MainWindowHeaderTests
             "{Binding OpenSettingsCommand}");
     }
 
+    [Fact]
+    public void Header_icon_font_is_scoped_to_glyphs_so_tooltips_use_a_text_font()
+    {
+        var document = XDocument.Load(Path.Combine(ViewsFolder(), "MainWindow.xaml"));
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+
+        var style = document.Descendants(presentation + "Style")
+            .Single(element => element.Attribute(x + "Key")?.Value == "HeaderIconButtonStyle");
+        style.Elements(presentation + "Setter")
+            .Select(setter => setter.Attribute("Property")?.Value)
+            .Should().NotContain("FontFamily");
+
+        var iconButtons = document.Descendants(presentation + "Button")
+            .Where(button => button.Attribute("Style")?.Value == "{StaticResource HeaderIconButtonStyle}")
+            .Where(button => button.Attribute("ToolTip")?.Value?.StartsWith("{DynamicResource Toolbar.", StringComparison.Ordinal) == true)
+            .ToArray();
+        iconButtons.Should().HaveCount(3);
+        iconButtons.Select(button =>
+                button.Element(presentation + "TextBlock")?.Attribute("FontFamily")?.Value)
+            .Should().OnlyContain(fontFamily => fontFamily == "Segoe MDL2 Assets");
+    }
+
     private static string ViewsFolder() => Path.GetFullPath(Path.Combine(
         AppContext.BaseDirectory,
         "..", "..", "..", "..", "..",
