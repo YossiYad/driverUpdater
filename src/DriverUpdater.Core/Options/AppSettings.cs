@@ -2,6 +2,7 @@ namespace DriverUpdater.Core.Options;
 
 public sealed class AppSettings
 {
+    public ApplicationSettings Application { get; set; } = new();
     public CatalogSettings Catalog { get; set; } = new();
     public BackupSettings Backup { get; set; } = new();
     public HistorySettings History { get; set; } = new();

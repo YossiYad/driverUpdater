@@ -23,6 +23,8 @@ public static class AppServices
         services.AddSingleton<IExternalLinkOpener, ExternalLinkOpener>();
         services.AddSingleton<ISupportWindowOpener, SupportWindowOpener>();
         services.AddSingleton<ILogCleanupService, LogCleanupService>();
+        services.AddSingleton<ApplicationBehaviorState>();
+        services.AddSingleton<NotificationAreaService>();
         services.AddHostedService<LogCleanupBackgroundService>();
         services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
         services.AddSingleton<IAiResultTranslator, AiResultTranslator>();

@@ -12,6 +12,79 @@ namespace DriverUpdater.App.Tests.ViewModels;
 public class SettingsViewModelTests
 {
     [WpfFact]
+    public async Task LoadAsync_reads_application_behavior_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Application = new ApplicationSettings
+            {
+                CloseBehavior = WindowCloseBehavior.KeepRunningInBackground,
+                StartWithWindows = true,
+                StartMinimized = true
+            }
+        });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.CloseBehavior.Should().Be(WindowCloseBehavior.KeepRunningInBackground);
+        vm.StartWithWindows.Should().BeTrue();
+        vm.StartMinimized.Should().BeTrue();
+        vm.CanStartMinimized.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_applies_application_and_Windows_startup_settings()
+    {
+        var store = new FakeStore(new AppSettings());
+        var startup = new FakeApplicationStartupService();
+        var state = new ApplicationBehaviorState();
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            applicationBehaviorState: state,
+            applicationStartupService: startup);
+        await vm.LoadAsync();
+        vm.CloseBehavior = WindowCloseBehavior.KeepRunningInBackground;
+        vm.StartWithWindows = true;
+        vm.StartMinimized = true;
+
+        await vm.SaveAsync();
+
+        store.Saved!.Application.CloseBehavior
+            .Should().Be(WindowCloseBehavior.KeepRunningInBackground);
+        store.Saved.Application.StartWithWindows.Should().BeTrue();
+        store.Saved.Application.StartMinimized.Should().BeTrue();
+        startup.ApplyCalls.Should().Be(1);
+        startup.StartWithWindows.Should().BeTrue();
+        startup.StartMinimized.Should().BeTrue();
+        state.ShouldStartHidden.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public void Start_minimized_is_cleared_when_background_mode_is_disabled()
+    {
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance)
+        {
+            CloseBehavior = WindowCloseBehavior.KeepRunningInBackground,
+            StartWithWindows = true,
+            StartMinimized = true
+        };
+
+        vm.CloseBehavior = WindowCloseBehavior.ExitApplication;
+
+        vm.CanStartMinimized.Should().BeFalse();
+        vm.StartMinimized.Should().BeFalse();
+    }
+
+    [WpfFact]
     public async Task LoadAsync_pulls_values_from_store()
     {
         var store = new FakeStore(new AppSettings
@@ -540,6 +613,24 @@ public class SettingsViewModelTests
             ClearCalls++;
             Cleared?.Invoke(this, EventArgs.Empty);
             return Task.FromResult(_removedUpdateCount);
+        }
+    }
+
+    private sealed class FakeApplicationStartupService : IApplicationStartupService
+    {
+        public int ApplyCalls { get; private set; }
+        public bool StartWithWindows { get; private set; }
+        public bool StartMinimized { get; private set; }
+
+        public Task ApplyAsync(
+            bool startWithWindows,
+            bool startMinimized,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCalls++;
+            StartWithWindows = startWithWindows;
+            StartMinimized = startMinimized;
+            return Task.CompletedTask;
         }
     }
 

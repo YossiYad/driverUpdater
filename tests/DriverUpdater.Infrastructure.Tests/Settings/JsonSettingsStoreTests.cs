@@ -38,6 +38,8 @@ public class JsonSettingsStoreTests : IDisposable
         var settings = await store.LoadAsync();
 
         settings.Should().NotBeNull();
+        settings.Application.CloseBehavior.Should().Be(WindowCloseBehavior.ExitApplication);
+        settings.Application.StartWithWindows.Should().BeFalse();
         settings.Catalog.Enabled.Should().BeTrue();
         settings.Schedule.Mode.Should().Be(ScheduleMode.Manual);
     }
@@ -48,6 +50,12 @@ public class JsonSettingsStoreTests : IDisposable
         var store = NewStore();
         var settings = new AppSettings
         {
+            Application = new ApplicationSettings
+            {
+                CloseBehavior = WindowCloseBehavior.KeepRunningInBackground,
+                StartWithWindows = true,
+                StartMinimized = true
+            },
             Catalog = new CatalogSettings { Enabled = true, MaxConcurrentSearches = 8, CacheDuration = TimeSpan.FromHours(48) },
             Backup = new BackupSettings { RetentionDays = 60 },
             LogCleanup = new LogCleanupSettings { Enabled = false, RetentionDays = 21 },
@@ -64,6 +72,9 @@ public class JsonSettingsStoreTests : IDisposable
         File.Exists(_path).Should().BeTrue();
 
         var loaded = await store.LoadAsync();
+        loaded.Application.CloseBehavior.Should().Be(WindowCloseBehavior.KeepRunningInBackground);
+        loaded.Application.StartWithWindows.Should().BeTrue();
+        loaded.Application.StartMinimized.Should().BeTrue();
         loaded.Catalog.Enabled.Should().BeTrue();
         loaded.Catalog.MaxConcurrentSearches.Should().Be(8);
         loaded.Backup.RetentionDays.Should().Be(60);

@@ -20,6 +20,7 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         // The XAML resource is a build-time placeholder; the running assembly's version is
         // always accurate, so override it here instead of hand-editing the string per release.
@@ -101,10 +102,40 @@ public partial class App : Application
         localization.ApplyLanguage(languageSettings.Language);
         _host.Services.GetRequiredService<AiQuotaNotificationService>().Start();
 
+        var savedSettings = await _host.Services
+            .GetRequiredService<ISettingsStore>()
+            .LoadAsync()
+            .ConfigureAwait(true);
+        var applicationBehavior = _host.Services.GetRequiredService<ApplicationBehaviorState>();
+        applicationBehavior.Apply(savedSettings.Application);
+
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
-        mainWindow.Show();
-        await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+        var backgroundLaunch = e.Args.Any(
+            argument => string.Equals(argument, "--background", StringComparison.OrdinalIgnoreCase));
+        if (backgroundLaunch && applicationBehavior.ShouldStartHidden)
+        {
+            var startedInBackground = await mainWindow.StartInBackgroundAsync();
+            if (!startedInBackground)
+            {
+                mainWindow.Show();
+                await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+            }
+        }
+        else
+        {
+            mainWindow.Show();
+            await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+        }
+    }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        if (MainWindow is MainWindow mainWindow)
+        {
+            mainWindow.RequestApplicationExit();
+        }
+        base.OnSessionEnding(e);
     }
 
     private async Task ShowWelcomeIfNeededAsync(Window owner, DriverUpdater.Core.Models.AppLanguage language)

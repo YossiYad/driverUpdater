@@ -17,6 +17,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly ILogCleanupService? _logCleanupService;
     private readonly IDriverCacheStore? _driverCacheStore;
+    private readonly ApplicationBehaviorState? _applicationBehaviorState;
+    private readonly IApplicationStartupService? _applicationStartupService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
@@ -42,6 +44,16 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
 
     [ObservableProperty] private bool _enablePlaywrightFallback;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
+    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.ExitApplication;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
+    private bool _startWithWindows;
+
+    [ObservableProperty] private bool _startMinimized;
 
     [ObservableProperty] private bool _enableAutomaticLogCleanup = true;
     [ObservableProperty] private int _logRetentionDays = LogCleanupSettings.DefaultRetentionDays;
@@ -69,7 +81,7 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>When checking on startup, download and install a found update without asking.</summary>
     [ObservableProperty] private bool _autoInstallAppUpdates;
 
-    // Preserved across save so settings that are not exposed in the UI are not wiped.
+    // Preserved across save so the app-update feed/repo settings are not wiped by the UI.
     private CatalogSettings _loadedCatalog = new();
     private UpdaterSettings _loadedUpdater = new();
     private OnboardingSettings _loadedOnboarding = new();
@@ -88,6 +100,9 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool IsOllamaSelected => SelectedAiProvider == AiProvider.Ollama;
 
+    public bool CanStartMinimized =>
+        StartWithWindows && CloseBehavior == WindowCloseBehavior.KeepRunningInBackground;
+
     public SettingsViewModel(
         ISettingsStore settingsStore,
         ISchedulerService schedulerService,
@@ -96,7 +111,9 @@ public partial class SettingsViewModel : ObservableObject
         IAppUpdater? appUpdater = null,
         IAppUpdatePrompt? appUpdatePrompt = null,
         ILogCleanupService? logCleanupService = null,
-        IDriverCacheStore? driverCacheStore = null)
+        IDriverCacheStore? driverCacheStore = null,
+        ApplicationBehaviorState? applicationBehaviorState = null,
+        IApplicationStartupService? applicationStartupService = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -108,6 +125,8 @@ public partial class SettingsViewModel : ObservableObject
         _appUpdatePrompt = appUpdatePrompt;
         _logCleanupService = logCleanupService;
         _driverCacheStore = driverCacheStore;
+        _applicationBehaviorState = applicationBehaviorState;
+        _applicationStartupService = applicationStartupService;
         _logger = logger;
     }
 
@@ -201,6 +220,33 @@ public partial class SettingsViewModel : ObservableObject
         {
             var settings = BuildSettings();
             await _settingsStore.SaveAsync(settings, cancellationToken).ConfigureAwait(true);
+            _applicationBehaviorState?.Apply(settings.Application);
+            _logger.LogInformation(
+                "Application behavior saved: closeBehavior={CloseBehavior}, startWithWindows={StartWithWindows}, startMinimized={StartMinimized}",
+                settings.Application.CloseBehavior,
+                settings.Application.StartWithWindows,
+                settings.Application.StartMinimized);
+
+            var startupWarning = string.Empty;
+            if (_applicationStartupService is not null)
+            {
+                try
+                {
+                    await _applicationStartupService.ApplyAsync(
+                        settings.Application.StartWithWindows,
+                        settings.Application.StartMinimized,
+                        cancellationToken).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    startupWarning = " Windows startup could not be updated. See logs for details.";
+                    _logger.LogError(
+                        ex,
+                        "Failed to apply Windows startup setting: enabled={Enabled}, startMinimized={StartMinimized}",
+                        settings.Application.StartWithWindows,
+                        settings.Application.StartMinimized);
+                }
+            }
 
             var deletedLogFiles = 0;
             if (_logCleanupService is not null)
@@ -226,8 +272,8 @@ public partial class SettingsViewModel : ObservableObject
             _localizationService?.ApplyLanguage(SelectedLanguage);
 
             StatusText = deletedLogFiles > 0
-                ? $"Settings saved. Removed {deletedLogFiles} old log file(s)."
-                : "Settings saved.";
+                ? $"Settings saved. Removed {deletedLogFiles} old log file(s).{startupWarning}"
+                : $"Settings saved.{startupWarning}";
         }
         catch (Exception ex)
         {
@@ -290,6 +336,23 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnAcceptedAutoUpdateRiskChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
+
+    partial void OnCloseBehaviorChanged(WindowCloseBehavior value)
+    {
+        if (!CanStartMinimized)
+        {
+            StartMinimized = false;
+        }
+    }
+
+    partial void OnStartWithWindowsChanged(bool value)
+    {
+        if (!CanStartMinimized)
+        {
+            StartMinimized = false;
+        }
+    }
+
     partial void OnIsBusyChanged(bool value)
     {
         SaveCommand.NotifyCanExecuteChanged();
@@ -298,6 +361,12 @@ public partial class SettingsViewModel : ObservableObject
 
     internal AppSettings BuildSettings() => new()
     {
+        Application = new ApplicationSettings
+        {
+            CloseBehavior = CloseBehavior,
+            StartWithWindows = StartWithWindows,
+            StartMinimized = CanStartMinimized && StartMinimized
+        },
         Catalog = new CatalogSettings
         {
             Enabled = EnableMicrosoftCatalog,
@@ -359,6 +428,12 @@ public partial class SettingsViewModel : ObservableObject
 
     internal void ApplyFromSettings(AppSettings settings)
     {
+        var application = settings.Application ?? new ApplicationSettings();
+        CloseBehavior = application.CloseBehavior == WindowCloseBehavior.KeepRunningInBackground
+            ? WindowCloseBehavior.KeepRunningInBackground
+            : WindowCloseBehavior.ExitApplication;
+        StartWithWindows = application.StartWithWindows;
+        StartMinimized = CanStartMinimized && application.StartMinimized;
         _loadedCatalog = settings.Catalog;
         _loadedUpdater = settings.Updater;
         _loadedOnboarding = settings.Onboarding;

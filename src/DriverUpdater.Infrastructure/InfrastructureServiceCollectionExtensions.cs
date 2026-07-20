@@ -31,6 +31,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IInstalledSoftwareVersionProvider, WindowsInstalledSoftwareVersionProvider>();
         services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();
+        services.AddSingleton<IApplicationStartupService, WindowsApplicationStartupService>();
         services.AddSingleton<ISettingsStore>(sp =>
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
         services.AddSingleton<IDriverCacheStore>(sp =>
