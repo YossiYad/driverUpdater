@@ -14,6 +14,7 @@ using DriverUpdater.Infrastructure.WuApi;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Polly;
+using Polly.Extensions.Http;
 
 namespace DriverUpdater.Infrastructure;
 
@@ -50,9 +51,15 @@ public static class InfrastructureServiceCollectionExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("text/html");
         })
-        .AddTransientHttpErrorPolicy(builder => builder.WaitAndRetryAsync(
-            retryCount: 3,
-            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt))));
+        .AddPolicyHandler((sp, _) =>
+        {
+            var retryCount = Math.Max(
+                0,
+                sp.GetRequiredService<IOptionsMonitor<CatalogSettings>>().CurrentValue.MaxRetries);
+            return HttpPolicyExtensions.HandleTransientHttpError().WaitAndRetryAsync(
+                retryCount,
+                attempt => TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)));
+        });
 
         return services;
     }

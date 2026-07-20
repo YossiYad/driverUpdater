@@ -13,6 +13,9 @@ namespace DriverUpdater.Services.Sources;
 
 public sealed partial class MicrosoftCatalogSource : IUpdateSource
 {
+    private static readonly IReadOnlyDictionary<string, CatalogDownloadInfo> EmptyDownloadMap =
+        new Dictionary<string, CatalogDownloadInfo>(StringComparer.OrdinalIgnoreCase);
+
     private readonly ICatalogHttpClient _httpClient;
     private readonly IMemoryCache _cache;
     private readonly IOptionsMonitor<CatalogSettings> _settings;
@@ -51,21 +54,27 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
             yield break;
         }
 
-        var hardwareIds = drivers
-            .SelectMany(d => d.HardwareIds.Count > 0 ? d.HardwareIds : new[] { d.HardwareId })
-            .Where(IsPnPHardwareId)
-            .SelectMany(ExpandHardwareIdQueries)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var driversByHardwareId = new Dictionary<string, List<DriverInfo>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var driver in drivers)
+        {
+            foreach (var hardwareId in BuildCatalogQueries(driver))
+            {
+                if (!driversByHardwareId.TryGetValue(hardwareId, out var matchingDrivers))
+                {
+                    matchingDrivers = new List<DriverInfo>();
+                    driversByHardwareId[hardwareId] = matchingDrivers;
+                }
+                matchingDrivers.Add(driver);
+            }
+        }
 
-        if (hardwareIds.Length == 0)
+        if (driversByHardwareId.Count == 0)
         {
             _logger.LogDebug("Catalog search skipped: no hardware IDs to query");
             yield break;
         }
 
-        _logger.LogInformation("Catalog search starting for {Count} hardware IDs", hardwareIds.Length);
+        _logger.LogInformation("Catalog search starting for {Count} hardware IDs", driversByHardwareId.Count);
 
         var channel = Channel.CreateUnbounded<UpdateCandidate>(new UnboundedChannelOptions
         {
@@ -80,7 +89,13 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         {
             try
             {
-                var tasks = hardwareIds.Select(id => SearchSingleHardwareIdAsync(id, channel.Writer, throttle, cancellationToken)).ToArray();
+                var tasks = driversByHardwareId.Select(pair =>
+                    SearchSingleHardwareIdAsync(
+                        pair.Key,
+                        pair.Value,
+                        channel.Writer,
+                        throttle,
+                        cancellationToken)).ToArray();
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             finally
@@ -108,8 +123,92 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         return separator > 0 && separator < hardwareId.Length - 1;
     }
 
+    internal static bool IsCatalogEligibleHardwareId(string? hardwareId)
+    {
+        if (!IsPnPHardwareId(hardwareId))
+        {
+            return false;
+        }
+
+        var separator = hardwareId!.IndexOf('\\');
+        var prefix = hardwareId[..separator];
+        return prefix.Equals("PCI", StringComparison.OrdinalIgnoreCase)
+            || prefix.Equals("USB", StringComparison.OrdinalIgnoreCase)
+            || prefix.Equals("HDAUDIO", StringComparison.OrdinalIgnoreCase)
+            || (prefix.Equals("ACPI", StringComparison.OrdinalIgnoreCase)
+                && IsVendorSpecificAcpiId(hardwareId))
+            || (prefix.Equals("HID", StringComparison.OrdinalIgnoreCase)
+                && ContainsHardwareToken(hardwareId, "VID_")
+                && ContainsHardwareToken(hardwareId, "PID_"))
+            || (prefix.Equals("BTHENUM", StringComparison.OrdinalIgnoreCase)
+                && ContainsHardwareToken(hardwareId, "DEV_"));
+    }
+
+    private static bool ContainsHardwareToken(string value, string token) =>
+        value.Contains(token, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsVendorSpecificAcpiId(string hardwareId)
+    {
+        var match = AcpiVendorHardwareIdPattern().Match(hardwareId);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var vendor = match.Groups["ven"].Value;
+        return !vendor.Equals("PNP", StringComparison.OrdinalIgnoreCase)
+            && !vendor.Equals("ACPI", StringComparison.OrdinalIgnoreCase)
+            && !vendor.Equals("MSFT", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static IReadOnlyList<string> BuildCatalogQueries(DriverInfo driver)
+    {
+        var queries = new List<string>();
+        AddExpandedIfEligible(queries, driver.HardwareId);
+
+        var primaryPci = PciHardwareIdPattern().Match(driver.HardwareId);
+        if (primaryPci.Success && !SubsystemPattern().IsMatch(driver.HardwareId))
+        {
+            var specificPciId = driver.HardwareIds.FirstOrDefault(id =>
+            {
+                var alternate = PciHardwareIdPattern().Match(id);
+                return alternate.Success
+                    && SubsystemPattern().IsMatch(id)
+                    && alternate.Groups["ven"].Value.Equals(primaryPci.Groups["ven"].Value, StringComparison.OrdinalIgnoreCase)
+                    && alternate.Groups["dev"].Value.Equals(primaryPci.Groups["dev"].Value, StringComparison.OrdinalIgnoreCase);
+            });
+            AddExpandedIfEligible(queries, specificPciId);
+        }
+
+        if (driver.HardwareId.StartsWith("ACPI\\", StringComparison.OrdinalIgnoreCase)
+            && !IsCatalogEligibleHardwareId(driver.HardwareId))
+        {
+            AddExpandedIfEligible(
+                queries,
+                driver.HardwareIds.FirstOrDefault(id =>
+                    id.StartsWith("ACPI\\", StringComparison.OrdinalIgnoreCase)
+                    && IsCatalogEligibleHardwareId(id)));
+        }
+
+        return queries.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static void AddExpandedIfEligible(List<string> queries, string? hardwareId)
+    {
+        if (!IsCatalogEligibleHardwareId(hardwareId))
+        {
+            return;
+        }
+
+        foreach (var query in ExpandHardwareIdQueries(hardwareId!))
+        {
+            AddIfMissing(queries, query);
+        }
+    }
+
     private async Task SearchSingleHardwareIdAsync(
         string hardwareId,
+        IReadOnlyCollection<DriverInfo> matchingDrivers,
         ChannelWriter<UpdateCandidate> writer,
         SemaphoreSlim throttle,
         CancellationToken cancellationToken)
@@ -126,7 +225,21 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
                 return;
             }
 
-            var ids = hits.Where(h => !string.IsNullOrEmpty(h.UpdateId)).Select(h => h.UpdateId).ToArray();
+            var potentiallyNewerHits = hits
+                .Where(hit => IsPotentiallyNewer(hit, hardwareId, matchingDrivers))
+                .ToArray();
+            if (potentiallyNewerHits.Length == 0)
+            {
+                _logger.LogDebug(
+                    "Catalog search for {HardwareId} returned {HitCount} hit(s), but none are newer than the installed driver",
+                    hardwareId,
+                    hits.Count);
+                return;
+            }
+
+            var ids = potentiallyNewerHits
+                .Select(h => h.UpdateId)
+                .ToArray();
             IReadOnlyList<CatalogDownloadInfo> downloads = Array.Empty<CatalogDownloadInfo>();
             try
             {
@@ -139,7 +252,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
 
             var downloadMap = downloads.ToDictionary(d => d.UpdateId, StringComparer.OrdinalIgnoreCase);
 
-            foreach (var hit in hits)
+            foreach (var hit in potentiallyNewerHits)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (TryMap(hit, hardwareId, downloadMap, out var candidate))
@@ -172,6 +285,23 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         {
             throttle.Release();
         }
+    }
+
+    private static bool IsPotentiallyNewer(
+        CatalogSearchHit hit,
+        string hardwareId,
+        IReadOnlyCollection<DriverInfo> matchingDrivers)
+    {
+        if (!TryMap(
+                hit,
+                hardwareId,
+                EmptyDownloadMap,
+                out var candidate))
+        {
+            return false;
+        }
+
+        return matchingDrivers.Any(candidate.IsNewerThan);
     }
 
     private async Task<IReadOnlyList<CatalogSearchHit>> GetOrFetchHitsAsync(string hardwareId, CancellationToken cancellationToken)
@@ -296,4 +426,7 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
 
     [GeneratedRegex(@"(?<prefix>USB)\\VID_(?<vid>[0-9A-F]{4})&PID_(?<pid>[0-9A-F]{4})", RegexOptions.IgnoreCase)]
     private static partial Regex UsbHardwareIdPattern();
+
+    [GeneratedRegex(@"^ACPI\\VEN_(?<ven>[0-9A-Z]{3,4})&DEV_[0-9A-Z]{4}", RegexOptions.IgnoreCase)]
+    private static partial Regex AcpiVendorHardwareIdPattern();
 }
