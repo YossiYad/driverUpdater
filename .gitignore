@@ -45,6 +45,11 @@ _ReSharper*/
 
 Releases/
 build/output/
+build/desktop-*/
+
+## Local development tools
+
+.claude/
 
 ## Test results
 
