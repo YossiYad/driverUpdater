@@ -438,6 +438,52 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_keeps_amd_bundle_success_for_batch_component_verification()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([0x4D, 0x5A, 0x00, 0x00]),
+            installedDriverProbe: probe);
+        var operation = NewOperation(
+            UpdateSource.Oem,
+            UpdateInstallKind.VendorInstaller,
+            new Uri("https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe"));
+        operation = operation with
+        {
+            Candidate = operation.Candidate with
+            {
+                SourceUpdateId = "vendor-installer:amd-chipset:8.05.04.516"
+            }
+        };
+
+        var result = await pipeline.ExecuteAsync(
+            operation,
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        vendorInstaller.Invocations.Should().ContainSingle();
+        probe.Invocations.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("Configuration completed successfully. Reconfiguration success or error status: 0.", true)]
+    [InlineData("Configuration completed successfully. MainEngineThread is returning 0", true)]
+    [InlineData("Configuration failed. Reconfiguration success or error status: 1603.", false)]
+    public void IsSuccessfulAmdChipsetLog_requires_explicit_success_and_zero_status(string log, bool expected)
+    {
+        InstallPipeline.IsSuccessfulAmdChipsetLog(log).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_fails_when_approved_vendor_exe_is_not_a_valid_pe()
     {
         var vendorInstaller = new FakeVendorInstallerRunner();
@@ -534,6 +580,58 @@ public class InstallPipelineTests
         result.ErrorMessage.Should().Contain("vendor page");
         result.Candidate.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
         vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_unresolvable_vendor_page_creates_no_restore_point_and_no_backup()
+    {
+        var rp = new FakeRestorePointService();
+        var bk = new FakeBackupService();
+        var pipeline = new InstallPipeline(
+            rp,
+            bk,
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null));
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: true, BackupCurrentDriver: true));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        rp.Invocations.Should().Be(0);
+        bk.BackupInvocations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_resolved_vendor_page_still_creates_restore_point_and_backup()
+    {
+        var rp = new FakeRestorePointService();
+        var bk = new FakeBackupService();
+        var resolver = new FakeVendorPageResolver(candidate => candidate with
+        {
+            DownloadUrl = new Uri("https://download.example.com/driver.msi"),
+            InstallKind = UpdateInstallKind.VendorInstaller,
+            SourceUpdateId = $"vendor-installer:msi-wrapper:resolved:{candidate.SourceUpdateId}"
+        });
+        var pipeline = new InstallPipeline(
+            rp,
+            bk,
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: resolver);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: true, BackupCurrentDriver: true));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        rp.Invocations.Should().Be(1);
+        bk.BackupInvocations.Should().Be(1);
     }
 
     [Fact]

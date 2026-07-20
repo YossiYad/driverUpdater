@@ -20,6 +20,7 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         // The XAML resource is a build-time placeholder; the running assembly's version is
         // always accurate, so override it here instead of hand-editing the string per release.
@@ -29,10 +30,7 @@ public partial class App : Application
             Resources["App.Version"] = $"v{version.Major}.{version.Minor}.{version.Build}";
         }
 
-        var logDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "DriverUpdater",
-            "Logs");
+        var logDirectory = LogCleanupService.DefaultLogDirectory();
         Directory.CreateDirectory(logDirectory);
 
         var inMemoryLogSink = new InMemoryLogSink();
@@ -48,7 +46,7 @@ public partial class App : Application
             .WriteTo.File(
                 path: Path.Combine(logDirectory, "driverupdater-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 14,
+                retainedFileCountLimit: null,
                 shared: true)
             .WriteTo.Sink(inMemoryLogSink)
             .Enrich.FromLogContext()
@@ -75,6 +73,7 @@ public partial class App : Application
                 services.Configure<UpdaterSettings>(context.Configuration.GetSection(UpdaterSettings.SectionName));
                 services.Configure<ScraperSettings>(context.Configuration.GetSection(ScraperSettings.SectionName));
                 services.Configure<AiSettings>(context.Configuration.GetSection(AiSettings.SectionName));
+                services.Configure<LogCleanupSettings>(context.Configuration.GetSection(LogCleanupSettings.SectionName));
                 services.AddDriverUpdaterApp(inMemoryLogSink);
             })
             .Build();
@@ -101,11 +100,42 @@ public partial class App : Application
         var languageSettings = _host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<LanguageSettings>>().Value;
         var localization = _host.Services.GetRequiredService<ILocalizationService>();
         localization.ApplyLanguage(languageSettings.Language);
+        _host.Services.GetRequiredService<AiQuotaNotificationService>().Start();
+
+        var savedSettings = await _host.Services
+            .GetRequiredService<ISettingsStore>()
+            .LoadAsync()
+            .ConfigureAwait(true);
+        var applicationBehavior = _host.Services.GetRequiredService<ApplicationBehaviorState>();
+        applicationBehavior.Apply(savedSettings.Application);
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
-        mainWindow.Show();
-        await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+        var backgroundLaunch = e.Args.Any(
+            argument => string.Equals(argument, "--background", StringComparison.OrdinalIgnoreCase));
+        if (backgroundLaunch && applicationBehavior.ShouldStartHidden)
+        {
+            var startedInBackground = await mainWindow.StartInBackgroundAsync();
+            if (!startedInBackground)
+            {
+                mainWindow.Show();
+                await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+            }
+        }
+        else
+        {
+            mainWindow.Show();
+            await ShowWelcomeIfNeededAsync(mainWindow, languageSettings.Language);
+        }
+    }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        if (MainWindow is MainWindow mainWindow)
+        {
+            mainWindow.RequestApplicationExit();
+        }
+        base.OnSessionEnding(e);
     }
 
     private async Task ShowWelcomeIfNeededAsync(Window owner, DriverUpdater.Core.Models.AppLanguage language)

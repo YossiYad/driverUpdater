@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows.Data;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DriverUpdater.App.Ai;
@@ -12,6 +13,7 @@ using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Scanning;
+using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -22,6 +24,7 @@ public partial class MainViewModel : ObservableObject
     private const int VendorVerificationAttempts = 20;
     private const int AiDiscoveryBatchSize = 20;
     private static readonly TimeSpan VendorVerificationInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan AiDiscoveryTimeBudget = TimeSpan.FromMinutes(5);
 
     private readonly IDriverScanService _scanService;
     private readonly IReadOnlyList<IUpdateSource> _updateSources;
@@ -41,6 +44,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IRebootPrompt? _rebootPrompt;
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
     private readonly IAiTextCompleter? _driverChatCompleter;
+    private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
+    private readonly ISupportWindowOpener? _supportWindowOpener;
+    private readonly Dispatcher _dispatcher;
+    private CancellationTokenSource? _aiSearchCancellation;
+    private bool _skipAiSearchRequested;
+    private bool _driverCacheClearPending;
 
     // (DeviceId|TargetVersion) -> installed version when the update was last proven ineffective.
     // Used for exact-target suppression from precise sources (vendor/OEM/AI).
@@ -65,11 +74,9 @@ public partial class MainViewModel : ObservableObject
 
     public IReadOnlyList<DriverUpdateFilterOption> AvailableUpdateFilters { get; } =
     [
-        new(DriverUpdateFilter.All, "All updates"),
-        new(DriverUpdateFilter.ConfirmedUpdates, "Confirmed"),
-        new(DriverUpdateFilter.VendorChecks, "Vendor checks"),
-        new(DriverUpdateFilter.Installable, "Installable"),
-        new(DriverUpdateFilter.NoUpdate, "No update")
+        new(DriverUpdateFilter.AllDrivers, "All drivers"),
+        new(DriverUpdateFilter.UpdatesAvailable, "Updates available"),
+        new(DriverUpdateFilter.NoUpdateAvailable, "No update available")
     ];
 
     [ObservableProperty]
@@ -113,10 +120,14 @@ public partial class MainViewModel : ObservableObject
     private bool _isAppUpdating;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SkipAiSearchCommand))]
+    private bool _isAiSearchRunning;
+
+    [ObservableProperty]
     private DriverCategory? _categoryFilter;
 
     [ObservableProperty]
-    private DriverUpdateFilter _updateFilter = DriverUpdateFilter.All;
+    private DriverUpdateFilter _updateFilter = DriverUpdateFilter.AllDrivers;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -153,7 +164,9 @@ public partial class MainViewModel : ObservableObject
         IAppUpdatePrompt? appUpdatePrompt = null,
         IRebootPrompt? rebootPrompt = null,
         IIneffectiveUpdateStore? ineffectiveUpdateStore = null,
-        IAiTextCompleter? driverChatCompleter = null)
+        IAiTextCompleter? driverChatCompleter = null,
+        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null,
+        ISupportWindowOpener? supportWindowOpener = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -182,7 +195,15 @@ public partial class MainViewModel : ObservableObject
         _rebootPrompt = rebootPrompt;
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _driverChatCompleter = driverChatCompleter;
+        _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
+        _supportWindowOpener = supportWindowOpener;
         _logger = logger;
+        _dispatcher = Dispatcher.CurrentDispatcher;
+
+        if (_driverCacheStore is not null)
+        {
+            _driverCacheStore.Cleared += OnDriverCacheCleared;
+        }
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
         DriversView.Filter = FilterDriver;
@@ -351,6 +372,11 @@ public partial class MainViewModel : ObservableObject
 
         await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
 
+        if (_postUpdateSummaryCoordinator is not null)
+        {
+            await _postUpdateSummaryCoordinator.ResumeAfterRestartAsync(cancellationToken).ConfigureAwait(true);
+        }
+
         await CheckForAppUpdateAsync(cancellationToken).ConfigureAwait(true);
     }
 
@@ -463,10 +489,12 @@ public partial class MainViewModel : ObservableObject
 
                 var row = new DriverRowViewModel(entry.Driver)
                 {
-                    Status = cachedUpdate is null && entry.Status == DriverStatus.Outdated
-                        ? DriverStatus.UpToDate
-                        : entry.Status,
-                    AvailableUpdate = cachedUpdate
+                    Status = cachedUpdate is null
+                        ? entry.Status == DriverStatus.Outdated ? DriverStatus.UpToDate : entry.Status
+                        : DriverStatus.VerificationInconclusive,
+                    AvailableUpdate = cachedUpdate,
+                    IsUpdateFromCache = cachedUpdate is not null,
+                    IsScannedThisRun = false
                 };
                 Drivers.Add(row);
             }
@@ -507,11 +535,73 @@ public partial class MainViewModel : ObservableObject
                 .ToArray();
             var snapshot = new DriverCacheSnapshot(DateTimeOffset.UtcNow, entries);
             await _driverCacheStore.SaveAsync(snapshot, cancellationToken).ConfigureAwait(true);
+            if (_driverCacheClearPending)
+            {
+                _logger.LogInformation(
+                    "Cache clear raced with the final scan save; clearing the newly written snapshot again");
+                await _driverCacheStore.ClearAsync(cancellationToken).ConfigureAwait(true);
+                return;
+            }
+            _logger.LogInformation(
+                "Main scan cache save completed: {DriverCount} drivers, {FreshCount} fresh update result(s), {FallbackCount} cached fallback result(s)",
+                entries.Length,
+                Drivers.Count(row => row.AvailableUpdate is not null && !row.IsUpdateFromCache),
+                Drivers.Count(row => row.AvailableUpdate is not null && row.IsUpdateFromCache));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to save the driver cache");
         }
+    }
+
+    private void OnDriverCacheCleared(object? sender, EventArgs e)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.Invoke(() => OnDriverCacheCleared(sender, e));
+            return;
+        }
+
+        _driverCacheClearPending = true;
+        if (IsScanning)
+        {
+            StatusText = "Driver cache cleared. The current scan results will be discarded.";
+            _logger.LogInformation(
+                "Driver cache was cleared during a scan; current in-memory results will be discarded before they can be saved");
+            return;
+        }
+
+        ApplyDriverCacheClearToMainView();
+    }
+
+    private void ApplyDriverCacheClearToMainView()
+    {
+        var driverCount = Drivers.Count;
+        var updateCount = Drivers.Count(row => row.AvailableUpdate is not null);
+        Drivers.Clear();
+        ScannedCount = 0;
+        UpdatesFoundCount = 0;
+        ConfirmedUpdatesCount = 0;
+        VendorChecksCount = 0;
+        _driverCacheClearPending = false;
+        StatusText = "Driver update cache cleared. Run Scan to search from scratch.";
+        _logger.LogInformation(
+            "Driver cache clear applied to the main view: removed {DriverCount} cached driver row(s) and {UpdateCount} update result(s)",
+            driverCount,
+            updateCount);
+    }
+
+    private bool DiscardScanIfCacheWasCleared()
+    {
+        if (!_driverCacheClearPending)
+        {
+            return false;
+        }
+
+        ApplyDriverCacheClearToMainView();
+        _logger.LogInformation(
+            "Current scan discarded because the driver cache was cleared while the scan was running");
+        return true;
     }
 
     [RelayCommand(CanExecute = nameof(CanScan), IncludeCancelCommand = true)]
@@ -535,15 +625,53 @@ public partial class MainViewModel : ObservableObject
                 ScannedCount = Drivers.Count;
             }
 
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
+
             var elapsed = stopwatch.Elapsed;
-            MergePreviousRows(previousRows);
-            StatusText = $"Scan complete. {Drivers.Count} drivers in {elapsed.TotalSeconds:F1}s. Querying update sources...";
-            _logger.LogInformation("Scan finished: {Count} drivers in {Elapsed}", Drivers.Count, elapsed);
+            RestoreMissingDevices(previousRows);
+            var scannedThisRun = Drivers.Count(d => d.IsScannedThisRun);
+            var notScannedThisRun = Drivers.Count - scannedThisRun;
+            StatusText =
+                $"Scan complete. {scannedThisRun} drivers scanned in {elapsed.TotalSeconds:F1}s, "
+                + $"{notScannedThisRun} cached rows not present. Querying update sources...";
+            _logger.LogInformation(
+                "Scan finished: {Scanned} drivers scanned in {Elapsed}; {NotScanned} cached driver(s) were not present in the current WMI inventory",
+                scannedThisRun,
+                elapsed,
+                notScannedThisRun);
 
             await QueryUpdateSourcesAsync(cancellationToken);
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
+            RestorePendingUpdates(previousRows);
+
+            if (_aiVerifier?.IsConfigured == true)
+            {
+                StatusText =
+                    $"Scan complete. {Drivers.Count} drivers found. Starting AI post-scan verification...";
+                await RunAiPostScanAsync(cancellationToken);
+            }
+
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
+
+            FinalizeScanStatuses();
+            LogScanSummary();
 
             StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} vendor checks.";
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+            DiscardScanIfCacheWasCleared();
         }
         catch (OperationCanceledException)
         {
@@ -557,6 +685,10 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
+            _aiSearchCancellation?.Cancel();
+            _aiSearchCancellation?.Dispose();
+            _aiSearchCancellation = null;
+            IsAiSearchRunning = false;
             IsScanning = false;
         }
     }
@@ -574,25 +706,108 @@ public partial class MainViewModel : ObservableObject
         return map;
     }
 
-    // The grid (and the cache built from it) is accumulating: drivers seen in any
-    // earlier scan stay in the list even when the current WMI scan does not report
-    // them, and a pending update found earlier is kept until the installed driver
-    // catches up or a source offers something newer (DriverUpdateMatcher decides).
-    private void MergePreviousRows(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    // WMI inventory is not stable between scans: devices come and go transiently, so a
+    // single scan that misses a device must not erase everything we already know about
+    // it. Devices seen before are re-added with any still-newer pending result clearly
+    // marked as cached and non-actionable until a later scan can verify it.
+    private void RestoreMissingDevices(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
     {
         if (previousRows.Count == 0)
         {
             return;
         }
 
-        var restoredUpdates = 0;
         var scannedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in Drivers)
         {
             scannedIds.Add(row.Driver.DeviceId);
-            if (row.AvailableUpdate is not null
-                || !previousRows.TryGetValue(row.Driver.DeviceId, out var previous)
-                || previous.AvailableUpdate is not { } pending)
+        }
+
+        var restored = 0;
+        var restoredUpdates = 0;
+        foreach (var (deviceId, previous) in previousRows)
+        {
+            if (scannedIds.Contains(deviceId))
+            {
+                continue;
+            }
+
+            Drivers.Add(new DriverRowViewModel(previous.Driver)
+            {
+                Status = DriverStatus.VerificationInconclusive,
+                AvailableUpdate = previous.AvailableUpdate,
+                IsUpdateFromCache = previous.AvailableUpdate is not null,
+                IsScannedThisRun = false
+            });
+            restored++;
+            if (previous.AvailableUpdate is not null)
+            {
+                restoredUpdates++;
+            }
+        }
+
+        if (restored > 0)
+        {
+            _logger.LogInformation(
+                "Cache merge: {Restored} known driver(s) missing from the current WMI inventory were kept, including {UpdateCount} cached update result(s) (grid now {Total} rows)",
+                restored,
+                restoredUpdates,
+                Drivers.Count);
+        }
+
+        ScannedCount = Drivers.Count(d => d.IsScannedThisRun);
+    }
+
+    private void RestorePendingUpdates(IReadOnlyDictionary<string, DriverRowViewModel> previousRows)
+    {
+        var fresh = 0;
+        var revalidated = 0;
+        var replaced = 0;
+        var restored = 0;
+        var dropped = 0;
+        foreach (var row in Drivers.Where(r => r.IsScannedThisRun))
+        {
+            previousRows.TryGetValue(row.Driver.DeviceId, out var previous);
+            var pending = previous?.AvailableUpdate;
+            if (row.AvailableUpdate is { } freshCandidate)
+            {
+                fresh++;
+                if (pending is null)
+                {
+                    continue;
+                }
+
+                if (string.Equals(
+                        freshCandidate.SourceUpdateId,
+                        pending.SourceUpdateId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && freshCandidate.NewVersion == pending.NewVersion
+                    && freshCandidate.NewDate == pending.NewDate)
+                {
+                    revalidated++;
+                    _logger.LogDebug(
+                        "Cache reconciliation revalidated {Device}: {SourceUpdateId} {Version}",
+                        row.DeviceName,
+                        freshCandidate.SourceUpdateId,
+                        freshCandidate.NewVersion);
+                }
+                else
+                {
+                    replaced++;
+                    _logger.LogInformation(
+                        "Cache reconciliation replaced update for {Device}: old={OldId} {OldVersion} ({OldDate}), new={NewId} {NewVersion} ({NewDate}); the old result will not be saved again",
+                        row.DeviceName,
+                        pending.SourceUpdateId,
+                        pending.NewVersion,
+                        pending.NewDate,
+                        freshCandidate.SourceUpdateId,
+                        freshCandidate.NewVersion,
+                        freshCandidate.NewDate);
+                }
+                continue;
+            }
+
+            if (pending is null)
             {
                 continue;
             }
@@ -600,40 +815,35 @@ public partial class MainViewModel : ObservableObject
             if (pending.IsNewerThan(row.Driver))
             {
                 row.AvailableUpdate = pending;
-                row.Status = previous.Status;
-                restoredUpdates++;
+                row.IsUpdateFromCache = true;
+                row.Status = DriverStatus.VerificationInconclusive;
+                restored++;
+                _logger.LogDebug(
+                    "Cache reconciliation restored fallback for {Device}: {SourceUpdateId} {Version}",
+                    row.DeviceName,
+                    pending.SourceUpdateId,
+                    pending.NewVersion);
             }
             else
             {
+                dropped++;
                 _logger.LogInformation(
-                    "Cache merge: dropped pending update for {Device} - installed driver (version={Version}, date={Date}) caught up with cached candidate {Candidate}",
-                    row.DeviceName, row.Driver.CurrentVersion, row.Driver.CurrentDate, pending.NewVersion);
+                    "Cache reconciliation dropped obsolete update for {Device}: cached={SourceUpdateId} {Version}, installed={InstalledVersion}; the old result will be removed from cache",
+                    row.DeviceName,
+                    pending.SourceUpdateId,
+                    pending.NewVersion,
+                    row.Driver.CurrentVersion);
             }
         }
 
-        var keptRows = 0;
-        foreach (var (deviceId, previous) in previousRows)
-        {
-            if (scannedIds.Contains(deviceId))
-            {
-                continue;
-            }
-            Drivers.Add(new DriverRowViewModel(previous.Driver)
-            {
-                Status = previous.Status,
-                AvailableUpdate = previous.AvailableUpdate
-            });
-            keptRows++;
-            _logger.LogDebug(
-                "Cache merge: keeping {Device} ({DeviceId}) - present in an earlier scan but missing from this one",
-                previous.DeviceName, deviceId);
-        }
-
-        ScannedCount = Drivers.Count;
         RefreshUpdateCounts();
         _logger.LogInformation(
-            "Cache merge: {Kept} driver(s) kept from earlier scans, {Restored} pending update(s) restored (grid now {Total} rows)",
-            keptRows, restoredUpdates, Drivers.Count);
+            "Cache reconciliation completed: {Fresh} fresh result(s), {Revalidated} revalidated, {Replaced} replaced old cache result(s), {Restored} cached fallback result(s), {Dropped} obsolete result(s) removed",
+            fresh,
+            revalidated,
+            replaced,
+            restored,
+            dropped);
     }
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
@@ -643,10 +853,15 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        _skipAiSearchRequested = false;
+
         await LoadIneffectiveLedgerAsync(cancellationToken).ConfigureAwait(true);
 
         var index = BuildHardwareIdIndex();
-        var driverSnapshots = Drivers.Select(d => d.Driver).ToArray();
+        var driverSnapshots = Drivers
+            .Where(d => d.IsScannedThisRun)
+            .Select(d => d.Driver)
+            .ToArray();
 
         var settings = _updaterSettings?.CurrentValue;
         foreach (var source in _updateSources)
@@ -657,6 +872,8 @@ public partial class MainViewModel : ObservableObject
                 continue;
             }
 
+            var received = 0;
+            var accepted = 0;
             try
             {
                 StatusText = $"Querying {source.DisplayName}...";
@@ -664,6 +881,7 @@ public partial class MainViewModel : ObservableObject
 
                 await foreach (var candidate in source.SearchAsync(driverSnapshots, cancellationToken))
                 {
+                    received++;
                     if (TryFindRow(index, candidate.ForHardwareId, out var row, out var matchKind)
                         && candidate.IsNewerThan(row.Driver)
                         && !IsProvenIneffective(row, candidate)
@@ -676,7 +894,9 @@ public partial class MainViewModel : ObservableObject
                                 source.DisplayName, candidate.ForHardwareId, row.DeviceName, row.HardwareId, candidate.DownloadUrl);
                         }
                         row.AvailableUpdate = candidate;
+                        row.IsUpdateFromCache = false;
                         row.Status = DriverStatus.Outdated;
+                        accepted++;
                         RefreshUpdateCounts();
                     }
                 }
@@ -690,12 +910,33 @@ public partial class MainViewModel : ObservableObject
                     _logger.LogError(ex, "Source {Source} failed", source.DisplayName);
                     StatusText = $"{source.DisplayName} failed: {ex.Message}";
                 }
+            finally
+            {
+                _logger.LogInformation(
+                    "Update source completed: {Source}; candidates received={Received}, accepted into app={Accepted}, filtered={Filtered}",
+                    source.DisplayName,
+                    received,
+                    accepted,
+                    received - accepted);
+            }
         }
 
-        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
-        await DiscoverLatestDriversWithAiAsync(onlyRowsWithoutUpdates: true, cancellationToken).ConfigureAwait(true);
+    }
 
-        LogScanSummary();
+    private async Task RunAiPostScanAsync(CancellationToken cancellationToken)
+    {
+        var rowsReviewedAsCandidates = await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+        if (_aiVerifier?.IsTemporarilyUnavailable == true)
+        {
+            _logger.LogInformation("AI post-scan discovery skipped because the provider is temporarily unavailable");
+            StatusText = "AI search unavailable. Keeping deterministic scan results.";
+            return;
+        }
+        await DiscoverLatestDriversWithAiAsync(
+            onlyRowsWithoutUpdates: true,
+            rowsReviewedAsCandidates,
+            cancellationToken).ConfigureAwait(true);
+
     }
 
     private static string IneffectiveKey(string deviceId, string targetVersion) => deviceId + "|" + targetVersion;
@@ -819,28 +1060,31 @@ public partial class MainViewModel : ObservableObject
     // candidate in one batched call to (1) suppress updates that are not genuinely
     // newer than what is installed and (2) annotate the rest with a risk assessment.
     // Any failure leaves the scan results exactly as they were.
-    private async Task VerifyCandidatesWithAiAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlySet<DriverRowViewModel>> VerifyCandidatesWithAiAsync(
+        CancellationToken cancellationToken)
     {
         if (_aiVerifier is null)
         {
             _logger.LogDebug("AI verification skipped: no verifier is registered");
-            return;
+            return new HashSet<DriverRowViewModel>();
         }
         if (!_aiVerifier.IsConfigured)
         {
             _logger.LogInformation(
                 "AI verification skipped: provider {Provider} is not configured", _aiVerifier.Provider);
-            return;
+            return new HashSet<DriverRowViewModel>();
         }
 
         var targets = Drivers
-            .Where(r => r.AvailableUpdate is { InstallKind: not UpdateInstallKind.VendorPage })
+            .Where(r => r.IsScannedThisRun)
+            .Where(r => r.AvailableUpdate is not null)
             .ToArray();
         if (targets.Length == 0)
         {
-            _logger.LogInformation("AI verification skipped: no installable candidates to verify");
-            return;
+            _logger.LogInformation("AI verification skipped: no existing candidates to verify");
+            return new HashSet<DriverRowViewModel>();
         }
+        var reviewedRows = targets.ToHashSet();
 
         // Many rows can share one installer (e.g. an AMD chipset package that drives 18
         // device rows, all with the same SourceUpdateId). Send each installer to the AI
@@ -859,13 +1103,25 @@ public partial class MainViewModel : ObservableObject
             LogAiRequest("candidate verification", request);
         }
 
+        var aiSearchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _aiSearchCancellation = aiSearchCancellation;
+        IsAiSearchRunning = true;
         var stopwatch = Stopwatch.StartNew();
         IReadOnlyDictionary<string, AiVerdict> verdicts;
         try
         {
-            StatusText = "Verifying updates with AI...";
-            verdicts = await _aiVerifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(true);
+            StatusText = $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
+            verdicts = await _aiVerifier.VerifyAsync(requests, aiSearchCancellation.Token).ConfigureAwait(true);
             stopwatch.Stop();
+        }
+        catch (OperationCanceledException) when (
+            aiSearchCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation(
+                "AI verification skipped by the user after {ElapsedMs} ms",
+                stopwatch.ElapsedMilliseconds);
+            StatusText = "AI search skipped. Continuing the scan...";
+            return reviewedRows;
         }
         catch (OperationCanceledException)
         {
@@ -878,7 +1134,16 @@ public partial class MainViewModel : ObservableObject
             _logger.LogWarning(ex,
                 "AI verification failed after {ElapsedMs} ms; leaving scan results unchanged",
                 stopwatch.ElapsedMilliseconds);
-            return;
+            return reviewedRows;
+        }
+        finally
+        {
+            if (ReferenceEquals(_aiSearchCancellation, aiSearchCancellation))
+            {
+                _aiSearchCancellation = null;
+                IsAiSearchRunning = false;
+            }
+            aiSearchCancellation.Dispose();
         }
 
         if (verdicts.Count == 0)
@@ -887,7 +1152,7 @@ public partial class MainViewModel : ObservableObject
                 "AI verification returned no verdicts after {ElapsedMs} ms; leaving all {Count} candidate(s) unchanged",
                 stopwatch.ElapsedMilliseconds, requests.Length);
             StatusText = "AI verification returned no usable result; scan results unchanged.";
-            return;
+            return reviewedRows;
         }
 
         var suppressed = 0;
@@ -924,6 +1189,7 @@ public partial class MainViewModel : ObservableObject
             "AI verification applied in {ElapsedMs} ms: {Suppressed} suppressed, {Annotated} annotated, {WithoutVerdict} left untouched (no verdict)",
             stopwatch.ElapsedMilliseconds, suppressed, annotated, withoutVerdict);
         StatusText = $"AI verification complete. {suppressed} suppressed, {annotated} annotated.";
+        return reviewedRows;
     }
 
     [RelayCommand]
@@ -1015,8 +1281,17 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async Task DiscoverLatestDriversWithAiAsync(bool onlyRowsWithoutUpdates, CancellationToken cancellationToken)
+    private async Task DiscoverLatestDriversWithAiAsync(
+        bool onlyRowsWithoutUpdates,
+        IReadOnlySet<DriverRowViewModel> alreadyReviewed,
+        CancellationToken cancellationToken)
     {
+        if (_skipAiSearchRequested)
+        {
+            _logger.LogInformation("AI latest-driver discovery skipped because the user skipped AI search");
+            StatusText = "AI search skipped. Continuing the scan...";
+            return;
+        }
         if (_aiVerifier is null)
         {
             _logger.LogDebug("AI latest-driver discovery skipped: no verifier is registered");
@@ -1030,6 +1305,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         var targets = Drivers
+            .Where(r => r.IsScannedThisRun)
+            .Where(r => !alreadyReviewed.Contains(r))
             .Where(r => !onlyRowsWithoutUpdates || r.AvailableUpdate is null)
             .ToArray();
         if (targets.Length == 0)
@@ -1043,10 +1320,27 @@ public partial class MainViewModel : ObservableObject
         var withoutVerdict = 0;
         var failedBatches = 0;
         var processed = 0;
+        var providerUnavailable = false;
+        var discoveryBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        discoveryBudget.CancelAfter(AiDiscoveryTimeBudget);
+        _aiSearchCancellation = discoveryBudget;
+        IsAiSearchRunning = true;
+        var discoveryCancellationToken = discoveryBudget.Token;
 
         foreach (var batch in targets.Chunk(AiDiscoveryBatchSize))
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (_skipAiSearchRequested)
+            {
+                StatusText = "AI search skipped. Continuing the scan...";
+                break;
+            }
+            if (discoveryBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                StatusText =
+                    $"AI latest-driver search stopped after {AiDiscoveryTimeBudget.TotalMinutes:F0} minutes. Continuing the scan...";
+                break;
+            }
+            discoveryCancellationToken.ThrowIfCancellationRequested();
             foreach (var row in batch)
             {
                 row.IsAiChecking = true;
@@ -1055,17 +1349,62 @@ public partial class MainViewModel : ObservableObject
             try
             {
                 var requests = batch.Select(BuildAiDiscoveryRequest).ToArray();
+                var overallStart = alreadyReviewed.Count + processed + 1;
+                var overallEnd = alreadyReviewed.Count + processed + batch.Length;
                 StatusText =
-                    $"Asking AI to find latest drivers... {processed + 1}-{processed + batch.Length} of {targets.Length}";
+                    $"Asking AI to find latest drivers... {overallStart}-{overallEnd} of {Drivers.Count}. Waiting for AI response...";
                 _logger.LogInformation(
-                    "AI latest-driver discovery: provider={Provider}, sending batch {Start}-{End} of {Total}",
-                    _aiVerifier.Provider, processed + 1, processed + batch.Length, targets.Length);
+                    "AI latest-driver discovery: provider={Provider}, sending discovery batch {DiscoveryStart}-{DiscoveryEnd} of {DiscoveryTotal}, overall rows {OverallStart}-{OverallEnd} of {OverallTotal}",
+                    _aiVerifier.Provider,
+                    processed + 1,
+                    processed + batch.Length,
+                    targets.Length,
+                    overallStart,
+                    overallEnd,
+                    Drivers.Count);
                 foreach (var request in requests)
                 {
                     LogAiRequest("latest-driver discovery", request);
                 }
 
-                var verdicts = await _aiVerifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(true);
+                var verdicts = await _aiVerifier.VerifyAsync(requests, discoveryCancellationToken).ConfigureAwait(true);
+                if (_aiVerifier.IsTemporarilyUnavailable)
+                {
+                    providerUnavailable = true;
+                    failedBatches++;
+                    withoutVerdict += batch.Length;
+                    _logger.LogWarning(
+                        "AI latest-driver discovery stopped because provider {Provider} became temporarily unavailable",
+                        _aiVerifier.Provider);
+                    StatusText = "AI search unavailable. Keeping deterministic scan results.";
+                    break;
+                }
+                if (_skipAiSearchRequested)
+                {
+                    StatusText = "AI search skipped. Continuing the scan...";
+                    break;
+                }
+                if (discoveryBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    failedBatches++;
+                    withoutVerdict += batch.Length;
+                    _logger.LogWarning(
+                        "AI latest-driver discovery stopped after the {BudgetMinutes}-minute time budget at overall rows {Start}-{End}; scan will continue",
+                        AiDiscoveryTimeBudget.TotalMinutes,
+                        overallStart,
+                        overallEnd);
+                    StatusText =
+                        $"AI latest-driver search stopped after {AiDiscoveryTimeBudget.TotalMinutes:F0} minutes. Continuing the scan...";
+                    break;
+                }
+                if (verdicts.Count == 0)
+                {
+                    failedBatches++;
+                    _logger.LogWarning(
+                        "AI latest-driver discovery returned no usable results for overall rows {Start}-{End}; continuing with the next batch",
+                        overallStart,
+                        overallEnd);
+                }
                 foreach (var row in batch)
                 {
                     var id = BuildAiDiscoveryCorrelationId(row);
@@ -1089,6 +1428,25 @@ public partial class MainViewModel : ObservableObject
                 }
                 RefreshUpdateCounts();
             }
+            catch (OperationCanceledException) when (
+                _skipAiSearchRequested && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("AI latest-driver discovery skipped by the user");
+                StatusText = "AI search skipped. Continuing the scan...";
+                break;
+            }
+            catch (OperationCanceledException) when (
+                discoveryBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                failedBatches++;
+                withoutVerdict += batch.Length;
+                _logger.LogWarning(
+                    "AI latest-driver discovery stopped after the {BudgetMinutes}-minute time budget; scan will continue",
+                    AiDiscoveryTimeBudget.TotalMinutes);
+                StatusText =
+                    $"AI latest-driver search stopped after {AiDiscoveryTimeBudget.TotalMinutes:F0} minutes. Continuing the scan...";
+                break;
+            }
             catch (OperationCanceledException)
             {
                 throw;
@@ -1096,6 +1454,7 @@ public partial class MainViewModel : ObservableObject
             catch (Exception ex)
             {
                 failedBatches++;
+                withoutVerdict += batch.Length;
                 _logger.LogWarning(ex, "AI latest-driver discovery batch failed");
             }
             finally
@@ -1108,12 +1467,38 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        StatusText =
-            $"AI latest-driver search complete. {found} vendor checks found, {noNewer} already current, {withoutVerdict} no result."
-            + (failedBatches > 0 ? $" {failedBatches} batch(es) failed." : string.Empty);
+        if (ReferenceEquals(_aiSearchCancellation, discoveryBudget))
+        {
+            _aiSearchCancellation = null;
+            IsAiSearchRunning = false;
+        }
+        discoveryBudget.Dispose();
+
+        if (!providerUnavailable)
+        {
+            StatusText =
+                $"AI latest-driver search complete. {alreadyReviewed.Count + processed} of {Drivers.Count} drivers processed, {found} vendor checks found, {noNewer} already current, {withoutVerdict} no result."
+                + (failedBatches > 0 ? $" {failedBatches} batch(es) failed." : string.Empty);
+        }
         _logger.LogInformation(
-            "AI latest-driver discovery complete: targets={Targets}, found={Found}, noNewer={NoNewer}, withoutVerdict={WithoutVerdict}, failedBatches={FailedBatches}",
-            targets.Length, found, noNewer, withoutVerdict, failedBatches);
+            "AI latest-driver discovery complete: reviewedCandidates={ReviewedCandidates}, discoveryTargets={Targets}, totalDrivers={TotalDrivers}, found={Found}, noNewer={NoNewer}, withoutVerdict={WithoutVerdict}, failedBatches={FailedBatches}",
+            alreadyReviewed.Count, targets.Length, Drivers.Count, found, noNewer, withoutVerdict, failedBatches);
+    }
+
+    private bool CanSkipAiSearch() => IsAiSearchRunning && _aiSearchCancellation is not null;
+
+    [RelayCommand(CanExecute = nameof(CanSkipAiSearch))]
+    private void SkipAiSearch()
+    {
+        if (_aiSearchCancellation is null)
+        {
+            return;
+        }
+
+        _skipAiSearchRequested = true;
+        _logger.LogInformation("AI search skipped by the user");
+        StatusText = "Skipping AI search...";
+        _aiSearchCancellation.Cancel();
     }
 
     private static AiVerificationRequest BuildAiDiscoveryRequest(DriverRowViewModel row) =>
@@ -1192,6 +1577,14 @@ public partial class MainViewModel : ObservableObject
             ?? BuildDateBasedVersion(verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
         var candidateDate = verdict.LatestKnownDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var url = TryCreateAbsoluteUri(verdict.LatestKnownUrl) ?? BuildSearchUrl(row);
+        if (IsAmdChipsetBundleLead(row, verdict, url))
+        {
+            _logger.LogInformation(
+                "AI latest-driver lead for {Device} rejected: {Version} is an AMD chipset bundle version, not the version of this individual component. The deterministic AMD source will compare the component manifest instead.",
+                row.DeviceName, verdict.LatestKnownVersion ?? candidateVersion.ToString());
+            LogAiAdvisorDetails("latest-driver discovery rejected as AMD bundle version", row, verdict);
+            return false;
+        }
         if (!IsActionableAiDiscoveryLead(row, url))
         {
             _logger.LogInformation(
@@ -1246,8 +1639,34 @@ public partial class MainViewModel : ObservableObject
             verdict.Summary);
         LogAiAdvisorDetails("latest-driver discovery found candidate", row, verdict);
         row.AvailableUpdate = candidate;
-        row.Status = DriverStatus.UpToDate;
+        row.IsUpdateFromCache = false;
+        row.Status = DriverStatus.Outdated;
         return true;
+    }
+
+    private static bool IsAmdChipsetBundleLead(
+        DriverRowViewModel row,
+        AiVerdict verdict,
+        Uri url)
+    {
+        if (!AmdChipsetSource.IsSupportedAmdChipsetDriver(row.Driver))
+        {
+            return false;
+        }
+
+        if (url.AbsolutePath.Contains("/chipsets/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var evidence = string.Join(' ',
+            verdict.Rationale,
+            verdict.CandidateSuitability,
+            verdict.AdvisorNote,
+            verdict.Summary);
+        return evidence.Contains("chipset driver", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("chipset package", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("chipset software", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool ApplyAiVerdict(DriverRowViewModel row, AiVerdict verdict)
@@ -1269,6 +1688,7 @@ public partial class MainViewModel : ObservableObject
                 verdict.Summary);
             LogAiAdvisorDetails("candidate verification suppressed", row, verdict);
             row.AvailableUpdate = null;
+            row.IsUpdateFromCache = false;
             row.Status = DriverStatus.UpToDate;
             return false;
         }
@@ -1283,6 +1703,8 @@ public partial class MainViewModel : ObservableObject
             verdict.Summary);
         LogAiAdvisorDetails("candidate verification annotated", row, verdict);
         row.AvailableUpdate = candidate with { AiVerification = verdict };
+        row.IsUpdateFromCache = false;
+        row.Status = DriverStatus.Outdated;
         return true;
     }
 
@@ -1484,9 +1906,22 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshUpdateCounts()
     {
-        UpdatesFoundCount = Drivers.Count(d => d.Status == DriverStatus.Outdated);
-        ConfirmedUpdatesCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
-        VendorChecksCount = Drivers.Count(d => d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
+        UpdatesFoundCount = Drivers.Count(d => !d.IsUpdateFromCache && d.Status == DriverStatus.Outdated);
+        ConfirmedUpdatesCount = Drivers.Count(d =>
+            !d.IsUpdateFromCache && d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
+        VendorChecksCount = Drivers.Count(d =>
+            !d.IsUpdateFromCache && d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
+    }
+
+    private void FinalizeScanStatuses()
+    {
+        foreach (var row in Drivers.Where(d => d.IsScannedThisRun && d.AvailableUpdate is null))
+        {
+            if (row.Status == DriverStatus.Unknown)
+            {
+                row.Status = DriverStatus.NotFound;
+            }
+        }
     }
 
     private static bool ShouldAcceptCandidate(DriverRowViewModel row, UpdateCandidate candidate) =>
@@ -1510,6 +1945,12 @@ public partial class MainViewModel : ObservableObject
     private void OpenLogs()
     {
         _logsWindowOpener.Open();
+    }
+
+    [RelayCommand]
+    private void OpenSupport()
+    {
+        _supportWindowOpener?.Open();
     }
 
     [RelayCommand(CanExecute = nameof(CanUpdateAll))]
@@ -1552,7 +1993,8 @@ public partial class MainViewModel : ObservableObject
     private async Task OpenVendorChecksAsync(CancellationToken cancellationToken)
     {
         var pageTargets = Drivers
-            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .Where(r => !r.IsUpdateFromCache
+                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
 
         if (pageTargets.Length == 0)
@@ -1578,7 +2020,7 @@ public partial class MainViewModel : ObservableObject
         CancellationToken cancellationToken)
     {
         var targets = requested
-            .Where(r => r.AvailableUpdate is not null)
+            .Where(r => !r.IsUpdateFromCache && r.AvailableUpdate is not null)
             .ToArray();
 
         if (targets.Length == 0)
@@ -1624,18 +2066,17 @@ public partial class MainViewModel : ObservableObject
         }
         var options = confirmResult;
 
-        // Switch the grid to show only installable rows so the user does not have
+        // Switch the grid to show only rows with available updates so the user does not have
         // to scrub through 250 unrelated entries to follow the active driver. The
-        // user can pick a different filter later; we leave it on Installable when
-        // the run finishes so the result of each install (UpToDate / Failed) is
-        // visible at a glance.
-        UpdateFilter = DriverUpdateFilter.Installable;
+        // user can pick a different filter later.
+        UpdateFilter = DriverUpdateFilter.UpdatesAvailable;
 
         var runStartedAt = DateTimeOffset.UtcNow;
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         var skipped = new List<(DriverRowViewModel Row, string Reason)>();
         var vendorPageFallbacks = new List<DriverRowViewModel>();
+        var installAttemptCount = 0;
         foreach (var row in installTargets)
         {
             if (row.AvailableUpdate is null)
@@ -1656,9 +2097,9 @@ public partial class MainViewModel : ObservableObject
             }
             cancellationToken.ThrowIfCancellationRequested();
 
-            var originalUpdateId = row.AvailableUpdate.SourceUpdateId;
+            var originalCandidate = row.AvailableUpdate;
+            var originalUpdateId = originalCandidate.SourceUpdateId;
             var displayName = DriverDisplayName(row);
-            var originalStatus = row.Status;
             var op = UpdateOperation.NewPending(row.AvailableUpdate, row.Driver);
             row.ActiveOperation = op;
             StatusText = (dryRun ? "Dry run: " : "Installing: ") + displayName;
@@ -1668,6 +2109,7 @@ public partial class MainViewModel : ObservableObject
                 displayName, row.Driver.CurrentVersion, row.AvailableUpdate.NewVersion,
                 row.AvailableUpdate.Source, row.AvailableUpdate.InstallKind, row.AvailableUpdate.DownloadUrl);
 
+            installAttemptCount++;
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
                 row.ActiveOperation = report;
@@ -1693,15 +2135,13 @@ public partial class MainViewModel : ObservableObject
 
             if (finished.Candidate.InstallKind == UpdateInstallKind.VendorInstaller)
             {
-                ApplySharedVendorInstallerResult(finished, row, originalUpdateId);
+                outcomes.AddRange(ApplySharedVendorInstallerResult(finished, row, originalCandidate));
             }
 
             if (finished.Status == UpdateStatus.Skipped
                 && finished.Candidate.InstallKind == UpdateInstallKind.VendorPage)
             {
-                // Advisory vendor check rows are usually UpToDate; a skipped in-app
-                // attempt must not flip them to Outdated.
-                row.Status = originalStatus;
+                row.Status = DriverStatus.ManualActionRequired;
                 if (!dryRun)
                 {
                     _logger.LogInformation(
@@ -1720,7 +2160,7 @@ public partial class MainViewModel : ObservableObject
             await OpenVendorPagesAsync(vendorPageFallbacks, cancellationToken).ConfigureAwait(true);
         }
 
-        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, outcomes, skipped);
+        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, installAttemptCount, outcomes, skipped);
 
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
@@ -1732,13 +2172,57 @@ public partial class MainViewModel : ObservableObject
 
         if (!dryRun)
         {
-            // Persist the post-install state so the next launch's cached view reflects what
-            // was actually installed (succeeded rows now have AvailableUpdate cleared);
-            // otherwise the cache would keep showing them as Outdated until the next scan.
+            if (_postUpdateSummaryCoordinator is not null)
+            {
+                StatusText = "Verifying installed drivers and preparing the summary...";
+                await _postUpdateSummaryCoordinator.CompleteRunAsync(
+                    outcomes.Select(o => o.Operation).ToArray(),
+                    report => ApplyPostUpdateVerification(report, outcomes),
+                    cancellationToken).ConfigureAwait(true);
+                StatusText = "Driver updates checked. Review the summary for the final result.";
+            }
+
+            // Save only after Windows verification has reconciled the grid. This prevents
+            // an installer exit code from being cached as a successful driver update when
+            // Windows still reports the previous version.
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
 
             MaybePromptForRestart(outcomes);
         }
+    }
+
+    private void ApplyPostUpdateVerification(
+        UpdateVerificationReport report,
+        IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes)
+    {
+        var rowsByOperationId = outcomes
+            .GroupBy(outcome => outcome.Operation.OperationId)
+            .ToDictionary(group => group.Key, group => group.First().Row);
+
+        foreach (var item in report.Items)
+        {
+            if (!rowsByOperationId.TryGetValue(item.OperationId, out var row))
+            {
+                _logger.LogWarning(
+                    "Post-update verification returned an unknown operation {OperationId} for {Device}",
+                    item.OperationId,
+                    item.DeviceName);
+                continue;
+            }
+
+            row.Status = item.Status switch
+            {
+                UpdateVerificationStatus.VerifiedUpdated => DriverStatus.UpToDate,
+                UpdateVerificationStatus.PendingRestart => DriverStatus.RestartRequired,
+                UpdateVerificationStatus.NotUpdated => DriverStatus.NotUpdated,
+                UpdateVerificationStatus.Failed => DriverStatus.Error,
+                UpdateVerificationStatus.ManualActionRequired => DriverStatus.ManualActionRequired,
+                UpdateVerificationStatus.Inconclusive => DriverStatus.VerificationInconclusive,
+                _ => DriverStatus.Outdated
+            };
+        }
+
+        RefreshUpdateCounts();
     }
 
     // When at least one driver update finished with "reboot required", ask the user (once, at
@@ -1782,6 +2266,7 @@ public partial class MainViewModel : ObservableObject
         bool dryRun,
         IReadOnlyList<DriverRowViewModel> vendorPageFallbacks,
         IReadOnlyList<DriverRowViewModel> installTargets,
+        int installAttemptCount,
         IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes,
         IReadOnlyList<(DriverRowViewModel Row, string Reason)> skipped)
     {
@@ -1793,11 +2278,14 @@ public partial class MainViewModel : ObservableObject
         var sb = new System.Text.StringBuilder();
         sb.Append("Update run summary").Append(dryRun ? " (dry run)" : string.Empty)
             .Append(" - elapsed ").Append(elapsed.ToString(@"mm\:ss"))
-            .Append(", install targets ").Append(installTargets.Count)
+            .Append(", selected rows ").Append(installTargets.Count)
+            .Append(", installer attempts ").Append(installAttemptCount)
+            .Append(", component outcomes ").Append(outcomes.Count)
             .Append(", vendor pages opened ").Append(vendorPageFallbacks.Count)
             .Append(", succeeded ").Append(succeeded.Length)
             .Append(", failed ").Append(failed.Length)
-            .Append(", skipped ").Append(pipelineSkipped.Length + skipped.Count)
+            .Append(", manual or skipped outcomes ").Append(pipelineSkipped.Length)
+            .Append(", covered by shared package ").Append(skipped.Count)
             .AppendLine();
 
         if (succeeded.Length > 0)
@@ -1838,7 +2326,7 @@ public partial class MainViewModel : ObservableObject
         }
         if (skipped.Count > 0)
         {
-            sb.AppendLine("  Skipped before pipeline:");
+            sb.AppendLine("  Covered by a shared package, not separate install attempts:");
             foreach (var (row, reason) in skipped)
             {
                 sb.Append("    - ").Append(row.DeviceName).Append(": ").AppendLine(reason);
@@ -1850,13 +2338,17 @@ public partial class MainViewModel : ObservableObject
 
     private void LogScanSummary()
     {
-        var withUpdates = Drivers.Where(d => d.AvailableUpdate != null).ToArray();
-        var upToDateCount = Drivers.Count - withUpdates.Length;
+        var withUpdates = Drivers.Where(d => d.AvailableUpdate != null && !d.IsUpdateFromCache).ToArray();
+        var cachedPending = Drivers.Where(d => d.AvailableUpdate != null && d.IsUpdateFromCache).ToArray();
+        var notScannedCount = Drivers.Count(d => !d.IsScannedThisRun && !d.IsUpdateFromCache);
+        var noUpdateCount = Drivers.Count - withUpdates.Length - cachedPending.Length - notScannedCount;
 
         var sb = new System.Text.StringBuilder();
         sb.Append("Scan result summary: ").Append(Drivers.Count).Append(" total drivers, ")
-            .Append(withUpdates.Length).Append(" with available updates, ")
-            .Append(upToDateCount).AppendLine(" up-to-date / no update found");
+            .Append(withUpdates.Length).Append(" with fresh available updates, ")
+            .Append(cachedPending.Length).Append(" cached results awaiting verification, ")
+            .Append(noUpdateCount).Append(" up-to-date / no update found, ")
+            .Append(notScannedCount).AppendLine(" not scanned in this run");
 
         if (withUpdates.Length > 0)
         {
@@ -1878,7 +2370,10 @@ public partial class MainViewModel : ObservableObject
         _logger.LogInformation("{Summary}", sb.ToString().TrimEnd());
     }
 
-    private void ApplySharedVendorInstallerResult(UpdateOperation finished, DriverRowViewModel masterRow, string originalUpdateId)
+    private IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> ApplySharedVendorInstallerResult(
+        UpdateOperation finished,
+        DriverRowViewModel masterRow,
+        UpdateCandidate originalCandidate)
     {
         // Every row that shares the SourceUpdateId is really the same install (think 18
         // AMD chipset device rows that all point at amd_chipset_software_X.Y.Z.exe). Once
@@ -1887,22 +2382,52 @@ public partial class MainViewModel : ObservableObject
         // filter makes it look like there is still work pending when there is not.
         // The master row keeps its AvailableUpdate on failure so the user can retry it
         // explicitly without having to rescan.
-        // A vendor page candidate that was resolved to a direct installer finishes with a
-        // rewritten SourceUpdateId; sibling rows still carry the original id, so match both.
+        // A vendor page candidate that was resolved to a direct AMD chipset installer finishes
+        // with a per-row SourceUpdateId. Sibling AMD components still point at the same original
+        // chipset page, so treat them as one shared package and verify each component afterward.
+        var isResolvedAmdChipsetPackage =
+            finished.Candidate.SourceUpdateId.StartsWith(
+                "vendor-installer:amd-chipset:",
+                StringComparison.OrdinalIgnoreCase)
+            && originalCandidate.InstallKind == UpdateInstallKind.VendorPage;
+        var sharedOutcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         foreach (var row in Drivers.Where(r =>
             r.AvailableUpdate?.SourceUpdateId is { } id
             && (string.Equals(id, finished.Candidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(id, originalUpdateId, StringComparison.OrdinalIgnoreCase))))
+                || string.Equals(id, originalCandidate.SourceUpdateId, StringComparison.OrdinalIgnoreCase)
+                || (isResolvedAmdChipsetPackage
+                    && r.AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage
+                    && r.AvailableUpdate.DownloadUrl == originalCandidate.DownloadUrl))))
         {
+            var rowOperation = ReferenceEquals(row, masterRow)
+                ? finished
+                : finished with
+                {
+                    OperationId = Guid.NewGuid(),
+                    TargetSnapshot = row.Driver,
+                    Candidate = finished.Candidate with
+                    {
+                        ForHardwareId = row.AvailableUpdate!.ForHardwareId,
+                        NewVersion = row.AvailableUpdate.NewVersion,
+                        NewDate = row.AvailableUpdate.NewDate,
+                        Confidence = row.AvailableUpdate.Confidence,
+                        AiVerification = row.AvailableUpdate.AiVerification
+                    }
+                };
             row.Status = MapOperationStatus(finished.Status);
-            row.LastOperation = finished;
+            row.LastOperation = rowOperation;
             if (finished.Status == UpdateStatus.Succeeded || !ReferenceEquals(row, masterRow))
             {
                 row.AvailableUpdate = null;
             }
+            if (!ReferenceEquals(row, masterRow))
+            {
+                sharedOutcomes.Add((row, rowOperation));
+            }
         }
 
         RefreshUpdateCounts();
+        return sharedOutcomes;
     }
 
     private async Task OpenVendorPagesAsync(IEnumerable<DriverRowViewModel> targets, CancellationToken cancellationToken)
@@ -2026,11 +2551,9 @@ public partial class MainViewModel : ObservableObject
 
     private bool MatchesUpdateFilter(DriverRowViewModel row) => UpdateFilter switch
     {
-        DriverUpdateFilter.All => true,
-        DriverUpdateFilter.ConfirmedUpdates => row.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed,
-        DriverUpdateFilter.VendorChecks => row.AvailableUpdate?.Confidence == UpdateConfidence.Advisory,
-        DriverUpdateFilter.Installable => row.AvailableUpdate?.InstallKind is UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller or UpdateInstallKind.VendorPage,
-        DriverUpdateFilter.NoUpdate => row.AvailableUpdate is null,
+        DriverUpdateFilter.AllDrivers => true,
+        DriverUpdateFilter.UpdatesAvailable => row.AvailableUpdate is not null,
+        DriverUpdateFilter.NoUpdateAvailable => row.AvailableUpdate is null,
         _ => true
     };
 }

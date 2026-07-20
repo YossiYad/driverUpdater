@@ -6,5 +6,9 @@ public enum DriverStatus
     UpToDate,
     Outdated,
     NotFound,
-    Error
+    Error,
+    NotUpdated,
+    ManualActionRequired,
+    RestartRequired,
+    VerificationInconclusive
 }

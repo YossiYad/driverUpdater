@@ -87,6 +87,23 @@ public class MotherboardSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_skips_equivalent_Realtek_LAN_package_version()
+    {
+        var entry = NewEntry("Realtek LAN Driver", "11.29.50.0202", new DateOnly(2026, 6, 23), "LAN", "https://example.com/lan.zip");
+        var source = NewSource(OemVendor.Gigabyte, "B850M GAMING X WIFI6E", new[] { entry });
+        var driver = NewDriver(
+            "Realtek PCIe 2.5GbE Family Controller",
+            DriverCategory.Network,
+            "Realtek",
+            new DateOnly(2026, 2, 2),
+            currentVersion: new Version(1125, 29, 50, 202));
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
     public void AreComparableDriverVersions_detects_package_versions_that_should_fall_back_to_date()
     {
         MotherboardSource.AreComparableDriverVersions(

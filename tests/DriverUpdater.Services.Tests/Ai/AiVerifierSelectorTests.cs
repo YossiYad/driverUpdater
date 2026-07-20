@@ -74,7 +74,10 @@ public class AiVerifierSelectorTests
         HttpMessageHandler ollamaHandler)
     {
         var gemini = new GeminiAiVerifier(
-            new SingleClientHttpClientFactory(geminiHandler), settings, NullLogger<GeminiAiVerifier>.Instance);
+            new SingleClientHttpClientFactory(geminiHandler),
+            settings,
+            new GeminiQuotaGate(),
+            NullLogger<GeminiAiVerifier>.Instance);
         var ollama = new OllamaAiVerifier(
             new SingleClientHttpClientFactory(ollamaHandler), settings, NullLogger<OllamaAiVerifier>.Instance);
         return new AiVerifierSelector(gemini, ollama, settings);

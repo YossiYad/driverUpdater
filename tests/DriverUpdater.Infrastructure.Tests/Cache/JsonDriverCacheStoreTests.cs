@@ -104,6 +104,36 @@ public class JsonDriverCacheStoreTests : IDisposable
         second.AvailableUpdate.Should().BeNull();
     }
 
+    [Fact]
+    public async Task ClearAsync_deletes_the_cache_and_reports_removed_updates()
+    {
+        var store = NewStore();
+        var driver = NewDriver("Display", "TEST_HWID", DriverCategory.Display);
+        var candidate = new UpdateCandidate(
+            ForHardwareId: driver.HardwareId,
+            Source: UpdateSource.MicrosoftCatalog,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://download.example.com/update.cab"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "new-update",
+            SupersededIds: Array.Empty<string>());
+        await store.SaveAsync(new DriverCacheSnapshot(
+            DateTimeOffset.UtcNow,
+            new[] { new CachedDriverEntry(driver, DriverStatus.Outdated, candidate) }));
+        var eventRaised = false;
+        store.Cleared += (_, _) => eventRaised = true;
+
+        var removed = await store.ClearAsync();
+
+        removed.Should().Be(1);
+        eventRaised.Should().BeTrue();
+        File.Exists(_path).Should().BeFalse();
+        (await store.LoadAsync()).Should().BeNull();
+    }
+
     [Theory]
     [InlineData("DESKTOP-AB12", "driver-cache.DESKTOP-AB12.json")]
     [InlineData("PC:with*bad|chars", "driver-cache.PC_with_bad_chars.json")]

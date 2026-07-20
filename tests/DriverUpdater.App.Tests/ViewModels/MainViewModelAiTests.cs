@@ -132,7 +132,7 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_does_not_auto_verify_vendor_page_candidates()
+    public async Task ScanAsync_auto_verifies_vendor_page_candidates()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -146,8 +146,78 @@ public class MainViewModelAiTests
         var vm = NewVm(new[] { driver }, new[] { advisory }, verifier);
         await vm.ScanCommand.ExecuteAsync(null);
 
-        verifier.WasCalled.Should().BeFalse("vendor-page advisories should only be checked when the user clicks Ask AI");
+        verifier.WasCalled.Should().BeTrue();
+        verifier.LastRequests.Should().ContainSingle();
+        verifier.LastRequests[0].CorrelationId.Should().Be("nvidia-advisory");
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_attempts_every_driver_across_candidate_review_and_discovery()
+    {
+        var drivers = new[]
+        {
+            NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0)),
+            NewDriver("Intel Network", "PCI\\VEN_8086&DEV_0002", new Version(1, 0, 0, 0)),
+            NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_0003", new Version(1, 0, 0, 0))
+        };
+        var advisory = NewCandidate(
+            drivers[0].HardwareId,
+            new Version(2026, 5, 28, 0),
+            "nvidia-advisory",
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var verifier = new StubAiVerifier(isConfigured: true);
+        var vm = NewVm(drivers, new[] { advisory }, verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.RequestsByCall.Should().HaveCount(2);
+        verifier.RequestsByCall.SelectMany(requests => requests)
+            .Should().HaveCount(3);
+        verifier.RequestsByCall[0].Should().ContainSingle(request =>
+            request.CorrelationId == "nvidia-advisory" && !request.FindLatestWhenNoCandidate);
+        verifier.RequestsByCall[1].Should().OnlyContain(request => request.FindLatestWhenNoCandidate);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_continues_to_the_next_batch_when_ai_returns_no_results()
+    {
+        var drivers = Enumerable.Range(1, 21)
+            .Select(index => NewDriver(
+                $"Device {index}",
+                $"PCI\\VEN_1234&DEV_{index:X4}",
+                new Version(1, 0, 0, 0)))
+            .ToArray();
+        var verifier = new StubAiVerifier(isConfigured: true);
+        var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.RequestsByCall.Should().HaveCount(2);
+        verifier.RequestsByCall[0].Should().HaveCount(20);
+        verifier.RequestsByCall[1].Should().ContainSingle();
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_stops_ai_discovery_after_provider_becomes_unavailable()
+    {
+        var drivers = Enumerable.Range(1, 21)
+            .Select(index => NewDriver(
+                $"Device {index}",
+                $"PCI\\VEN_1234&DEV_{index:X4}",
+                new Version(1, 0, 0, 0)))
+            .ToArray();
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            BecomeUnavailableAfterCall = 1
+        };
+        var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.RequestsByCall.Should().ContainSingle();
+        verifier.RequestsByCall[0].Should().HaveCount(20);
     }
 
     [WpfFact]
@@ -319,6 +389,7 @@ public class MainViewModelAiTests
         verifier.LastRequests[0].FindLatestWhenNoCandidate.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
         vm.Drivers[0].AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
         vm.VendorChecksCount.Should().Be(1);
     }
 
@@ -357,6 +428,47 @@ public class MainViewModelAiTests
         verifier.WasCalled.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().BeNull(
             "a 2018 calendar-versioned driver must never be offered over a Windows inbox driver");
+        vm.VendorChecksCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_rejects_an_amd_chipset_bundle_version_for_an_individual_component()
+    {
+        var driver = new DriverInfo(
+            DeviceId: "PCI\\AMD_SMBUS",
+            HardwareId: "PCI\\VEN_1022&DEV_790B",
+            DeviceName: "AMD SMBUS",
+            Category: DriverCategory.Chipset,
+            Provider: "Advanced Micro Devices, Inc.",
+            Manufacturer: "Advanced Micro Devices, Inc.",
+            CurrentVersion: new Version(2, 0, 0, 26),
+            CurrentDate: new DateOnly(2025, 12, 4),
+            InfName: "oem85.inf",
+            InfPath: null,
+            IsSigned: true,
+            DeviceClass: "SYSTEM");
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            Verdicts =
+            {
+                ["ai-latest:PCI\\VEN_1022&DEV_790B"] = new AiVerdict(
+                    true,
+                    AiRiskLevel.Safe,
+                    "Recommended",
+                    "The latest AMD chipset driver package is version 8.05.04.516 and includes an SMBUS driver.",
+                    "8.05.04.516",
+                    new DateOnly(2026, 5, 18),
+                    "https://www.amd.com/en/support/downloads/drivers.html",
+                    CandidateSuitability: "The SMBUS driver is included in the latest AMD chipset package.",
+                    AdvisorNote: "Install the latest AMD chipset driver package.")
+            }
+        };
+        var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        vm.Drivers[0].Status.Should().NotBe(DriverStatus.Outdated);
         vm.VendorChecksCount.Should().Be(0);
     }
 
@@ -417,15 +529,19 @@ public class MainViewModelAiTests
 
         public AiProvider Provider => AiProvider.Gemini;
         public bool IsConfigured { get; }
+        public bool IsTemporarilyUnavailable { get; set; }
+        public int? BecomeUnavailableAfterCall { get; set; }
         public bool Throws { get; set; }
         public bool WasCalled { get; private set; }
         public IReadOnlyList<AiVerificationRequest> LastRequests { get; private set; } = Array.Empty<AiVerificationRequest>();
+        public List<IReadOnlyList<AiVerificationRequest>> RequestsByCall { get; } = new();
         public Dictionary<string, AiVerdict> Verdicts { get; } = new();
 
         public void Reset()
         {
             WasCalled = false;
             LastRequests = Array.Empty<AiVerificationRequest>();
+            RequestsByCall.Clear();
         }
 
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
@@ -433,6 +549,11 @@ public class MainViewModelAiTests
         {
             WasCalled = true;
             LastRequests = requests;
+            RequestsByCall.Add(requests);
+            if (BecomeUnavailableAfterCall == RequestsByCall.Count)
+            {
+                IsTemporarilyUnavailable = true;
+            }
             if (Throws)
             {
                 throw new InvalidOperationException("ai failed");

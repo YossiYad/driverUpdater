@@ -50,6 +50,48 @@ public class MainViewModelRebootTests
         prompt.RestartCalled.Should().BeFalse();
     }
 
+    [WpfFact]
+    public async Task Install_sends_completed_operations_to_post_update_verification()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator();
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+        AddConfirmedOutdatedRow(vm, "Intel Iris Xe Graphics");
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        coordinator.CompletedRuns.Should().ContainSingle();
+        coordinator.CompletedRuns[0].Should().ContainSingle();
+        coordinator.CompletedRuns[0].Single().Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [WpfFact]
+    public async Task Install_applies_the_verified_windows_result_to_the_grid()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator
+        {
+            ResultStatus = UpdateVerificationStatus.NotUpdated
+        };
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+        AddConfirmedOutdatedRow(vm, "AMD Special Tools Driver");
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle();
+        vm.Drivers[0].Status.Should().Be(DriverStatus.NotUpdated);
+        vm.Drivers[0].StatusText.Should().Be("Not updated");
+    }
+
+    [WpfFact]
+    public async Task Initialize_resumes_pending_post_restart_verification()
+    {
+        var coordinator = new FakePostUpdateSummaryCoordinator();
+        var vm = NewVm(new NoRebootPipeline(), new FakeRebootPrompt(), coordinator);
+
+        await vm.InitializeAsync();
+
+        coordinator.ResumeCalls.Should().Be(1);
+    }
+
     private static void AddConfirmedOutdatedRow(MainViewModel vm, string name)
     {
         var driver = new DriverInfo(
@@ -86,7 +128,10 @@ public class MainViewModelRebootTests
         vm.ScannedCount = vm.Drivers.Count;
     }
 
-    private static MainViewModel NewVm(IInstallPipeline pipeline, IRebootPrompt rebootPrompt) =>
+    private static MainViewModel NewVm(
+        IInstallPipeline pipeline,
+        IRebootPrompt rebootPrompt,
+        IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null) =>
         new(new FakeScanService(),
             Array.Empty<IUpdateSource>(),
             new NullOemDetectionService(),
@@ -96,7 +141,8 @@ public class MainViewModelRebootTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            rebootPrompt: rebootPrompt);
+            rebootPrompt: rebootPrompt,
+            postUpdateSummaryCoordinator: postUpdateSummaryCoordinator);
 
     private sealed class FakeRebootPrompt : IRebootPrompt
     {
@@ -143,6 +189,57 @@ public class MainViewModelRebootTests
                 ErrorMessage = null,
                 CompletedAt = DateTimeOffset.UtcNow
             });
+    }
+
+    private sealed class FakePostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
+    {
+        public List<IReadOnlyCollection<UpdateOperation>> CompletedRuns { get; } = new();
+        public int ResumeCalls { get; private set; }
+        public UpdateVerificationStatus? ResultStatus { get; set; }
+
+        public Task<UpdateVerificationReport?> CompleteRunAsync(
+            IReadOnlyCollection<UpdateOperation> operations,
+            Action<UpdateVerificationReport>? beforeSummaryOpen = null,
+            CancellationToken cancellationToken = default)
+        {
+            CompletedRuns.Add(operations);
+            if (ResultStatus is not { } status)
+            {
+                return Task.FromResult<UpdateVerificationReport?>(null);
+            }
+
+            var items = operations.Select(operation => new UpdateVerificationItem(
+                operation.OperationId,
+                operation.TargetSnapshot.DeviceName,
+                operation.TargetSnapshot.Category,
+                operation.TargetSnapshot.CurrentVersion,
+                operation.TargetSnapshot.CurrentDate,
+                operation.Candidate.NewVersion,
+                operation.Candidate.NewDate,
+                operation.TargetSnapshot.CurrentVersion,
+                operation.TargetSnapshot.CurrentDate,
+                status,
+                operation.ErrorMessage,
+                operation.Status,
+                operation.Candidate.InstallKind,
+                operation.Candidate.Confidence,
+                null)).ToArray();
+            var report = new UpdateVerificationReport(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                false,
+                items,
+                null,
+                false);
+            beforeSummaryOpen?.Invoke(report);
+            return Task.FromResult<UpdateVerificationReport?>(report);
+        }
+
+        public Task ResumeAfterRestartAsync(CancellationToken cancellationToken = default)
+        {
+            ResumeCalls++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeScanService : IDriverScanService

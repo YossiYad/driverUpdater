@@ -2,6 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
+    <sys:String x:Key="AiQuota.Title">מכסת ה-AI הסתיימה</sys:String>
+    <sys:String x:Key="AiQuota.DailyMessage">מכסת הבקשות והטוקנים של Gemini הסתיימה. המכסה היומית מתאפסת בחצות לפי שעון החוף המערבי בארצות הברית. ה-AI אמור לחזור להיות זמין בסביבות {0}. סריקת הדרייברים והעדכונים יכולים להמשיך גם בלי AI.</sys:String>
+    <sys:String x:Key="AiQuota.TemporaryMessage">Gemini מגביל זמנית את בקשות ה-AI מפני שנשלחו יותר מדי בקשות או טוקנים בזמן קצר. ה-AI אמור לחזור להיות זמין בסביבות {0}. סריקת הדרייברים והעדכונים יכולים להמשיך גם בלי AI.</sys:String>
+
     <sys:String x:Key="App.Title">DriverUpdater</sys:String>
     <sys:String x:Key="App.Version">v0.1.27</sys:String>
     <sys:String x:Key="App.Admin">מנהל</sys:String>
@@ -37,6 +41,7 @@
     <sys:String x:Key="Grid.Update">עדכון</sys:String>
     <sys:String x:Key="Grid.Ai">בדיקת AI</sys:String>
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
+    <sys:String x:Key="Grid.DriverVersion">גרסת דרייבר</sys:String>
 
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
     <sys:String x:Key="Confirm.Current">נוכחי</sys:String>
@@ -46,6 +51,17 @@
     <sys:String x:Key="Confirm.BackupDriver">גבה את הדרייבר הנוכחי לפני ההתקנה</sys:String>
     <sys:String x:Key="Confirm.RiskHeader">זהירות:</sys:String>
     <sys:String x:Key="Confirm.RiskBody">דרייברים של אחסון ותצוגה עלולים למנוע אתחול של Windows אם הם נכשלים. נקודת השחזור והגיבוי מצמצמים אך לא מבטלים את הסיכון.</sys:String>
+    <sys:String x:Key="Confirm.ImpactHeader">לפני שממשיכים</sys:String>
+    <sys:String x:Key="Confirm.RestartRequired">לאחר העדכון יהיה צורך להפעיל מחדש את המחשב. שמור את העבודה שלך לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.RestartPossible">ייתכן שלאחר העדכון יהיה צורך להפעיל מחדש את המחשב. שמור את העבודה שלך לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Display">המסך עשוי להבהב או להשחיר זמנית. משחקים, וידאו ויישומי גרפיקה עשויים להיעצר או להיסגר.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Network">חיבור הרשת, VPN, שיחות והורדות פעילות עשויים להתנתק זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.AudioCamera">שמע, מצלמה, שיחות, הקלטות ויישומים שמשתמשים בהתקן עשויים להיעצר זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Input">המקלדת, העכבר, התקן USB או Bluetooth עשויים להתנתק זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.StorageSystem">שירותי מערכת או עבודה פעילה עשויים להיפסק. סגור יישומים חשובים ושמור קבצים פתוחים לפני ההמשך.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Printer">הדפסה ועבודות הדפסה פעילות עשויות להיעצר זמנית.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Generic">ההתקן ויישומים שמשתמשים בו עשויים לא להיות זמינים זמנית בזמן ההתקנה.</sys:String>
+    <sys:String x:Key="Confirm.Impact.VendorInstaller">תוכנית ההתקנה של היצרן עשויה לסגור יישומים קשורים או לבקש אישור נוסף.</sys:String>
     <sys:String x:Key="Confirm.CancelButton">ביטול</sys:String>
     <sys:String x:Key="Confirm.ProceedButton">המשך</sys:String>
 

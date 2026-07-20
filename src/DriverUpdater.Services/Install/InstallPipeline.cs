@@ -92,6 +92,18 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            // Resolve vendor-page rows before touching the system: rows that end up merely
+            // opening a browser page must not cost a restore point and a driver backup
+            // (a GPU driver export alone can exceed 1 GB).
+            if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
+            {
+                operation = await StepResolveVendorPageAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
+                if (operation.Status == UpdateStatus.Skipped)
+                {
+                    return operation;
+                }
+            }
+
             if (options.CreateRestorePoint)
             {
                 operation = await StepCreateRestorePointAsync(operation, recordingProgress, cancellationToken).ConfigureAwait(false);
@@ -296,6 +308,19 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var deviceName = DeviceLabel(operation.TargetSnapshot);
 
+        // AMD chipset packages update several independent device drivers in one run. The
+        // representative row may already have the package's component version while another
+        // component changed, so a single-device read-back cannot classify the package result.
+        // Keep the successful package outcome and let the post-update verifier inspect every
+        // affected row separately.
+        if (IsAmdChipsetCandidate(operation.Candidate))
+        {
+            _logger.LogInformation(
+                "AMD chipset package completed for {Device}; component verification is deferred to the batch summary",
+                deviceName);
+            return operation;
+        }
+
         // When a reboot is required the new driver only binds after restart, so an in-session
         // read-back would falsely report "unchanged". Defer verification to the next scan.
         if (operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true)
@@ -349,6 +374,37 @@ public sealed class InstallPipeline : IInstallPipeline
         return operation;
     }
 
+    private async Task<UpdateOperation> StepResolveVendorPageAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        var resolved = _vendorPageResolver is null
+            ? null
+            : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
+        if (resolved is not null)
+        {
+            _logger.LogInformation(
+                "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
+                operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
+            return operation with { Candidate = resolved };
+        }
+
+        _logger.LogInformation(
+            "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
+            operation.TargetSnapshot.DeviceName,
+            _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
+            operation.Candidate.DownloadUrl);
+        operation = operation with
+        {
+            Status = UpdateStatus.Skipped,
+            ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
+    }
+
     private async Task<UpdateOperation> StepDownloadAndInstallAsync(
         UpdateOperation operation,
         IProgress<UpdateOperation>? progress,
@@ -356,23 +412,6 @@ public sealed class InstallPipeline : IInstallPipeline
     {
         if (operation.Candidate.InstallKind == UpdateInstallKind.VendorPage)
         {
-            var resolved = _vendorPageResolver is null
-                ? null
-                : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
-            if (resolved is not null)
-            {
-                _logger.LogInformation(
-                    "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
-                    operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
-                operation = operation with { Candidate = resolved };
-                return await StepInstallVendorInstallerAsync(operation, progress, cancellationToken).ConfigureAwait(false);
-            }
-
-            _logger.LogInformation(
-                "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
-                operation.TargetSnapshot.DeviceName,
-                _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
-                operation.Candidate.DownloadUrl);
             operation = operation with
             {
                 Status = UpdateStatus.Skipped,
@@ -522,7 +561,11 @@ public sealed class InstallPipeline : IInstallPipeline
             var installStart = _clock.GetUtcNow();
             var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
             var installElapsed = _clock.GetUtcNow() - installStart;
-            if (!result.IsSuccess)
+            var amdLogDetail = string.Empty;
+            var amdLogConfirmedSuccess = !result.IsSuccess
+                && IsAmdChipsetCandidate(operation.Candidate)
+                && TryConfirmAmdChipsetSuccess(installStart, out amdLogDetail);
+            if (!result.IsSuccess && !amdLogConfirmedSuccess)
             {
                 var harvestedLogs = TryHarvestInstallerLogTails(installStart, operation.Candidate.SourceUpdateId);
                 _logger.LogError(
@@ -541,12 +584,22 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            if (amdLogConfirmedSuccess)
+            {
+                _logger.LogInformation(
+                    "AMD chipset installer returned exit {Code}, but its official installer log confirmed success: {Detail}",
+                    result.ExitCode, amdLogDetail);
+            }
+
             _logger.LogInformation(
                 "Vendor installer for {Device} succeeded after {Elapsed}",
                 operation.TargetSnapshot.DeviceName, installElapsed);
             operation = operation with
             {
                 Status = UpdateStatus.Succeeded,
+                ErrorMessage = amdLogConfirmedSuccess
+                    ? $"AMD chipset package completed successfully. The outer installer returned exit {result.ExitCode}, but the official AMD installer log reported success."
+                    : operation.ErrorMessage,
                 CompletedAt = _clock.GetUtcNow()
             };
             progress?.Report(operation);
@@ -803,6 +856,50 @@ public sealed class InstallPipeline : IInstallPipeline
         return value.Trim();
     }
 
+    internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
+        candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryConfirmAmdChipsetSuccess(DateTimeOffset installStart, out string detail)
+    {
+        detail = string.Empty;
+        try
+        {
+            var systemRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            if (string.IsNullOrWhiteSpace(systemRoot))
+            {
+                return false;
+            }
+
+            var logPath = Path.Combine(systemRoot, "AMD", "Chipset_Software", "Logs", "AMD_Chipset_Software_Install.log");
+            if (!File.Exists(logPath)
+                || File.GetLastWriteTimeUtc(logPath) < installStart.UtcDateTime.AddSeconds(-2))
+            {
+                return false;
+            }
+
+            using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var log = reader.ReadToEnd();
+            if (!IsSuccessfulAmdChipsetLog(log))
+            {
+                return false;
+            }
+
+            detail = "AMD_Chipset_Software_Install.log reports configuration success with MSI status 0";
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsSuccessfulAmdChipsetLog(string log) =>
+        !string.IsNullOrWhiteSpace(log)
+        && log.Contains("Configuration completed successfully", StringComparison.OrdinalIgnoreCase)
+        && (log.Contains("error status: 0", StringComparison.OrdinalIgnoreCase)
+            || log.Contains("MainEngineThread is returning 0", StringComparison.OrdinalIgnoreCase));
+
     // A human-readable label for a device that never yields an empty string. Virtual/inbox
     // devices (e.g. Microsoft Print to PDF) can have a blank DeviceName, which otherwise leaks
     // into the restore point description ("DriverUpdater - before ") and logs.
@@ -826,25 +923,33 @@ public sealed class InstallPipeline : IInstallPipeline
     // the actual cause in the app log instead of a bare "exit 2, <empty>".
     internal static string TryHarvestInstallerLogTails(DateTimeOffset installStart, string sourceUpdateId)
     {
-        var search = new List<string>();
-        TryAddIfExists(search, Path.GetTempPath());
-        TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"));
-
-        // Per-vendor hint folders.
+        var search = new List<(string Path, SearchOption SearchOption)>();
         if (sourceUpdateId.Contains("amd", StringComparison.OrdinalIgnoreCase))
         {
-            TryAddIfExists(search, @"C:\AMD");
-            TryAddIfExists(search, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"));
+            TryAddIfExists(search, @"C:\AMD", SearchOption.AllDirectories);
+            TryAddIfExists(
+                search,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AMD"),
+                SearchOption.AllDirectories);
+        }
+        else
+        {
+            TryAddIfExists(search, Path.GetTempPath(), SearchOption.TopDirectoryOnly);
+            TryAddIfExists(search, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), SearchOption.TopDirectoryOnly);
+            TryAddIfExists(
+                search,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Logs"),
+                SearchOption.TopDirectoryOnly);
         }
 
         var sb = new System.Text.StringBuilder();
         var cutoff = installStart.UtcDateTime.AddSeconds(-2);
-        foreach (var dir in search)
+        foreach (var (dir, searchOption) in search)
         {
             try
             {
-                var hits = Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly)
+                var hits = Directory.EnumerateFiles(dir, "*.log", searchOption)
+                    .Where(p => !Path.GetFileName(p).StartsWith("Microsoft.NET.Workload_", StringComparison.OrdinalIgnoreCase))
                     .Where(p =>
                     {
                         try { return File.GetLastWriteTimeUtc(p) >= cutoff; }
@@ -871,13 +976,16 @@ public sealed class InstallPipeline : IInstallPipeline
         return sb.ToString();
     }
 
-    private static void TryAddIfExists(List<string> list, string path)
+    private static void TryAddIfExists(
+        List<(string Path, SearchOption SearchOption)> list,
+        string path,
+        SearchOption searchOption)
     {
         try
         {
             if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             {
-                list.Add(path);
+                list.Add((path, searchOption));
             }
         }
         catch { /* skip */ }

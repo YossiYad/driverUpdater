@@ -12,15 +12,22 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
 {
     public const string HttpClientName = "AmdGraphics";
     internal const string AmdSupportUrl = "https://www.amd.com/en/support/download/drivers.html";
+    private const string AmdSoftwareDisplayName = "AMD Software";
 
     private readonly HttpClient _httpClient;
+    private readonly IInstalledSoftwareVersionProvider _installedSoftware;
     private readonly ILogger<AmdGraphicsSource> _logger;
 
-    public AmdGraphicsSource(HttpClient httpClient, ILogger<AmdGraphicsSource> logger)
+    public AmdGraphicsSource(
+        HttpClient httpClient,
+        IInstalledSoftwareVersionProvider installedSoftware,
+        ILogger<AmdGraphicsSource> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(installedSoftware);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClient = httpClient;
+        _installedSoftware = installedSoftware;
         _logger = logger;
     }
 
@@ -44,6 +51,15 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         if (amdDisplays.Length == 0)
         {
             yield break;
+        }
+
+        var installedAmdSoftwareVersion = TryParseVersion(
+            _installedSoftware.GetVersion(AmdSoftwareDisplayName));
+        if (installedAmdSoftwareVersion is not null)
+        {
+            _logger.LogInformation(
+                "AMD Software {Version} is installed; upstream Adrenalin releases will be compared against the package version",
+                installedAmdSoftwareVersion);
         }
 
         // Phase 1: collect (driver, supportUri, parsedRelease?) per display, sorted so devices with
@@ -99,6 +115,17 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             if (release is null)
             {
                 _logger.LogWarning("AMD: no release info available for {Device} (no cache, parser failed); skipping", driver.DeviceName);
+                continue;
+            }
+
+            var releaseVersion = TryParseVersion(release.Value.Revision);
+            if (installedAmdSoftwareVersion is not null
+                && releaseVersion is not null
+                && releaseVersion <= installedAmdSoftwareVersion)
+            {
+                _logger.LogInformation(
+                    "AMD: installed AMD Software {Installed} already includes upstream Adrenalin {Upstream}; skipping {Device}",
+                    installedAmdSoftwareVersion, releaseVersion, driver.DeviceName);
                 continue;
             }
 
@@ -245,6 +272,9 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
     }
 
     internal static Version DateToVersion(DateOnly date) => new(date.Year, date.Month, date.Day, 0);
+
+    private static Version? TryParseVersion(string? value) =>
+        Version.TryParse(value, out var version) ? version : null;
 
     private static bool Contains(string haystack, string needle) =>
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);

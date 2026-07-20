@@ -112,12 +112,40 @@ public class LogsViewModelChatTests
         vm.StatusText.Should().Contain("not configured");
     }
 
+    [WpfFact]
+    public async Task SummarizeWithAi_creates_a_local_summary_when_gemini_quota_is_exhausted()
+    {
+        var sink = new InMemoryLogSink();
+        EmitInfo(sink, "Update run summary: succeeded 0, manual or skipped outcomes 2");
+        EmitWarning(sink, "Gemini text completion failed: HTTP 429 quota exceeded");
+        var vm = new LogsViewModel(sink, new QuotaTextCompleter());
+
+        await vm.SummarizeWithAiCommand.ExecuteAsync(null);
+
+        vm.HasAiSummary.Should().BeTrue();
+        vm.AiSummary.Should().Contain("Local diagnostic summary");
+        vm.AiSummary.Should().Contain("Update run summary");
+        vm.AiSummary.Should().Contain("HTTP 429 quota exceeded");
+        vm.StatusText.Should().Contain("local diagnostic summary");
+    }
+
     private static void EmitInfo(InMemoryLogSink sink, string message)
     {
         var template = new MessageTemplateParser().Parse(message);
         sink.Emit(new LogEvent(
             DateTimeOffset.Now,
             LogEventLevel.Information,
+            exception: null,
+            template,
+            Array.Empty<LogEventProperty>()));
+    }
+
+    private static void EmitWarning(InMemoryLogSink sink, string message)
+    {
+        var template = new MessageTemplateParser().Parse(message);
+        sink.Emit(new LogEvent(
+            DateTimeOffset.Now,
+            LogEventLevel.Warning,
             exception: null,
             template,
             Array.Empty<LogEventProperty>()));
@@ -144,5 +172,18 @@ public class LogsViewModelChatTests
             LastPrompt = prompt;
             return Task.FromResult<string?>(_reply);
         }
+    }
+
+    private sealed class QuotaTextCompleter : IAiTextCompleter
+    {
+        public AiProvider Provider => AiProvider.Gemini;
+        public bool IsConfigured => true;
+
+        public Task<string?> CompleteAsync(
+            string prompt,
+            CancellationToken cancellationToken = default) =>
+            throw new AiTextCompletionException(
+                AiTextCompletionFailureReason.QuotaExceeded,
+                "Gemini's daily request quota is exhausted.");
     }
 }

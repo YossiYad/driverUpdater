@@ -65,10 +65,12 @@ internal sealed class CapturingHandler : HttpMessageHandler
 
     public HttpRequestMessage? LastRequest { get; private set; }
     public string? LastRequestBody { get; private set; }
+    public int RequestCount { get; private set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        RequestCount++;
         LastRequest = request;
         if (request.Content is not null)
         {

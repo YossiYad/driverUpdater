@@ -87,7 +87,8 @@ public sealed partial class WindowsUpdateSource : IUpdateSource
             KbArticle: record.KbArticleIds.Count > 0 ? $"KB{record.KbArticleIds[0]}" : null,
             IsSuperseded: false,
             SourceUpdateId: record.UpdateId,
-            SupersededIds: Array.Empty<string>());
+            SupersededIds: Array.Empty<string>(),
+            RebootBehavior: record.RebootBehavior);
         return true;
     }
 

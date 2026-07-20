@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DriverUpdater.Core\DriverUpdater.Core.csproj" />
     <ProjectReference Include="..\DriverUpdater.Services\DriverUpdater.Services.csproj" />
     <ProjectReference Include="..\DriverUpdater.Infrastructure\DriverUpdater.Infrastructure.csproj" />

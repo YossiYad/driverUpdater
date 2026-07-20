@@ -28,6 +28,24 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title="DriverUpdater - Logs"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
+
+        <Grid Grid.Row="1" Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -347,5 +365,6 @@
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <TextBlock Text="{Binding StatusText}" Opacity="0.85" FontSize="12" />
         </Border>
+        </Grid>
     </Grid>
 </ui:FluentWindow>

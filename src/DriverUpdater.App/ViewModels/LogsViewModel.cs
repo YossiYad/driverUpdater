@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DriverUpdater.App.Logging;
 using DriverUpdater.Core.Abstractions;
+using DriverUpdater.Core.Models;
 
 namespace DriverUpdater.App.ViewModels;
 
@@ -225,7 +226,9 @@ public partial class LogsViewModel : ObservableObject, IDisposable
             var summary = await _aiCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(summary))
             {
-                StatusText = "AI did not return a summary. Check the AI provider in Settings and try again.";
+                ShowLocalSummary(
+                    entries,
+                    "The AI provider did not return a usable response.");
                 return;
             }
 
@@ -238,9 +241,13 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         {
             StatusText = "AI summary cancelled.";
         }
+        catch (AiTextCompletionException ex)
+        {
+            ShowLocalSummary(entries, ex.Message);
+        }
         catch (Exception ex)
         {
-            StatusText = $"AI summary failed: {ex.Message}";
+            ShowLocalSummary(entries, $"AI summary failed: {ex.Message}");
         }
         finally
         {
@@ -249,6 +256,14 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     }
 
     private bool CanSummarize() => !IsSummarizing && _aiCompleter is not null;
+
+    private void ShowLocalSummary(IReadOnlyList<LogEntry> entries, string reason)
+    {
+        IsSummaryVisible = true;
+        AiSummary = LocalLogSummaryBuilder.Build(entries, reason);
+        SafeSetClipboard(AiSummary);
+        StatusText = "AI was unavailable. A local diagnostic summary was created and copied instead.";
+    }
 
     [RelayCommand(CanExecute = nameof(HasAiSummary))]
     private void CopyAiSummary()

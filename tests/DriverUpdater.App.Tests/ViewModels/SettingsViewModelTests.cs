@@ -12,6 +12,79 @@ namespace DriverUpdater.App.Tests.ViewModels;
 public class SettingsViewModelTests
 {
     [WpfFact]
+    public async Task LoadAsync_reads_application_behavior_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Application = new ApplicationSettings
+            {
+                CloseBehavior = WindowCloseBehavior.KeepRunningInBackground,
+                StartWithWindows = true,
+                StartMinimized = true
+            }
+        });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.CloseBehavior.Should().Be(WindowCloseBehavior.KeepRunningInBackground);
+        vm.StartWithWindows.Should().BeTrue();
+        vm.StartMinimized.Should().BeTrue();
+        vm.CanStartMinimized.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_applies_application_and_Windows_startup_settings()
+    {
+        var store = new FakeStore(new AppSettings());
+        var startup = new FakeApplicationStartupService();
+        var state = new ApplicationBehaviorState();
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            applicationBehaviorState: state,
+            applicationStartupService: startup);
+        await vm.LoadAsync();
+        vm.CloseBehavior = WindowCloseBehavior.KeepRunningInBackground;
+        vm.StartWithWindows = true;
+        vm.StartMinimized = true;
+
+        await vm.SaveAsync();
+
+        store.Saved!.Application.CloseBehavior
+            .Should().Be(WindowCloseBehavior.KeepRunningInBackground);
+        store.Saved.Application.StartWithWindows.Should().BeTrue();
+        store.Saved.Application.StartMinimized.Should().BeTrue();
+        startup.ApplyCalls.Should().Be(1);
+        startup.StartWithWindows.Should().BeTrue();
+        startup.StartMinimized.Should().BeTrue();
+        state.ShouldStartHidden.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public void Start_minimized_is_cleared_when_background_mode_is_disabled()
+    {
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance)
+        {
+            CloseBehavior = WindowCloseBehavior.KeepRunningInBackground,
+            StartWithWindows = true,
+            StartMinimized = true
+        };
+
+        vm.CloseBehavior = WindowCloseBehavior.ExitApplication;
+
+        vm.CanStartMinimized.Should().BeFalse();
+        vm.StartMinimized.Should().BeFalse();
+    }
+
+    [WpfFact]
     public async Task LoadAsync_pulls_values_from_store()
     {
         var store = new FakeStore(new AppSettings
@@ -40,6 +113,50 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_log_cleanup_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            LogCleanup = new LogCleanupSettings
+            {
+                Enabled = false,
+                RetentionDays = 30
+            }
+        });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.EnableAutomaticLogCleanup.Should().BeFalse();
+        vm.LogRetentionDays.Should().Be(30);
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_and_immediately_applies_log_cleanup_settings()
+    {
+        var store = new FakeStore(new AppSettings());
+        var cleanup = new FakeLogCleanupService { DeletedFiles = 2 };
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            logCleanupService: cleanup);
+        await vm.LoadAsync();
+        vm.EnableAutomaticLogCleanup = true;
+        vm.LogRetentionDays = 14;
+
+        await vm.SaveAsync();
+
+        store.Saved!.LogCleanup.Enabled.Should().BeTrue();
+        store.Saved.LogCleanup.RetentionDays.Should().Be(14);
+        cleanup.LastSettings.Should().BeEquivalentTo(store.Saved.LogCleanup);
+        vm.StatusText.Should().Be("Settings saved. Removed 2 old log file(s).");
+    }
+
+    [WpfFact]
     public async Task SaveAsync_writes_to_store_and_calls_scheduler()
     {
         var store = new FakeStore(new AppSettings());
@@ -61,6 +178,33 @@ public class SettingsViewModelTests
         store.Saved.Schedule.Mode.Should().Be(ScheduleMode.ScanOnly);
         scheduler.ApplyCalls.Should().Be(1);
         vm.StatusText.Should().Be("Settings saved.");
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_preserves_catalog_tuning_that_is_not_exposed_in_the_ui()
+    {
+        var catalog = new CatalogSettings
+        {
+            Enabled = true,
+            MaxConcurrentSearches = 7,
+            CacheDuration = TimeSpan.FromHours(12),
+            MaxRetries = 1,
+            RequestTimeout = TimeSpan.FromSeconds(15)
+        };
+        var store = new FakeStore(new AppSettings { Catalog = catalog });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Catalog.MaxConcurrentSearches.Should().Be(7);
+        store.Saved.Catalog.CacheDuration.Should().Be(TimeSpan.FromHours(12));
+        store.Saved.Catalog.MaxRetries.Should().Be(1);
+        store.Saved.Catalog.RequestTimeout.Should().Be(TimeSpan.FromSeconds(15));
     }
 
     [WpfFact]
@@ -375,6 +519,23 @@ public class SettingsViewModelTests
         vm.StatusText.Should().Be("Could not check for updates. See logs for details.");
     }
 
+    [WpfFact]
+    public async Task ClearDriverCacheAsync_clears_cached_results_and_updates_status()
+    {
+        var cache = new FakeDriverCacheStore(removedUpdateCount: 3);
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            driverCacheStore: cache);
+
+        vm.ClearDriverCacheCommand.CanExecute(null).Should().BeTrue();
+        await vm.ClearDriverCacheCommand.ExecuteAsync(null);
+
+        cache.ClearCalls.Should().Be(1);
+        vm.StatusText.Should().Contain("Removed 3 cached update result(s)");
+    }
+
     private sealed class FakeAppUpdater : IAppUpdater
     {
         private readonly AppUpdateCheckResult _result;
@@ -427,6 +588,52 @@ public class SettingsViewModelTests
         }
     }
 
+    private sealed class FakeDriverCacheStore : IDriverCacheStore
+    {
+        private readonly int _removedUpdateCount;
+
+        public FakeDriverCacheStore(int removedUpdateCount)
+        {
+            _removedUpdateCount = removedUpdateCount;
+        }
+
+        public event EventHandler? Cleared;
+        public int ClearCalls { get; private set; }
+
+        public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<DriverCacheSnapshot?>(null);
+
+        public Task SaveAsync(
+            DriverCacheSnapshot snapshot,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<int> ClearAsync(CancellationToken cancellationToken = default)
+        {
+            ClearCalls++;
+            Cleared?.Invoke(this, EventArgs.Empty);
+            return Task.FromResult(_removedUpdateCount);
+        }
+    }
+
+    private sealed class FakeApplicationStartupService : IApplicationStartupService
+    {
+        public int ApplyCalls { get; private set; }
+        public bool StartWithWindows { get; private set; }
+        public bool StartMinimized { get; private set; }
+
+        public Task ApplyAsync(
+            bool startWithWindows,
+            bool startMinimized,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCalls++;
+            StartWithWindows = startWithWindows;
+            StartMinimized = startMinimized;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FakeScheduler : ISchedulerService
     {
         public int ApplyCalls { get; private set; }
@@ -446,5 +653,20 @@ public class SettingsViewModelTests
             Task.FromResult<ScheduledTaskInfo?>(null);
 
         public Task RemoveAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeLogCleanupService : ILogCleanupService
+    {
+        public string LogDirectory => @"C:\ProgramData\DriverUpdater\Logs";
+        public int DeletedFiles { get; init; }
+        public LogCleanupSettings? LastSettings { get; private set; }
+
+        public Task<int> CleanupAsync(
+            LogCleanupSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            LastSettings = settings;
+            return Task.FromResult(DeletedFiles);
+        }
     }
 }

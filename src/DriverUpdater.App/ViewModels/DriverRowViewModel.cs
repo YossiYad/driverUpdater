@@ -10,6 +10,7 @@ public partial class DriverRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private DriverStatus _status = DriverStatus.Unknown;
 
     [ObservableProperty]
@@ -24,6 +25,8 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(AiRiskText))]
     [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
     [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
+    [NotifyPropertyChangedFor(nameof(VersionSummaryText))]
+    [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
     [NotifyPropertyChangedFor(nameof(CanAskAi))]
@@ -34,7 +37,18 @@ public partial class DriverRowViewModel : ObservableObject
     private bool _isAiChecking;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(SourceText))]
+    [NotifyPropertyChangedFor(nameof(UpdateActionText))]
+    [NotifyPropertyChangedFor(nameof(ConfidenceText))]
+    [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
+    private bool _isUpdateFromCache;
+
+    [ObservableProperty]
     private UpdateOperation? _lastOperation;
+
+    public bool IsScannedThisRun { get; set; } = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBusy))]
@@ -78,8 +92,12 @@ public partial class DriverRowViewModel : ObservableObject
         && v.Minor == update.NewDate.Month
         && v.Build == update.NewDate.Day;
     public string? AvailableDateText => AvailableUpdate?.NewDate.ToString("yyyy-MM-dd");
-    public string? SourceText => AvailableUpdate?.Source.ToString();
-    public string UpdateActionText => AvailableUpdate?.InstallKind switch
+    public string? SourceText => AvailableUpdate is null
+        ? null
+        : IsUpdateFromCache
+            ? $"{AvailableUpdate.Source} (cached)"
+            : AvailableUpdate.Source.ToString();
+    public string UpdateActionText => IsUpdateFromCache ? string.Empty : AvailableUpdate?.InstallKind switch
     {
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
@@ -87,12 +105,54 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.VendorPage => "Install / vendor page",
         _ => string.Empty
     };
-    public string ConfidenceText => AvailableUpdate?.Confidence switch
+    public string ConfidenceText => IsUpdateFromCache ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
     {
         UpdateConfidence.Confirmed => "Confirmed",
         UpdateConfidence.Advisory => "Check vendor",
         _ => string.Empty
     };
+
+    public string StatusText => IsUpdateFromCache ? "Cached result, re-scan required" : Status switch
+    {
+        DriverStatus.Unknown => "Checking...",
+        DriverStatus.UpToDate => "Up to date",
+        DriverStatus.Outdated => "Update available",
+        DriverStatus.NotFound => "No update found",
+        DriverStatus.Error => "Check failed",
+        DriverStatus.NotUpdated => "Not updated",
+        DriverStatus.ManualActionRequired => "Continue on vendor website",
+        DriverStatus.RestartRequired => "Restart required",
+        DriverStatus.VerificationInconclusive => "Could not verify",
+        _ => Status.ToString()
+    };
+
+    public string VersionSummaryText => string.IsNullOrWhiteSpace(AvailableVersionText)
+        ? CurrentVersionText ?? "Unknown"
+        : $"{CurrentVersionText ?? "Unknown"}  to  {AvailableVersionText}";
+
+    public string DriverDetailsTooltip
+    {
+        get
+        {
+            var details = new List<string>
+            {
+                $"Category: {Category}",
+                $"Provider: {Provider}",
+                $"Installed version: {CurrentVersionText ?? "Unknown"}",
+                $"Installed date: {CurrentDateText ?? "Unknown"}"
+            };
+
+            if (AvailableUpdate is not null)
+            {
+                details.Add($"Available version: {AvailableVersionText ?? "Unknown"}");
+                details.Add($"Available date: {AvailableDateText ?? "Unknown"}");
+                details.Add($"Source: {SourceText ?? "Unknown"}");
+                details.Add($"Confidence: {ConfidenceText}");
+            }
+
+            return string.Join(Environment.NewLine, details);
+        }
+    }
 
     public bool HasAiVerdict => AvailableUpdate?.AiVerification is not null;
 
@@ -169,7 +229,8 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool CanUpdate => AvailableUpdate is not null
+    public bool CanUpdate => !IsUpdateFromCache
+        && AvailableUpdate is not null
         && (Status == DriverStatus.Outdated || AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage);
 
     public bool CanAskAi => !IsAiChecking;

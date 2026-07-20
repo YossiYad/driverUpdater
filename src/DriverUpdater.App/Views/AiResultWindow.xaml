@@ -17,21 +17,75 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title="DriverUpdater - AI response"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
+
+        <Grid Grid.Row="1">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
                 Padding="20,14"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <StackPanel>
-                <TextBlock Text="{Binding DeviceName}"
-                           FontSize="20"
-                           FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Margin="0,4,0,0"
-                           Opacity="0.7"
-                           Text="{Binding Recommendation}" />
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Margin="0,0,16,0">
+                    <TextBlock Text="{Binding DeviceName}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Margin="0,4,0,0"
+                               Opacity="0.7"
+                               FlowDirection="{Binding ContentFlowDirection}"
+                               Text="{Binding Recommendation}"
+                               TextAlignment="{Binding ContentTextAlignment}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            HorizontalAlignment="Right">
+                    <StackPanel Orientation="Horizontal">
+                        <ComboBox Width="110"
+                                  ItemsSource="{Binding TranslationLanguages}"
+                                  SelectedItem="{Binding SelectedTranslationLanguage}"
+                                  DisplayMemberPath="Label" />
+                        <Button MinWidth="90"
+                                Margin="8,0,0,0"
+                                Padding="12,5"
+                                Content="Translate"
+                                Command="{Binding TranslateCommand}" />
+                        <Button MinWidth="80"
+                                Margin="8,0,0,0"
+                                Padding="12,5"
+                                Content="Original"
+                                Command="{Binding ShowOriginalCommand}" />
+                    </StackPanel>
+                    <TextBlock Margin="0,5,0,0"
+                               HorizontalAlignment="Right"
+                               FontSize="11"
+                               Opacity="0.7"
+                               Text="{Binding TranslationStatus}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
         </Border>
 
         <ScrollViewer Grid.Row="1"
@@ -49,9 +103,13 @@
                     <StackPanel>
                         <TextBlock Text="{Binding Summary}"
                                    FontWeight="SemiBold"
+                                   FlowDirection="{Binding ContentFlowDirection}"
+                                   TextAlignment="{Binding ContentTextAlignment}"
                                    TextWrapping="Wrap" />
                         <TextBlock Margin="0,8,0,0"
                                    Text="{Binding Rationale}"
+                                   FlowDirection="{Binding ContentFlowDirection}"
+                                   TextAlignment="{Binding ContentTextAlignment}"
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
@@ -90,11 +148,15 @@
                            Text="Installed driver" />
                 <TextBlock Margin="0,4,0,12"
                            Text="{Binding InstalledSuitability}"
+                           FlowDirection="{Binding ContentFlowDirection}"
+                           TextAlignment="{Binding ContentTextAlignment}"
                            TextWrapping="Wrap" />
                 <TextBlock FontWeight="SemiBold"
                            Text="Candidate/latest driver" />
                 <TextBlock Margin="0,4,0,16"
                            Text="{Binding CandidateSuitability}"
+                           FlowDirection="{Binding ContentFlowDirection}"
+                           TextAlignment="{Binding ContentTextAlignment}"
                            TextWrapping="Wrap" />
 
                 <TextBlock Text="Recommended version"
@@ -109,6 +171,8 @@
                            FontWeight="SemiBold" />
                 <TextBlock Margin="0,8,0,16"
                            Text="{Binding AdvisorNote}"
+                           FlowDirection="{Binding ContentFlowDirection}"
+                           TextAlignment="{Binding ContentTextAlignment}"
                            TextWrapping="Wrap" />
 
                 <TextBlock Text="Details"
@@ -158,5 +222,6 @@
                         Click="Close_Click" />
             </StackPanel>
         </Border>
+        </Grid>
     </Grid>
 </ui:FluentWindow>

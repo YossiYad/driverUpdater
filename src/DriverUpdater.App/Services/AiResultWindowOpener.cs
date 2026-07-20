@@ -9,18 +9,23 @@ namespace DriverUpdater.App.Services;
 public sealed class AiResultWindowOpener : IAiResultWindowOpener
 {
     private readonly ILogger<AiResultWindowOpener> _logger;
+    private readonly IAiResultTranslator _translator;
 
-    public AiResultWindowOpener(ILogger<AiResultWindowOpener> logger)
+    public AiResultWindowOpener(
+        ILogger<AiResultWindowOpener> logger,
+        IAiResultTranslator translator)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(translator);
         _logger = logger;
+        _translator = translator;
     }
 
     public void Open(DriverInfo driver, UpdateCandidate? candidate, AiVerdict verdict)
     {
         try
         {
-            var window = new AiResultWindow(new AiResultViewModel(driver, candidate, verdict))
+            var window = new AiResultWindow(new AiResultViewModel(driver, candidate, verdict, _translator))
             {
                 Owner = Application.Current?.MainWindow
             };

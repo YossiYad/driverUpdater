@@ -25,7 +25,8 @@ public class WindowsUpdateSourceTests
                 DriverVerDate: new DateOnly(2024, 3, 6),
                 MaxDownloadSize: 1234567,
                 DownloadUrl: "https://download.windowsupdate.com/test.cab",
-                KbArticleIds: new[] { "5012345" }),
+                KbArticleIds: new[] { "5012345" },
+                RebootBehavior: UpdateRebootBehavior.AlwaysRequired),
         };
 
         var source = NewSource(records);
@@ -45,6 +46,7 @@ public class WindowsUpdateSourceTests
         candidate.SizeBytes.Should().Be(1234567);
         candidate.KbArticle.Should().Be("KB5012345");
         candidate.SourceUpdateId.Should().Be("1111-2222");
+        candidate.RebootBehavior.Should().Be(UpdateRebootBehavior.AlwaysRequired);
     }
 
     [Fact]

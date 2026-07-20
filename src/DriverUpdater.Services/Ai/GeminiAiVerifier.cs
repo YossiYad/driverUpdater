@@ -15,18 +15,22 @@ public sealed class GeminiAiVerifier : IAiVerifier
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptionsMonitor<AiSettings> _settings;
+    private readonly GeminiQuotaGate _quotaGate;
     private readonly ILogger<GeminiAiVerifier> _logger;
 
     public GeminiAiVerifier(
         IHttpClientFactory httpClientFactory,
         IOptionsMonitor<AiSettings> settings,
+        GeminiQuotaGate quotaGate,
         ILogger<GeminiAiVerifier> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(quotaGate);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClientFactory = httpClientFactory;
         _settings = settings;
+        _quotaGate = quotaGate;
         _logger = logger;
     }
 
@@ -36,6 +40,8 @@ public sealed class GeminiAiVerifier : IAiVerifier
         _settings.CurrentValue.Provider == AiProvider.Gemini
         && !string.IsNullOrWhiteSpace(_settings.CurrentValue.GeminiApiKey);
 
+    public bool IsTemporarilyUnavailable => _quotaGate.IsBlocked;
+
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default)
@@ -44,6 +50,11 @@ public sealed class GeminiAiVerifier : IAiVerifier
         var empty = (IReadOnlyDictionary<string, AiVerdict>)new Dictionary<string, AiVerdict>();
         if (requests.Count == 0 || !IsConfigured)
         {
+            return empty;
+        }
+        if (_quotaGate.TryGetBlockedMessage(out var quotaMessage))
+        {
+            _logger.LogWarning("Gemini verification skipped: {Reason}", quotaMessage);
             return empty;
         }
 
@@ -78,6 +89,10 @@ public sealed class GeminiAiVerifier : IAiVerifier
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    _quotaGate.RecordTooManyRequests(response, json);
+                }
                 _logger.LogWarning(
                     "Gemini verification failed: HTTP {Status} after {ElapsedMs} ms. Body: {Body}",
                     (int)response.StatusCode, stopwatch.ElapsedMilliseconds, Truncate(json, 2000));
@@ -107,9 +122,18 @@ public sealed class GeminiAiVerifier : IAiVerifier
             }
             return verdicts;
         }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "Gemini verification timed out after {ElapsedMs} ms; skipping this batch so the scan can continue",
+                stopwatch.ElapsedMilliseconds);
+            return empty;
+        }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Gemini verification cancelled after {ElapsedMs} ms", stopwatch.ElapsedMilliseconds);
+            _logger.LogInformation(
+                "Gemini verification cancelled by the user after {ElapsedMs} ms",
+                stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)

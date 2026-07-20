@@ -60,6 +60,74 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_ignores_display_names_that_are_not_PnP_hardware_ids()
+    {
+        var fakeClient = new FakeCatalogClient
+        {
+            HitsByQuery =
+            {
+                ["Microsoft Print to PDF"] =
+                    new[] { Hit("obsolete-print-driver", "Microsoft Print to PDF", new Version(2006, 6, 20, 0), new DateOnly(2006, 6, 20)) }
+            }
+        };
+        var source = NewSource(fakeClient, enabled: true);
+
+        var results = await source.SearchAsync(new[] { NewDriver("Microsoft Print to PDF") }).ToListAsync();
+
+        results.Should().BeEmpty();
+        fakeClient.SearchInvocations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ignores_generic_and_virtual_ids_from_hardware_id_lists()
+    {
+        var fakeClient = new FakeCatalogClient
+        {
+            HitsByQuery =
+            {
+                ["PCI\\VEN_8086&DEV_1234"] =
+                    new[] { Hit("guid-pci", "PCI driver", new Version(2, 0, 0, 0), new DateOnly(2026, 1, 1)) }
+            },
+            DownloadsById =
+            {
+                ["guid-pci"] = new CatalogDownloadInfo("guid-pci", new Uri("https://download.example.com/pci.cab"), 1024)
+            }
+        };
+        var source = NewSource(fakeClient, enabled: true);
+        var driver = NewDriver(@"PCI\VEN_8086&DEV_1234") with
+        {
+            HardwareIds =
+            [
+                @"PCI\VEN_8086&DEV_1234",
+                @"ROOT\SYSTEM\0000",
+                @"SWD\Generic",
+                @"ACPI\PNP0C02"
+            ]
+        };
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results.Should().ContainSingle();
+        fakeClient.SearchInvocations.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(@"PCI\VEN_8086&DEV_1234", true)]
+    [InlineData(@"USB\VID_046D&PID_C548", true)]
+    [InlineData(@"HDAUDIO\FUNC_01&VEN_10EC&DEV_0897", true)]
+    [InlineData(@"ACPI\VEN_INTC&DEV_1040", true)]
+    [InlineData(@"ROOT\SYSTEM\0000", false)]
+    [InlineData(@"SWD\Generic", false)]
+    [InlineData(@"ACPI\PNP0C02", false)]
+    [InlineData(@"ACPI\AMDI0101", false)]
+    [InlineData(@"ACPI\VEN_PNP&DEV_0C02", false)]
+    [InlineData(@"ACPI\VEN_MSFT&DEV_0200", false)]
+    public void IsCatalogEligibleHardwareId_filters_to_actionable_device_ids(string hardwareId, bool expected)
+    {
+        MicrosoftCatalogSource.IsCatalogEligibleHardwareId(hardwareId).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task SearchAsync_queries_catalog_for_alternate_hardware_ids()
     {
         var fakeClient = new FakeCatalogClient
@@ -92,6 +160,26 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_does_not_query_every_compatible_hardware_id()
+    {
+        var fakeClient = new FakeCatalogClient();
+        var source = NewSource(fakeClient, enabled: true);
+        var driver = NewDriver("PCI\\VEN_8086&DEV_1234&SUBSYS_00000000&REV_01") with
+        {
+            HardwareIds =
+            [
+                "PCI\\VEN_8086&DEV_1234&SUBSYS_00000000&REV_01",
+                "PCI\\VEN_8086&DEV_1234&CC_030000",
+                "PCI\\VEN_8086&DEV_9999"
+            ]
+        };
+
+        await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        fakeClient.SearchInvocations.Should().Be(3);
+    }
+
+    [Fact]
     public async Task SearchAsync_caches_hits_per_hardware_id()
     {
         var fakeClient = new FakeCatalogClient
@@ -112,13 +200,42 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_requests_downloads_only_for_hits_that_may_be_newer()
+    {
+        var hardwareId = string.Concat("PCI", (char)92, "VEN_1234&DEV_0001");
+        var fakeClient = new FakeCatalogClient
+        {
+            HitsByQuery =
+            {
+                [hardwareId] =
+                [
+                    Hit("old", "Old driver", new Version(1, 0, 0, 0), new DateOnly(2023, 1, 1)),
+                    Hit("new", "New driver", new Version(2, 0, 0, 0), new DateOnly(2026, 1, 1))
+                ]
+            },
+            DownloadsById =
+            {
+                ["old"] = new CatalogDownloadInfo("old", new Uri("https://download.example.com/old.cab"), 1024),
+                ["new"] = new CatalogDownloadInfo("new", new Uri("https://download.example.com/new.cab"), 2048)
+            }
+        };
+        var source = NewSource(fakeClient, enabled: true);
+
+        var results = await source.SearchAsync(new[] { NewDriver(hardwareId) }).ToListAsync();
+
+        results.Should().ContainSingle(candidate => candidate.SourceUpdateId == "new");
+        fakeClient.DownloadRequests.Should().ContainSingle()
+            .Which.Should().Equal("new");
+    }
+
+    [Fact]
     public async Task SearchAsync_continues_when_a_single_search_throws()
     {
         var fakeClient = new FakeCatalogClient
         {
             HitsByQuery =
             {
-                ["PCI\\VEN_OK"] = new[] { Hit("guid-ok", "Good", new Version(1, 0, 0, 0), new DateOnly(2026, 1, 1)) }
+                ["PCI\\VEN_OK"] = new[] { Hit("guid-ok", "Good", new Version(2, 0, 0, 0), new DateOnly(2026, 1, 1)) }
             },
             FailQueries = { "PCI\\VEN_BAD" }
         };
@@ -227,6 +344,7 @@ public class MicrosoftCatalogSourceTests
         public Dictionary<string, IReadOnlyList<CatalogSearchHit>> HitsByQuery { get; } = new();
         public Dictionary<string, CatalogDownloadInfo> DownloadsById { get; } = new();
         public HashSet<string> FailQueries { get; } = new();
+        public List<IReadOnlyCollection<string>> DownloadRequests { get; } = new();
         public int SearchInvocations { get; private set; }
 
         public Task<IReadOnlyList<CatalogSearchHit>> SearchAsync(string query, CancellationToken cancellationToken = default)
@@ -243,6 +361,7 @@ public class MicrosoftCatalogSourceTests
             IReadOnlyCollection<string> updateIds,
             CancellationToken cancellationToken = default)
         {
+            DownloadRequests.Add(updateIds.ToArray());
             var matches = updateIds
                 .Where(DownloadsById.ContainsKey)
                 .Select(id => DownloadsById[id])

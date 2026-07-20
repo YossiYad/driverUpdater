@@ -35,6 +35,57 @@ public partial class ConfirmUpdateDialogViewModel : ObservableObject
     public bool ShowRiskWarning =>
         Operation.TargetSnapshot.Category is DriverCategory.Display or DriverCategory.Storage;
 
+    public bool ShowRestartRequiredWarning =>
+        Operation.Candidate.RebootBehavior == UpdateRebootBehavior.AlwaysRequired;
+
+    public bool ShowRestartPossibleWarning =>
+        Operation.Candidate.RebootBehavior is UpdateRebootBehavior.Unknown
+            or UpdateRebootBehavior.MayBeRequired;
+
+    public bool ShowDisplayImpact =>
+        Operation.TargetSnapshot.Category == DriverCategory.Display;
+
+    public bool ShowNetworkImpact =>
+        Operation.TargetSnapshot.Category == DriverCategory.Network;
+
+    public bool ShowAudioCameraImpact =>
+        Operation.TargetSnapshot.Category is DriverCategory.Audio or DriverCategory.Camera;
+
+    public bool ShowInputDeviceImpact =>
+        Operation.TargetSnapshot.Category is DriverCategory.Input
+            or DriverCategory.HumanInterface
+            or DriverCategory.Usb
+            or DriverCategory.Bluetooth;
+
+    public bool ShowStorageSystemImpact =>
+        Operation.TargetSnapshot.Category is DriverCategory.Storage
+            or DriverCategory.Chipset
+            or DriverCategory.System
+            or DriverCategory.Security
+            or DriverCategory.Firmware;
+
+    public bool ShowPrinterImpact =>
+        Operation.TargetSnapshot.Category == DriverCategory.Printer;
+
+    public bool ShowGenericDeviceImpact =>
+        Operation.TargetSnapshot.Category == DriverCategory.Other;
+
+    public bool ShowVendorInstallerImpact =>
+        Operation.Candidate.InstallKind is UpdateInstallKind.VendorInstaller
+            or UpdateInstallKind.VendorPage;
+
+    public bool ShowInstallImpactWarning =>
+        ShowRestartRequiredWarning
+        || ShowRestartPossibleWarning
+        || ShowDisplayImpact
+        || ShowNetworkImpact
+        || ShowAudioCameraImpact
+        || ShowInputDeviceImpact
+        || ShowStorageSystemImpact
+        || ShowPrinterImpact
+        || ShowGenericDeviceImpact
+        || ShowVendorInstallerImpact;
+
     private AiVerdict? Verdict => Operation.Candidate.AiVerification;
 
     public bool HasAiVerdict => Verdict is not null;

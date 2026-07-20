@@ -1,10 +1,14 @@
+using System.ComponentModel;
 using System.Security.Principal;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using DriverUpdater.App.Services;
 using DriverUpdater.App.ViewModels;
+using DriverUpdater.Core.Models;
+using Microsoft.Extensions.Logging;
 using FluentWindow = Wpf.Ui.Controls.FluentWindow;
 
 namespace DriverUpdater.App.Views;
@@ -12,14 +16,34 @@ namespace DriverUpdater.App.Views;
 public partial class MainWindow : FluentWindow
 {
     private readonly MainViewModel _viewModel;
+    private readonly ApplicationBehaviorState _applicationBehavior;
+    private readonly NotificationAreaService _notificationArea;
+    private readonly ILogger<MainWindow> _logger;
+    private Task? _initializationTask;
+    private bool _exitRequested;
+    private bool _backgroundHintShown;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(
+        MainViewModel viewModel,
+        ApplicationBehaviorState applicationBehavior,
+        NotificationAreaService notificationArea,
+        ILogger<MainWindow> logger)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
+        ArgumentNullException.ThrowIfNull(applicationBehavior);
+        ArgumentNullException.ThrowIfNull(notificationArea);
+        ArgumentNullException.ThrowIfNull(logger);
         InitializeComponent();
         _viewModel = viewModel;
+        _applicationBehavior = applicationBehavior;
+        _notificationArea = notificationArea;
+        _logger = logger;
         DataContext = viewModel;
         _viewModel.ScrollToRowRequested += OnScrollToRowRequested;
+        Closing += OnWindowClosing;
+        Closed += OnWindowClosed;
+        _notificationArea.OpenRequested += OnNotificationAreaOpenRequested;
+        _notificationArea.ExitRequested += OnNotificationAreaExitRequested;
 
         if (!IsRunningAsAdministrator())
         {
@@ -81,7 +105,105 @@ public partial class MainWindow : FluentWindow
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        await _viewModel.InitializeAsync().ConfigureAwait(true);
+        await EnsureInitializedAsync().ConfigureAwait(true);
+    }
+
+    public async Task<bool> StartInBackgroundAsync()
+    {
+        ShowInTaskbar = false;
+        try
+        {
+            _notificationArea.Show(showHint: false);
+        }
+        catch (Exception ex)
+        {
+            ShowInTaskbar = true;
+            _logger.LogError(
+                ex,
+                "Could not create the Windows notification area icon; opening the main window instead");
+            return false;
+        }
+        _logger.LogInformation("DriverUpdater started hidden in the Windows notification area");
+        await EnsureInitializedAsync().ConfigureAwait(true);
+        return true;
+    }
+
+    public void RequestApplicationExit()
+    {
+        _exitRequested = true;
+    }
+
+    private Task EnsureInitializedAsync() =>
+        _initializationTask ??= _viewModel.InitializeAsync();
+
+    private void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        if (_exitRequested
+            || _applicationBehavior.CloseBehavior == WindowCloseBehavior.ExitApplication)
+        {
+            _exitRequested = true;
+            _notificationArea.Hide();
+            _logger.LogInformation("Main window close requested: exiting DriverUpdater completely");
+            return;
+        }
+
+        try
+        {
+            _notificationArea.Show(showHint: !_backgroundHintShown);
+        }
+        catch (Exception ex)
+        {
+            _exitRequested = true;
+            _logger.LogError(
+                ex,
+                "Could not create the Windows notification area icon; exiting instead of hiding the app");
+            return;
+        }
+
+        e.Cancel = true;
+        ShowInTaskbar = false;
+        Hide();
+        _backgroundHintShown = true;
+        _logger.LogInformation(
+            "Main window close requested: DriverUpdater remains active in the Windows notification area");
+    }
+
+    private void OnNotificationAreaOpenRequested(object? sender, EventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _notificationArea.Hide();
+            ShowInTaskbar = true;
+            Show();
+            if (WindowState == WindowState.Minimized)
+            {
+                WindowState = WindowState.Normal;
+            }
+            Activate();
+            _logger.LogInformation("DriverUpdater restored from the Windows notification area");
+        });
+    }
+
+    private void OnNotificationAreaExitRequested(object? sender, EventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _exitRequested = true;
+            _logger.LogInformation("Exit requested from the Windows notification area");
+            Application.Current.Shutdown();
+        });
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        _viewModel.ScrollToRowRequested -= OnScrollToRowRequested;
+        _notificationArea.OpenRequested -= OnNotificationAreaOpenRequested;
+        _notificationArea.ExitRequested -= OnNotificationAreaExitRequested;
+        _notificationArea.Dispose();
+        if (_exitRequested && !Application.Current.Dispatcher.HasShutdownStarted)
+        {
+            Application.Current.Shutdown();
+        }
     }
 
     private static bool IsRunningAsAdministrator()

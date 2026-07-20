@@ -23,6 +23,12 @@ public class AmdChipsetSourceTests
             <strong>Release Date</strong>
             <p>2026-05-18</p>
           </div>
+          <table>
+            <tr><td>AMD I2C Driver</td><td>1.2.0.126</td><td>1.2.0.126</td><td>No change</td></tr>
+            <tr><td>AMD GPIO2 Driver</td><td>2.2.0.137</td><td>2.2.0.137</td><td>Bug Fixes</td></tr>
+            <tr><td>AMD PPM Provisioning File Driver</td><td>8.0.0.62</td><td>8.0.0.62</td><td>Bug Fixes</td></tr>
+            <tr><td>AMD Application Compatibility Database Driver</td><td>1.0.0.3</td><td>1.0.0.3</td><td>No change</td></tr>
+          </table>
           <a href="https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe">Download</a>
         </body></html>
         """;
@@ -31,7 +37,10 @@ public class AmdChipsetSourceTests
     public async Task SearchAsync_yields_vendor_installer_when_direct_url_present()
     {
         var source = NewSource(SampleB850Html, ("am5", "b850"));
-        var driver = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2025, 9, 9));
+        var driver = NewAmdChipsetDriver(
+            "AMD I2C Controller",
+            new DateOnly(2025, 9, 9),
+            new Version(1, 2, 0, 100));
 
         var results = await source.SearchAsync(new[] { driver }).ToListAsync();
 
@@ -39,6 +48,7 @@ public class AmdChipsetSourceTests
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
         results[0].SourceUpdateId.Should().Be("vendor-installer:amd-chipset:8.05.04.516");
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe");
+        results[0].NewVersion.Should().Be(new Version(1, 2, 0, 126));
         results[0].NewDate.Should().Be(new DateOnly(2026, 5, 18));
     }
 
@@ -57,10 +67,10 @@ public class AmdChipsetSourceTests
     }
 
     [Fact]
-    public async Task SearchAsync_skips_when_local_driver_already_newer_than_release()
+    public async Task SearchAsync_skips_when_installed_component_matches_package_even_if_driver_date_is_older()
     {
         var source = NewSource(SampleB850Html, ("am5", "b850"));
-        var driver = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2026, 6, 1));
+        var driver = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2025, 9, 9));
 
         var results = await source.SearchAsync(new[] { driver }).ToListAsync();
 
@@ -94,16 +104,29 @@ public class AmdChipsetSourceTests
     public void IsSupportedAmdChipsetDriver_matches_amd_chipset_and_system_categories()
     {
         var chipset = NewAmdChipsetDriver("AMD I2C Controller", new DateOnly(2026, 1, 1));
-        var system = chipset with { Category = DriverCategory.System, DeviceName = "AMD-Vulkan User Mode Driver" };
+        var system = chipset with { Category = DriverCategory.System, DeviceName = "AMD SMBUS" };
         var display = chipset with { Category = DriverCategory.Display, DeviceName = "AMD Radeon RX 7700 XT" };
         var nonAmd = chipset with { Provider = "Intel Corporation", Manufacturer = "Intel", DeviceName = "Intel I2C Controller" };
         var virt = chipset with { DeviceName = "AMD Virtual Bus" };
+        var graphicsComponent = chipset with { DeviceName = "AMD-OpenCL User Mode Driver" };
 
         AmdChipsetSource.IsSupportedAmdChipsetDriver(chipset).Should().BeTrue();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(system).Should().BeTrue();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(display).Should().BeFalse();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(nonAmd).Should().BeFalse();
         AmdChipsetSource.IsSupportedAmdChipsetDriver(virt).Should().BeFalse();
+        AmdChipsetSource.IsSupportedAmdChipsetDriver(graphicsComponent).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryFindComponentVersion_reads_the_individual_driver_version_not_the_bundle_version()
+    {
+        var driver = NewAmdChipsetDriver("AMD GPIO Controller", new DateOnly(2025, 1, 1));
+
+        var found = AmdChipsetSource.TryFindComponentVersion(SampleB850Html, driver, out var version);
+
+        found.Should().BeTrue();
+        version.Should().Be(new Version(2, 2, 0, 137));
     }
 
     [Fact]
@@ -128,14 +151,17 @@ public class AmdChipsetSourceTests
         return new AmdChipsetSource(client, detector, NullLogger<AmdChipsetSource>.Instance);
     }
 
-    private static DriverInfo NewAmdChipsetDriver(string deviceName, DateOnly currentDate) => new(
+    private static DriverInfo NewAmdChipsetDriver(
+        string deviceName,
+        DateOnly currentDate,
+        Version? currentVersion = null) => new(
         DeviceId: "PCI\\VEN_1022&DEV_15E2",
         HardwareId: $"PCI\\VEN_1022&DEV_15E2\\{deviceName.GetHashCode()}",
         DeviceName: deviceName,
         Category: DriverCategory.Chipset,
         Provider: "Advanced Micro Devices, Inc.",
         Manufacturer: "Advanced Micro Devices, Inc.",
-        CurrentVersion: new Version(1, 2, 0, 126),
+        CurrentVersion: currentVersion ?? new Version(1, 2, 0, 126),
         CurrentDate: currentDate,
         InfName: "oem42.inf",
         InfPath: null,

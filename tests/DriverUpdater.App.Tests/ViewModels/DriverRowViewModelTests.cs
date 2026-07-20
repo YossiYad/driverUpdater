@@ -53,6 +53,7 @@ public class DriverRowViewModelTests
         row.Status = DriverStatus.Outdated;
 
         row.Status.Should().Be(DriverStatus.Outdated);
+        row.StatusText.Should().Be("Update available");
     }
 
     [Fact]
@@ -79,6 +80,10 @@ public class DriverRowViewModelTests
         row.AvailableVersionText.Should().Be("2.0.0.0");
         row.AvailableDateText.Should().Be("2026-01-01");
         row.SourceText.Should().Be("MicrosoftCatalog");
+        row.VersionSummaryText.Should().Be("1.2.3.4  to  2.0.0.0");
+        row.DriverDetailsTooltip.Should().Contain("Provider: Intel");
+        row.DriverDetailsTooltip.Should().Contain("Available date: 2026-01-01");
+        row.DriverDetailsTooltip.Should().Contain("Source: MicrosoftCatalog");
     }
 
     [Fact]
@@ -106,6 +111,8 @@ public class DriverRowViewModelTests
         notified.Should().Contain(nameof(DriverRowViewModel.SourceText));
         notified.Should().Contain(nameof(DriverRowViewModel.UpdateActionText));
         notified.Should().Contain(nameof(DriverRowViewModel.ConfidenceText));
+        notified.Should().Contain(nameof(DriverRowViewModel.VersionSummaryText));
+        notified.Should().Contain(nameof(DriverRowViewModel.DriverDetailsTooltip));
         notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
         notified.Should().Contain(nameof(DriverRowViewModel.CanAskAi));
     }
@@ -205,6 +212,11 @@ public class DriverRowViewModelTests
         row.Status = DriverStatus.UpToDate;
         row.AvailableUpdate = NewCandidate() with { InstallKind = UpdateInstallKind.VendorPage };
         row.CanUpdate.Should().BeTrue();
+
+        row.IsUpdateFromCache = true;
+        row.CanUpdate.Should().BeFalse();
+        row.StatusText.Should().Be("Cached result, re-scan required");
+        row.ConfidenceText.Should().Be("Cached, not reverified");
     }
 
     [Fact]
@@ -318,6 +330,7 @@ public class DriverRowViewModelTests
 
         notified.Should().Contain(nameof(DriverRowViewModel.Status));
         notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
+        notified.Should().Contain(nameof(DriverRowViewModel.StatusText));
     }
 
     private static DriverInfo NewSampleDriver() => new(

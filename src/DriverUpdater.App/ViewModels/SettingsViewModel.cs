@@ -15,6 +15,10 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ILocalizationService? _localizationService;
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
+    private readonly ILogCleanupService? _logCleanupService;
+    private readonly IDriverCacheStore? _driverCacheStore;
+    private readonly ApplicationBehaviorState? _applicationBehaviorState;
+    private readonly IApplicationStartupService? _applicationStartupService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
@@ -42,6 +46,19 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _enablePlaywrightFallback;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
+    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.ExitApplication;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
+    private bool _startWithWindows;
+
+    [ObservableProperty] private bool _startMinimized;
+
+    [ObservableProperty] private bool _enableAutomaticLogCleanup = true;
+    [ObservableProperty] private int _logRetentionDays = LogCleanupSettings.DefaultRetentionDays;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
     private AiProvider _selectedAiProvider = AiProvider.Off;
@@ -65,6 +82,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _autoInstallAppUpdates;
 
     // Preserved across save so the app-update feed/repo settings are not wiped by the UI.
+    private CatalogSettings _loadedCatalog = new();
     private UpdaterSettings _loadedUpdater = new();
     private OnboardingSettings _loadedOnboarding = new();
 
@@ -73,11 +91,17 @@ public partial class SettingsViewModel : ObservableObject
 
     public string SettingsPath => _settingsStore.SettingsPath;
 
+    public string LogDirectoryPath =>
+        _logCleanupService?.LogDirectory ?? LogCleanupService.DefaultLogDirectory();
+
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
 
     public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
 
     public bool IsOllamaSelected => SelectedAiProvider == AiProvider.Ollama;
+
+    public bool CanStartMinimized =>
+        StartWithWindows && CloseBehavior == WindowCloseBehavior.KeepRunningInBackground;
 
     public SettingsViewModel(
         ISettingsStore settingsStore,
@@ -85,7 +109,11 @@ public partial class SettingsViewModel : ObservableObject
         ILogger<SettingsViewModel> logger,
         ILocalizationService? localizationService = null,
         IAppUpdater? appUpdater = null,
-        IAppUpdatePrompt? appUpdatePrompt = null)
+        IAppUpdatePrompt? appUpdatePrompt = null,
+        ILogCleanupService? logCleanupService = null,
+        IDriverCacheStore? driverCacheStore = null,
+        ApplicationBehaviorState? applicationBehaviorState = null,
+        IApplicationStartupService? applicationStartupService = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -95,6 +123,10 @@ public partial class SettingsViewModel : ObservableObject
         _localizationService = localizationService;
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
+        _logCleanupService = logCleanupService;
+        _driverCacheStore = driverCacheStore;
+        _applicationBehaviorState = applicationBehaviorState;
+        _applicationStartupService = applicationStartupService;
         _logger = logger;
     }
 
@@ -188,6 +220,41 @@ public partial class SettingsViewModel : ObservableObject
         {
             var settings = BuildSettings();
             await _settingsStore.SaveAsync(settings, cancellationToken).ConfigureAwait(true);
+            _applicationBehaviorState?.Apply(settings.Application);
+            _logger.LogInformation(
+                "Application behavior saved: closeBehavior={CloseBehavior}, startWithWindows={StartWithWindows}, startMinimized={StartMinimized}",
+                settings.Application.CloseBehavior,
+                settings.Application.StartWithWindows,
+                settings.Application.StartMinimized);
+
+            var startupWarning = string.Empty;
+            if (_applicationStartupService is not null)
+            {
+                try
+                {
+                    await _applicationStartupService.ApplyAsync(
+                        settings.Application.StartWithWindows,
+                        settings.Application.StartMinimized,
+                        cancellationToken).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    startupWarning = " Windows startup could not be updated. See logs for details.";
+                    _logger.LogError(
+                        ex,
+                        "Failed to apply Windows startup setting: enabled={Enabled}, startMinimized={StartMinimized}",
+                        settings.Application.StartWithWindows,
+                        settings.Application.StartMinimized);
+                }
+            }
+
+            var deletedLogFiles = 0;
+            if (_logCleanupService is not null)
+            {
+                deletedLogFiles = await _logCleanupService.CleanupAsync(
+                    settings.LogCleanup,
+                    cancellationToken).ConfigureAwait(true);
+            }
 
             var scheduleResult = await _schedulerService.ApplyAsync(
                 ScheduleMode,
@@ -204,7 +271,9 @@ public partial class SettingsViewModel : ObservableObject
 
             _localizationService?.ApplyLanguage(SelectedLanguage);
 
-            StatusText = "Settings saved.";
+            StatusText = deletedLogFiles > 0
+                ? $"Settings saved. Removed {deletedLogFiles} old log file(s).{startupWarning}"
+                : $"Settings saved.{startupWarning}";
         }
         catch (Exception ex)
         {
@@ -226,16 +295,85 @@ public partial class SettingsViewModel : ObservableObject
         return !IsBusy;
     }
 
+    private bool CanClearDriverCache() => _driverCacheStore is not null && !IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanClearDriverCache))]
+    private async Task ClearDriverCacheAsync(CancellationToken cancellationToken)
+    {
+        if (_driverCacheStore is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Clearing cached driver scan results...";
+        _logger.LogInformation("User requested clearing the driver update cache from Settings");
+        try
+        {
+            var removedUpdates = await _driverCacheStore
+                .ClearAsync(cancellationToken)
+                .ConfigureAwait(true);
+            StatusText =
+                $"Driver update cache cleared. Removed {removedUpdates} cached update result(s). The next scan starts from scratch.";
+            _logger.LogInformation(
+                "Settings driver cache clear completed: {UpdateCount} cached update result(s) removed",
+                removedUpdates);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StatusText = "Driver cache clear cancelled.";
+            _logger.LogInformation("Settings driver cache clear cancelled");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not clear driver update cache: {ex.Message}";
+            _logger.LogError(ex, "Settings driver cache clear failed");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnAcceptedAutoUpdateRiskChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
-    partial void OnIsBusyChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
+
+    partial void OnCloseBehaviorChanged(WindowCloseBehavior value)
+    {
+        if (!CanStartMinimized)
+        {
+            StartMinimized = false;
+        }
+    }
+
+    partial void OnStartWithWindowsChanged(bool value)
+    {
+        if (!CanStartMinimized)
+        {
+            StartMinimized = false;
+        }
+    }
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        SaveCommand.NotifyCanExecuteChanged();
+        ClearDriverCacheCommand.NotifyCanExecuteChanged();
+    }
 
     internal AppSettings BuildSettings() => new()
     {
+        Application = new ApplicationSettings
+        {
+            CloseBehavior = CloseBehavior,
+            StartWithWindows = StartWithWindows,
+            StartMinimized = CanStartMinimized && StartMinimized
+        },
         Catalog = new CatalogSettings
         {
             Enabled = EnableMicrosoftCatalog,
-            MaxConcurrentSearches = 4,
-            CacheDuration = TimeSpan.FromHours(24)
+            MaxConcurrentSearches = _loadedCatalog.MaxConcurrentSearches,
+            CacheDuration = _loadedCatalog.CacheDuration,
+            MaxRetries = _loadedCatalog.MaxRetries,
+            RequestTimeout = _loadedCatalog.RequestTimeout
         },
         Backup = new BackupSettings
         {
@@ -277,11 +415,26 @@ public partial class SettingsViewModel : ObservableObject
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         },
+        LogCleanup = new LogCleanupSettings
+        {
+            Enabled = EnableAutomaticLogCleanup,
+            RetentionDays = Math.Clamp(
+                LogRetentionDays,
+                LogCleanupSettings.MinimumRetentionDays,
+                LogCleanupSettings.MaximumRetentionDays)
+        },
         Onboarding = _loadedOnboarding
     };
 
     internal void ApplyFromSettings(AppSettings settings)
     {
+        var application = settings.Application ?? new ApplicationSettings();
+        CloseBehavior = application.CloseBehavior == WindowCloseBehavior.KeepRunningInBackground
+            ? WindowCloseBehavior.KeepRunningInBackground
+            : WindowCloseBehavior.ExitApplication;
+        StartWithWindows = application.StartWithWindows;
+        StartMinimized = CanStartMinimized && application.StartMinimized;
+        _loadedCatalog = settings.Catalog;
         _loadedUpdater = settings.Updater;
         _loadedOnboarding = settings.Onboarding;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
@@ -303,5 +456,10 @@ public partial class SettingsViewModel : ObservableObject
         EnableAiWebSearch = settings.Ai.EnableWebSearch;
         OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
         OllamaModel = settings.Ai.OllamaModel;
+        EnableAutomaticLogCleanup = settings.LogCleanup.Enabled;
+        LogRetentionDays = Math.Clamp(
+            settings.LogCleanup.RetentionDays,
+            LogCleanupSettings.MinimumRetentionDays,
+            LogCleanupSettings.MaximumRetentionDays);
     }
 }

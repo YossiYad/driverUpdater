@@ -21,6 +21,9 @@
     <sys:String x:Key="Reboot.RequiredTitle">Restart required</sys:String>
     <sys:String x:Key="Reboot.RequiredMessage">{0} driver update(s) need a restart to finish. Restart the computer now?</sys:String>
     <sys:String x:Key="Reboot.ShutdownComment">DriverUpdater is restarting to finish driver installation.</sys:String>
+    <sys:String x:Key="AiQuota.Title">AI quota reached</sys:String>
+    <sys:String x:Key="AiQuota.DailyMessage">The Gemini AI request and token quota has been used up. Daily quotas reset at midnight Pacific time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
+    <sys:String x:Key="AiQuota.TemporaryMessage">Gemini is temporarily limiting AI requests because too many requests or tokens were used in a short time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>
@@ -37,6 +40,7 @@
     <sys:String x:Key="Grid.Update">Update</sys:String>
     <sys:String x:Key="Grid.Ai">AI check</sys:String>
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
+    <sys:String x:Key="Grid.DriverVersion">Driver version</sys:String>
 
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
     <sys:String x:Key="Confirm.Current">Current</sys:String>
@@ -46,6 +50,17 @@
     <sys:String x:Key="Confirm.BackupDriver">Back up current driver before installing</sys:String>
     <sys:String x:Key="Confirm.RiskHeader">Caution:</sys:String>
     <sys:String x:Key="Confirm.RiskBody">Storage and display drivers can prevent Windows from booting if they fail. The restore point and backup mitigate but do not eliminate this risk.</sys:String>
+    <sys:String x:Key="Confirm.ImpactHeader">Before you continue</sys:String>
+    <sys:String x:Key="Confirm.RestartRequired">A computer restart is required after this update. Save your work before proceeding.</sys:String>
+    <sys:String x:Key="Confirm.RestartPossible">This update may require a computer restart. Save your work before proceeding.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Display">The screen may flicker or go black temporarily. Games, video, and graphics apps may stop or close.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Network">The network connection, VPN, calls, and active downloads may be interrupted temporarily.</sys:String>
+    <sys:String x:Key="Confirm.Impact.AudioCamera">Audio, camera, calls, recordings, and apps using this device may stop temporarily.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Input">The keyboard, mouse, USB, or Bluetooth device may disconnect temporarily.</sys:String>
+    <sys:String x:Key="Confirm.Impact.StorageSystem">System services or active work may be interrupted. Close important apps and save open files first.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Printer">Printing and active print jobs may be interrupted temporarily.</sys:String>
+    <sys:String x:Key="Confirm.Impact.Generic">The device and apps using it may be unavailable temporarily during installation.</sys:String>
+    <sys:String x:Key="Confirm.Impact.VendorInstaller">The vendor installer may close related apps or ask for additional confirmation.</sys:String>
     <sys:String x:Key="Confirm.CancelButton">Cancel</sys:String>
     <sys:String x:Key="Confirm.ProceedButton">Proceed</sys:String>
 

@@ -5,6 +5,7 @@ using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace DriverUpdater.App.Tests.Integration;
 
@@ -28,6 +29,12 @@ public class AppCompositionTests
         provider.GetRequiredService<SettingsViewModel>().Should().NotBeNull();
         provider.GetRequiredService<LogsViewModel>().Should().NotBeNull();
         provider.GetRequiredService<IAppUpdater>().Should().NotBeNull();
+        provider.GetRequiredService<IAiResultTranslator>().Should().NotBeNull();
+        provider.GetRequiredService<IExternalLinkOpener>().Should().NotBeNull();
+        provider.GetRequiredService<ISupportWindowOpener>().Should().NotBeNull();
+        provider.GetRequiredService<ILogCleanupService>().Should().NotBeNull();
+        provider.GetServices<IHostedService>()
+            .Should().Contain(service => service is LogCleanupBackgroundService);
         provider.GetRequiredService<IHistoryRepository>().Should().NotBeNull();
         provider.GetRequiredService<IScheduledScanRunner>().Should().NotBeNull();
         provider.GetServices<IUpdateSource>().Should().NotBeEmpty();

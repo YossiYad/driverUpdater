@@ -25,15 +25,17 @@ public class MainViewModelTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_keeps_rows_from_previous_runs()
+    public async Task ScanAsync_keeps_rows_missing_from_current_run()
     {
         var vm = NewVm(NewDriver("Only", DriverCategory.Display));
-        vm.Drivers.Add(new DriverRowViewModel(NewDriver("Stale", DriverCategory.Other)));
+        vm.Drivers.Add(new DriverRowViewModel(NewDriver("Known", DriverCategory.Other)));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
         vm.Drivers.Should().HaveCount(2);
-        vm.Drivers.Select(r => r.DeviceName).Should().BeEquivalentTo(new[] { "Only", "Stale" });
+        vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo("Only", "Known");
+        vm.ScannedCount.Should().Be(1);
+        vm.Drivers.Single(d => d.DeviceName == "Known").IsScannedThisRun.Should().BeFalse();
     }
 
     [WpfFact]
@@ -69,13 +71,10 @@ public class MainViewModelTests
     {
         var vm = NewVm();
 
-        vm.AvailableUpdateFilters.Select(f => f.Label).Should().Contain([
-            "All updates",
-            "Confirmed",
-            "Vendor checks",
-            "Installable",
-            "No update"
-        ]);
+        vm.AvailableUpdateFilters.Select(f => f.Label).Should().Equal(
+            "All drivers",
+            "Updates available",
+            "No update available");
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>

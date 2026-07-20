@@ -13,7 +13,8 @@ public sealed record UpdateCandidate(
     IReadOnlyList<string> SupersededIds,
     UpdateInstallKind InstallKind = UpdateInstallKind.WindowsUpdate,
     UpdateConfidence Confidence = UpdateConfidence.Confirmed,
-    AiVerdict? AiVerification = null)
+    AiVerdict? AiVerification = null,
+    UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown)
 {
     public bool IsNewerThan(DriverInfo current)
     {
@@ -30,6 +31,17 @@ public sealed record UpdateCandidate(
         if (current.CurrentVersion is { } installed
             && IsWindowsInboxVersion(installed)
             && IsCalendarVersion(NewVersion))
+        {
+            return false;
+        }
+
+        // Version formats are not comparable across every driver family. A package can
+        // report a high Windows build number while the installed component uses its own
+        // product version. An explicitly older driver date is reliable evidence that the
+        // package is not an upgrade, regardless of the numeric version format.
+        if (current.CurrentDate is { } installedDate
+            && NewDate != DateOnly.MinValue
+            && NewDate < installedDate)
         {
             return false;
         }

@@ -33,10 +33,10 @@ public static class LogSummaryPromptBuilder
         sb.AppendLine();
         sb.AppendLine("Also analyse the structured summary blocks that appear in the logs:");
         sb.AppendLine("- 'Scan result summary': lists every driver with an available update (installed version,");
-        sb.AppendLine("  available version, source). Flag any driver where installed ≈ available version - that");
+        sb.AppendLine("  available version, source). Flag any unexpected mismatch between installed and available versions, because that");
         sb.AppendLine("  suggests a false-positive in version comparison. Note how many drivers were up-to-date.");
         sb.AppendLine("- 'Update run summary': lists what succeeded/failed/skipped in the install run, with");
-        sb.AppendLine("  old→new version for each. Flag:");
+        sb.AppendLine("  old to new version for each. Flag:");
         sb.AppendLine("  * Drivers where old version = new version (no real change, likely a detection bug).");
         sb.AppendLine("  * Drivers that appear in Failed or Skipped despite having an update available.");
         sb.AppendLine("  * Any driver requiring a reboot - list them together at the end.");

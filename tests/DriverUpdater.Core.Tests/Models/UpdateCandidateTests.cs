@@ -42,6 +42,20 @@ public class UpdateCandidateTests
     }
 
     [Fact]
+    public void IsNewerThan_rejects_higher_incomparable_version_with_older_driver_date()
+    {
+        var candidate = NewCandidate(
+            new Version(10, 0, 26100, 6710),
+            new DateOnly(2026, 3, 30));
+        var current = SampleDriver(new Version(1, 0, 4, 7057)) with
+        {
+            CurrentDate = new DateOnly(2026, 6, 16)
+        };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
     public void IsNewerThan_compares_date_based_candidate_to_current_driver_date()
     {
         var candidate = NewCandidate(new Version(2026, 5, 14, 0), new DateOnly(2026, 5, 14));
