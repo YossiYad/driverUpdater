@@ -29,6 +29,18 @@ public sealed class GeminiQuotaGate
 
     public event EventHandler<GeminiQuotaExceededEventArgs>? QuotaExceeded;
 
+    public bool IsBlocked
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _blockedUntilUtc > _clock.GetUtcNow()
+                    && !string.IsNullOrWhiteSpace(_blockedMessage);
+            }
+        }
+    }
+
     public bool TryGetBlockedMessage(out string message)
     {
         lock (_sync)
