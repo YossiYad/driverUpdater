@@ -37,7 +37,18 @@ public partial class DriverRowViewModel : ObservableObject
     private bool _isAiChecking;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(SourceText))]
+    [NotifyPropertyChangedFor(nameof(UpdateActionText))]
+    [NotifyPropertyChangedFor(nameof(ConfidenceText))]
+    [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
+    private bool _isUpdateFromCache;
+
+    [ObservableProperty]
     private UpdateOperation? _lastOperation;
+
+    public bool IsScannedThisRun { get; set; } = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBusy))]
@@ -81,8 +92,12 @@ public partial class DriverRowViewModel : ObservableObject
         && v.Minor == update.NewDate.Month
         && v.Build == update.NewDate.Day;
     public string? AvailableDateText => AvailableUpdate?.NewDate.ToString("yyyy-MM-dd");
-    public string? SourceText => AvailableUpdate?.Source.ToString();
-    public string UpdateActionText => AvailableUpdate?.InstallKind switch
+    public string? SourceText => AvailableUpdate is null
+        ? null
+        : IsUpdateFromCache
+            ? $"{AvailableUpdate.Source} (cached)"
+            : AvailableUpdate.Source.ToString();
+    public string UpdateActionText => IsUpdateFromCache ? string.Empty : AvailableUpdate?.InstallKind switch
     {
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
@@ -90,14 +105,14 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.VendorPage => "Install / vendor page",
         _ => string.Empty
     };
-    public string ConfidenceText => AvailableUpdate?.Confidence switch
+    public string ConfidenceText => IsUpdateFromCache ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
     {
         UpdateConfidence.Confirmed => "Confirmed",
         UpdateConfidence.Advisory => "Check vendor",
         _ => string.Empty
     };
 
-    public string StatusText => Status switch
+    public string StatusText => IsUpdateFromCache ? "Cached result, re-scan required" : Status switch
     {
         DriverStatus.Unknown => "Checking...",
         DriverStatus.UpToDate => "Up to date",
@@ -214,7 +229,8 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool CanUpdate => AvailableUpdate is not null
+    public bool CanUpdate => !IsUpdateFromCache
+        && AvailableUpdate is not null
         && (Status == DriverStatus.Outdated || AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage);
 
     public bool CanAskAi => !IsAiChecking;

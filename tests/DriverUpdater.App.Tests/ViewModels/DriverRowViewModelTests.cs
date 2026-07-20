@@ -212,6 +212,11 @@ public class DriverRowViewModelTests
         row.Status = DriverStatus.UpToDate;
         row.AvailableUpdate = NewCandidate() with { InstallKind = UpdateInstallKind.VendorPage };
         row.CanUpdate.Should().BeTrue();
+
+        row.IsUpdateFromCache = true;
+        row.CanUpdate.Should().BeFalse();
+        row.StatusText.Should().Be("Cached result, re-scan required");
+        row.ConfidenceText.Should().Be("Cached, not reverified");
     }
 
     [Fact]

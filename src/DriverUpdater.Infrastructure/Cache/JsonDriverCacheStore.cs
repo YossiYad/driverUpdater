@@ -37,6 +37,8 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
 
     public string CachePath { get; }
 
+    public event EventHandler? Cleared;
+
     // Each machine gets its own cache file so a shared/synced ProgramData or a copied
     // disk image never mixes one PC's driver inventory into another's.
     internal static string BuildMachineCacheFileName(string machineName)
@@ -105,6 +107,48 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
         }
         File.Move(tempPath, CachePath, overwrite: true);
 
-        _logger.LogInformation("Saved {Count} drivers to cache at {Path}", snapshot.Entries.Count, CachePath);
+        _logger.LogInformation(
+            "Saved driver cache at {Path}: {DriverCount} drivers, {UpdateCount} cached update result(s)",
+            CachePath,
+            snapshot.Entries.Count,
+            snapshot.Entries.Count(entry => entry.AvailableUpdate is not null));
+    }
+
+    public async Task<int> ClearAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Driver cache clear requested for {Path}", CachePath);
+        var snapshot = await LoadAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var cachedUpdateCount = snapshot?.Entries.Count(entry => entry.AvailableUpdate is not null) ?? 0;
+        var deletedFileCount = 0;
+        var paths = new[]
+        {
+            CachePath,
+            CachePath + ".tmp",
+            _legacyCachePath,
+            _legacyCachePath is null ? null : _legacyCachePath + ".tmp"
+        };
+
+        foreach (var path in paths
+                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            File.Delete(path);
+            deletedFileCount++;
+            _logger.LogInformation("Deleted driver cache file {Path}", path);
+        }
+
+        _logger.LogInformation(
+            "Driver cache clear completed: {UpdateCount} cached update result(s), {FileCount} file(s) deleted",
+            cachedUpdateCount,
+            deletedFileCount);
+        Cleared?.Invoke(this, EventArgs.Empty);
+        return cachedUpdateCount;
     }
 }
