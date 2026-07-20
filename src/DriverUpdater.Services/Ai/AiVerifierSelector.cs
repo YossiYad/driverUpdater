@@ -38,6 +38,8 @@ public sealed class AiVerifierSelector : IAiVerifier
 
     public bool IsConfigured => Current()?.IsConfigured ?? false;
 
+    public bool IsTemporarilyUnavailable => Current()?.IsTemporarilyUnavailable ?? false;
+
     public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default)

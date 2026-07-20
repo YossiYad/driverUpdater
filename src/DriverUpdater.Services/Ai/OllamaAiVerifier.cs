@@ -35,6 +35,8 @@ public sealed class OllamaAiVerifier : IAiVerifier
         && !string.IsNullOrWhiteSpace(_settings.CurrentValue.OllamaBaseUrl)
         && !string.IsNullOrWhiteSpace(_settings.CurrentValue.OllamaModel);
 
+    public bool IsTemporarilyUnavailable => false;
+
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default)

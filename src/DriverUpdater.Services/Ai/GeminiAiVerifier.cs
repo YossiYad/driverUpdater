@@ -40,6 +40,8 @@ public sealed class GeminiAiVerifier : IAiVerifier
         _settings.CurrentValue.Provider == AiProvider.Gemini
         && !string.IsNullOrWhiteSpace(_settings.CurrentValue.GeminiApiKey);
 
+    public bool IsTemporarilyUnavailable => _quotaGate.IsBlocked;
+
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default)

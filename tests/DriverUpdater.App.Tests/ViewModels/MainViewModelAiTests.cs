@@ -200,6 +200,27 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_stops_ai_discovery_after_provider_becomes_unavailable()
+    {
+        var drivers = Enumerable.Range(1, 21)
+            .Select(index => NewDriver(
+                $"Device {index}",
+                $"PCI\\VEN_1234&DEV_{index:X4}",
+                new Version(1, 0, 0, 0)))
+            .ToArray();
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            BecomeUnavailableAfterCall = 1
+        };
+        var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        verifier.RequestsByCall.Should().ContainSingle();
+        verifier.RequestsByCall[0].Should().HaveCount(20);
+    }
+
+    [WpfFact]
     public async Task AskAiAsync_reviews_only_selected_update_and_adds_recommendation()
     {
         var driver = NewDriver("Intel Network", "PCI\\VEN_8086&DEV_1234", new Version(1, 0, 0, 0));
@@ -508,6 +529,8 @@ public class MainViewModelAiTests
 
         public AiProvider Provider => AiProvider.Gemini;
         public bool IsConfigured { get; }
+        public bool IsTemporarilyUnavailable { get; set; }
+        public int? BecomeUnavailableAfterCall { get; set; }
         public bool Throws { get; set; }
         public bool WasCalled { get; private set; }
         public IReadOnlyList<AiVerificationRequest> LastRequests { get; private set; } = Array.Empty<AiVerificationRequest>();
@@ -527,6 +550,10 @@ public class MainViewModelAiTests
             WasCalled = true;
             LastRequests = requests;
             RequestsByCall.Add(requests);
+            if (BecomeUnavailableAfterCall == RequestsByCall.Count)
+            {
+                IsTemporarilyUnavailable = true;
+            }
             if (Throws)
             {
                 throw new InvalidOperationException("ai failed");

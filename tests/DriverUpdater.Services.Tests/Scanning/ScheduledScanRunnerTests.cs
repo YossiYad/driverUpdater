@@ -298,6 +298,8 @@ public class ScheduledScanRunnerTests
 
     private sealed class StubDriverCacheStore : IDriverCacheStore
     {
+        public event EventHandler? Cleared;
+
         public List<DriverCacheSnapshot> Saved { get; } = new();
 
         public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
@@ -307,6 +309,12 @@ public class ScheduledScanRunnerTests
         {
             Saved.Add(snapshot);
             return Task.CompletedTask;
+        }
+
+        public Task<int> ClearAsync(CancellationToken cancellationToken = default)
+        {
+            Cleared?.Invoke(this, EventArgs.Empty);
+            return Task.FromResult(0);
         }
     }
 

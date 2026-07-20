@@ -42,7 +42,7 @@ public class MainViewModelUpdateSourceTests
 
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers[0].Status.Should().Be(DriverStatus.Unknown);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.NotFound);
         vm.Drivers[0].AvailableUpdate.Should().BeNull();
         vm.UpdatesFoundCount.Should().Be(0);
         vm.ConfirmedUpdatesCount.Should().Be(0);
@@ -719,9 +719,11 @@ public class MainViewModelUpdateSourceTests
 
         vm.Drivers.Should().HaveCount(2);
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
-        vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
+        vm.Drivers[0].Status.Should().Be(DriverStatus.VerificationInconclusive);
+        vm.Drivers[0].IsUpdateFromCache.Should().BeTrue();
+        vm.Drivers[0].CanUpdate.Should().BeFalse();
         vm.Drivers[1].AvailableUpdate.Should().BeNull();
-        vm.UpdatesFoundCount.Should().Be(1);
+        vm.UpdatesFoundCount.Should().Be(0);
         vm.ScannedCount.Should().Be(2);
         counting.SearchInvocations.Should().Be(0, "loading from cache must be instant and not hit update sources");
         vm.StatusText.Should().StartWith("Loaded 2 drivers from last scan");
@@ -804,19 +806,23 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
 
         vm.Drivers.Should().HaveCount(2);
-        vm.ScannedCount.Should().Be(2);
+        vm.ScannedCount.Should().Be(1);
         var kept = vm.Drivers.Single(r => r.DeviceName == "Realtek Audio");
         kept.AvailableUpdate.Should().NotBeNull();
         kept.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
-        kept.Status.Should().Be(DriverStatus.Outdated);
+        kept.IsScannedThisRun.Should().BeFalse();
+        kept.IsUpdateFromCache.Should().BeTrue();
+        kept.Status.Should().Be(DriverStatus.VerificationInconclusive);
+        kept.CanUpdate.Should().BeFalse();
+        vm.UpdatesFoundCount.Should().Be(0);
         cache.Saved.Should().ContainSingle().Which.Entries.Should().HaveCount(2);
     }
 
     [WpfFact]
     public async Task ScanAsync_restores_pending_update_when_sources_return_nothing()
     {
-        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
-        var pending = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var driver = NewDriver("Intel Display", @"PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var pending = NewCandidate(@"PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
         {
             new CachedDriverEntry(driver, DriverStatus.Outdated, pending)
@@ -839,8 +845,77 @@ public class MainViewModelUpdateSourceTests
         var row = vm.Drivers.Single();
         row.AvailableUpdate.Should().NotBeNull();
         row.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
-        row.Status.Should().Be(DriverStatus.Outdated);
-        vm.UpdatesFoundCount.Should().Be(1);
+        row.IsUpdateFromCache.Should().BeTrue();
+        row.Status.Should().Be(DriverStatus.VerificationInconclusive);
+        row.CanUpdate.Should().BeFalse();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task Cached_update_cannot_be_installed_until_it_is_reverified()
+    {
+        var driver = NewDriver("Intel Display", "TEST_HWID", new Version(1, 0, 0, 0));
+        var pending = NewCandidate("TEST_HWID", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, pending)
+        }));
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(Array.Empty<DriverInfo>()),
+            Array.Empty<IUpdateSource>(),
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers.Single());
+
+        pipeline.Operations.Should().BeEmpty();
+        vm.StatusText.Should().Be("No outdated drivers to update.");
+    }
+
+    [WpfFact]
+    public async Task Clearing_cache_resets_the_main_view_and_prevents_old_results_from_returning()
+    {
+        var driver = NewDriver("Intel Display", "TEST_HWID", new Version(1, 0, 0, 0));
+        var pending = NewCandidate("TEST_HWID", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, pending)
+        }));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            Array.Empty<IUpdateSource>(),
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+        await vm.InitializeAsync();
+        vm.Drivers.Should().ContainSingle();
+
+        await cache.ClearAsync();
+
+        vm.Drivers.Should().BeEmpty();
+        vm.ScannedCount.Should().Be(0);
+        vm.UpdatesFoundCount.Should().Be(0);
+        vm.StatusText.Should().Contain("search from scratch");
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle();
+        vm.Drivers[0].AvailableUpdate.Should().BeNull();
+        cache.Saved.Should().ContainSingle();
+        cache.Saved[0].Entries[0].AvailableUpdate.Should().BeNull();
     }
 
     [WpfFact]
@@ -870,6 +945,12 @@ public class MainViewModelUpdateSourceTests
 
         var row = vm.Drivers.Single();
         row.AvailableUpdate!.NewVersion.Should().Be(new Version(3, 0, 0, 0));
+        row.IsUpdateFromCache.Should().BeFalse();
+        cache.Saved.Should().ContainSingle();
+        cache.Saved[0].Entries.Should().ContainSingle();
+        cache.Saved[0].Entries[0].AvailableUpdate!.NewVersion.Should().Be(new Version(3, 0, 0, 0));
+        cache.Saved[0].Entries[0].AvailableUpdate!.SourceUpdateId
+            .Should().Be(newer.SourceUpdateId);
     }
 
     [WpfFact]
@@ -936,7 +1017,9 @@ public class MainViewModelUpdateSourceTests
 
     private sealed class StubDriverCacheStore : IDriverCacheStore
     {
-        private readonly DriverCacheSnapshot? _snapshot;
+        private DriverCacheSnapshot? _snapshot;
+
+        public event EventHandler? Cleared;
 
         public StubDriverCacheStore(DriverCacheSnapshot? snapshot)
         {
@@ -951,7 +1034,16 @@ public class MainViewModelUpdateSourceTests
         public Task SaveAsync(DriverCacheSnapshot snapshot, CancellationToken cancellationToken = default)
         {
             Saved.Add(snapshot);
+            _snapshot = snapshot;
             return Task.CompletedTask;
+        }
+
+        public Task<int> ClearAsync(CancellationToken cancellationToken = default)
+        {
+            var count = _snapshot?.Entries.Count(entry => entry.AvailableUpdate is not null) ?? 0;
+            _snapshot = null;
+            Cleared?.Invoke(this, EventArgs.Empty);
+            return Task.FromResult(count);
         }
     }
 

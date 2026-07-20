@@ -8,6 +8,8 @@ public interface IAiVerifier
 
     bool IsConfigured { get; }
 
+    bool IsTemporarilyUnavailable { get; }
+
     Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
         CancellationToken cancellationToken = default);

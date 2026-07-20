@@ -34,7 +34,8 @@ public class MainViewModelTests
 
         vm.Drivers.Should().HaveCount(2);
         vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo("Only", "Known");
-        vm.ScannedCount.Should().Be(2);
+        vm.ScannedCount.Should().Be(1);
+        vm.Drivers.Single(d => d.DeviceName == "Known").IsScannedThisRun.Should().BeFalse();
     }
 
     [WpfFact]
