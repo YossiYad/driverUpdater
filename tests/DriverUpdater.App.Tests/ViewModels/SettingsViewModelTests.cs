@@ -108,6 +108,33 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task SaveAsync_preserves_catalog_tuning_that_is_not_exposed_in_the_ui()
+    {
+        var catalog = new CatalogSettings
+        {
+            Enabled = true,
+            MaxConcurrentSearches = 7,
+            CacheDuration = TimeSpan.FromHours(12),
+            MaxRetries = 1,
+            RequestTimeout = TimeSpan.FromSeconds(15)
+        };
+        var store = new FakeStore(new AppSettings { Catalog = catalog });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        await vm.SaveAsync();
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.Catalog.MaxConcurrentSearches.Should().Be(7);
+        store.Saved.Catalog.CacheDuration.Should().Be(TimeSpan.FromHours(12));
+        store.Saved.Catalog.MaxRetries.Should().Be(1);
+        store.Saved.Catalog.RequestTimeout.Should().Be(TimeSpan.FromSeconds(15));
+    }
+
+    [WpfFact]
     public async Task LoadAsync_reads_source_toggles_from_store()
     {
         var store = new FakeStore(new AppSettings

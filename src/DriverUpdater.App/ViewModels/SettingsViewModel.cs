@@ -69,7 +69,8 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>When checking on startup, download and install a found update without asking.</summary>
     [ObservableProperty] private bool _autoInstallAppUpdates;
 
-    // Preserved across save so the app-update feed/repo settings are not wiped by the UI.
+    // Preserved across save so settings that are not exposed in the UI are not wiped.
+    private CatalogSettings _loadedCatalog = new();
     private UpdaterSettings _loadedUpdater = new();
     private OnboardingSettings _loadedOnboarding = new();
 
@@ -300,8 +301,10 @@ public partial class SettingsViewModel : ObservableObject
         Catalog = new CatalogSettings
         {
             Enabled = EnableMicrosoftCatalog,
-            MaxConcurrentSearches = 4,
-            CacheDuration = TimeSpan.FromHours(24)
+            MaxConcurrentSearches = _loadedCatalog.MaxConcurrentSearches,
+            CacheDuration = _loadedCatalog.CacheDuration,
+            MaxRetries = _loadedCatalog.MaxRetries,
+            RequestTimeout = _loadedCatalog.RequestTimeout
         },
         Backup = new BackupSettings
         {
@@ -356,6 +359,7 @@ public partial class SettingsViewModel : ObservableObject
 
     internal void ApplyFromSettings(AppSettings settings)
     {
+        _loadedCatalog = settings.Catalog;
         _loadedUpdater = settings.Updater;
         _loadedOnboarding = settings.Onboarding;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
