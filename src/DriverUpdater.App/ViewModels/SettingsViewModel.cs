@@ -16,6 +16,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAppUpdater? _appUpdater;
     private readonly IAppUpdatePrompt? _appUpdatePrompt;
     private readonly ILogCleanupService? _logCleanupService;
+    private readonly IDriverCacheStore? _driverCacheStore;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
@@ -93,7 +94,8 @@ public partial class SettingsViewModel : ObservableObject
         ILocalizationService? localizationService = null,
         IAppUpdater? appUpdater = null,
         IAppUpdatePrompt? appUpdatePrompt = null,
-        ILogCleanupService? logCleanupService = null)
+        ILogCleanupService? logCleanupService = null,
+        IDriverCacheStore? driverCacheStore = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -104,6 +106,7 @@ public partial class SettingsViewModel : ObservableObject
         _appUpdater = appUpdater;
         _appUpdatePrompt = appUpdatePrompt;
         _logCleanupService = logCleanupService;
+        _driverCacheStore = driverCacheStore;
         _logger = logger;
     }
 
@@ -245,8 +248,52 @@ public partial class SettingsViewModel : ObservableObject
         return !IsBusy;
     }
 
+    private bool CanClearDriverCache() => _driverCacheStore is not null && !IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanClearDriverCache))]
+    private async Task ClearDriverCacheAsync(CancellationToken cancellationToken)
+    {
+        if (_driverCacheStore is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Clearing cached driver scan results...";
+        _logger.LogInformation("User requested clearing the driver update cache from Settings");
+        try
+        {
+            var removedUpdates = await _driverCacheStore
+                .ClearAsync(cancellationToken)
+                .ConfigureAwait(true);
+            StatusText =
+                $"Driver update cache cleared. Removed {removedUpdates} cached update result(s). The next scan starts from scratch.";
+            _logger.LogInformation(
+                "Settings driver cache clear completed: {UpdateCount} cached update result(s) removed",
+                removedUpdates);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StatusText = "Driver cache clear cancelled.";
+            _logger.LogInformation("Settings driver cache clear cancelled");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not clear driver update cache: {ex.Message}";
+            _logger.LogError(ex, "Settings driver cache clear failed");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnAcceptedAutoUpdateRiskChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
-    partial void OnIsBusyChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
+    partial void OnIsBusyChanged(bool value)
+    {
+        SaveCommand.NotifyCanExecuteChanged();
+        ClearDriverCacheCommand.NotifyCanExecuteChanged();
+    }
 
     internal AppSettings BuildSettings() => new()
     {

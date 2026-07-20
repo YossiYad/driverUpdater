@@ -419,6 +419,23 @@ public class SettingsViewModelTests
         vm.StatusText.Should().Be("Could not check for updates. See logs for details.");
     }
 
+    [WpfFact]
+    public async Task ClearDriverCacheAsync_clears_cached_results_and_updates_status()
+    {
+        var cache = new FakeDriverCacheStore(removedUpdateCount: 3);
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            driverCacheStore: cache);
+
+        vm.ClearDriverCacheCommand.CanExecute(null).Should().BeTrue();
+        await vm.ClearDriverCacheCommand.ExecuteAsync(null);
+
+        cache.ClearCalls.Should().Be(1);
+        vm.StatusText.Should().Contain("Removed 3 cached update result(s)");
+    }
+
     private sealed class FakeAppUpdater : IAppUpdater
     {
         private readonly AppUpdateCheckResult _result;
@@ -468,6 +485,34 @@ public class SettingsViewModelTests
         {
             Saved = settings;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeDriverCacheStore : IDriverCacheStore
+    {
+        private readonly int _removedUpdateCount;
+
+        public FakeDriverCacheStore(int removedUpdateCount)
+        {
+            _removedUpdateCount = removedUpdateCount;
+        }
+
+        public event EventHandler? Cleared;
+        public int ClearCalls { get; private set; }
+
+        public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<DriverCacheSnapshot?>(null);
+
+        public Task SaveAsync(
+            DriverCacheSnapshot snapshot,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<int> ClearAsync(CancellationToken cancellationToken = default)
+        {
+            ClearCalls++;
+            Cleared?.Invoke(this, EventArgs.Empty);
+            return Task.FromResult(_removedUpdateCount);
         }
     }
 

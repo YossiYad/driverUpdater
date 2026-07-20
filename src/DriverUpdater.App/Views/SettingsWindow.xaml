@@ -70,6 +70,19 @@
                                FontSize="12"
                                TextWrapping="Wrap"
                                Text="Shows a banner pointing to the manufacturer tool (Lenovo Vantage, Dell Command Update, ...) when one is detected." />
+
+                    <Separator Margin="0,8,0,14" />
+                    <TextBlock FontWeight="SemiBold"
+                               Text="Driver update cache" />
+                    <TextBlock Margin="0,6,0,10"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Every scan checks all drivers again. When no new result is found, the previous cached result is shown as a fallback. Clear the cache to remove all saved driver rows and update results so the next scan starts from scratch." />
+                    <Button Padding="14,7"
+                            HorizontalAlignment="Left"
+                            Content="Clear cached driver results"
+                            Command="{Binding ClearDriverCacheCommand}" />
                 </StackPanel>
             </TabItem>
 
