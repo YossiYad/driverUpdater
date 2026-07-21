@@ -59,13 +59,17 @@ public static class DriverChatPromptBuilder
             sb.AppendLine("drivers that show an available update, and put it on its own line at the very end. Do not talk");
             sb.AppendLine("about the line itself in your prose; the app turns it into an install button the user can press.");
             sb.AppendLine("If nothing should be installed, do not output that line at all.");
+            sb.AppendLine("If the user asks what you recommend updating and the driver list shows zero available updates,");
+            sb.AppendLine("clearly say that you do not currently see available updates in this scan, then finish with one");
+            sb.AppendLine("extra line containing exactly SCAN_NOW. Put it on its own line at the very end. The app turns it");
+            sb.AppendLine("into a Scan now button. Never output both SCAN_NOW and RECOMMEND_UPDATE in the same reply.");
         }
         else
         {
             sb.AppendLine("The user is asking why you made an earlier recommendation. Explain the reasoning for each named");
             sb.AppendLine("driver, including the installed and available versions, source reliability, expected benefit,");
             sb.AppendLine("hardware or OEM compatibility, meaningful risk, and any uncertainty in the available evidence.");
-            sb.AppendLine("Do not recommend additional updates and do not output a RECOMMEND_UPDATE line in this reply.");
+            sb.AppendLine("Do not recommend additional updates and do not output a RECOMMEND_UPDATE or SCAN_NOW line in this reply.");
         }
         sb.AppendLine();
 

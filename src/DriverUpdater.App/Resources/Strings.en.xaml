@@ -96,6 +96,7 @@
     <sys:String x:Key="Settings.Ai.OllamaGuideHeader">How to set up Ollama (local, no key)</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaGuideBody">1. Download and install Ollama from the link below.&#x0a;2. Open a terminal and run:  ollama pull llama3.1&#x0a;3. Make sure Ollama is running. It listens on http://localhost:11434 by default.&#x0a;4. Keep the default base URL, or change it if Ollama runs elsewhere.&#x0a;5. Type the model you pulled (for example llama3.1) in the model box above.&#x0a;&#x0a;Ollama runs entirely on your PC - no API key and no internet are needed.</sys:String>
     <sys:String x:Key="Settings.OpenGuide">Open the setup guide</sys:String>
+    <sys:String x:Key="Settings.ShowGuideOnStartup">Open the guide whenever DriverUpdater starts</sys:String>
 
     <sys:String x:Key="History.Title">DriverUpdater - History</sys:String>
     <sys:String x:Key="History.Heading">Update history</sys:String>

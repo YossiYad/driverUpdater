@@ -47,6 +47,9 @@
                             HorizontalAlignment="Left"
                             Content="{DynamicResource Settings.OpenGuide}"
                             Click="OnOpenWelcomeGuide" />
+                    <CheckBox Margin="0,0,0,12"
+                              IsChecked="{Binding ShowGuideOnStartup}"
+                              Content="{DynamicResource Settings.ShowGuideOnStartup}" />
                     <CheckBox IsChecked="{Binding EnableWindowsUpdate}"
                               Content="Windows Update (recommended)"
                               IsEnabled="False" />

@@ -98,6 +98,42 @@ public class MainViewModelDriverChatTests
     }
 
     [WpfFact]
+    public async Task SendDriverChat_offers_scan_now_when_no_updates_are_visible()
+    {
+        var completer = new StubTextCompleter(isConfigured: true,
+            reply: "I do not see any available updates in the current scan.\nSCAN_NOW");
+        var vm = NewVm(completer);
+        vm.Drivers.Add(new DriverRowViewModel(NewDriver("Realtek Audio")));
+        vm.DriverChatInput = "What should I update?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        vm.DriverChatMessages.Should().HaveCount(3);
+        vm.DriverChatMessages[1].Text.Should().Contain("do not see any available updates");
+        var action = vm.DriverChatMessages[2];
+        action.HasScanAction.Should().BeTrue();
+        action.HasInstallAction.Should().BeFalse();
+        action.HasAction.Should().BeTrue();
+        action.ScanActionLabel.Should().Be("Scan now");
+        vm.StatusText.Should().Contain("Press Scan now");
+    }
+
+    [WpfFact]
+    public async Task SendDriverChat_does_not_offer_scan_when_an_update_is_visible()
+    {
+        var row = new DriverRowViewModel(NewDriver("Intel Iris Xe Graphics"));
+        row.AvailableUpdate = NewCandidate(row.HardwareId);
+        var vm = NewVm(new StubTextCompleter(isConfigured: true,
+            reply: "Run another scan.\nSCAN_NOW"));
+        vm.Drivers.Add(row);
+        vm.DriverChatInput = "What should I update?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        vm.DriverChatMessages.Should().OnlyContain(message => !message.HasScanAction);
+    }
+
+    [WpfFact]
     public async Task Action_messages_are_excluded_from_the_next_prompt_history()
     {
         var row = new DriverRowViewModel(NewDriver("Intel Iris Xe Graphics"));
@@ -132,11 +168,38 @@ public class MainViewModelDriverChatTests
         await vm.AskWhyAiRecommendedCommand.ExecuteAsync(action);
 
         vm.DriverChatMessages[^2].IsUser.Should().BeTrue();
-        vm.DriverChatMessages[^2].Text.Should().Contain("Why did you recommend");
-        vm.DriverChatMessages[^2].Text.Should().Contain(row.HardwareId);
+        vm.DriverChatMessages[^2].Text.Should().Be("Why did you recommend these updates?");
+        vm.DriverChatMessages[^2].Text.Should().NotContain(row.HardwareId);
         vm.DriverChatMessages[^1].Text.Should().Contain("stable release");
         vm.DriverChatMessages[^1].HasInstallAction.Should().BeFalse();
+        completer.LastPrompt.Should().Contain(row.HardwareId);
+        completer.LastPrompt.Should().Contain("Why did you recommend updating these drivers");
         completer.LastPrompt.Should().Contain("Do not recommend additional updates");
+    }
+
+    [WpfFact]
+    public async Task AskWhy_keeps_the_recommendation_language_and_hides_the_detailed_question()
+    {
+        var row = new DriverRowViewModel(NewDriver("Intel Iris Xe Graphics"));
+        row.AvailableUpdate = NewCandidate(row.HardwareId);
+        var completer = new StubTextCompleter(isConfigured: true,
+            reply: $"מומלץ לעדכן את מנהל ההתקן הגרפי.\nRECOMMEND_UPDATE: {row.HardwareId}");
+        var vm = NewVm(completer);
+        vm.Drivers.Add(row);
+        vm.DriverChatInput = "מה אתה ממליץ לי לעדכן?";
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+        var action = vm.DriverChatMessages[^1];
+        completer.Reply = "המלצתי עליו בגלל תיקוני יציבות בגרסה הזמינה.";
+
+        await vm.AskWhyAiRecommendedCommand.ExecuteAsync(action);
+
+        action.ResponseLanguage.Should().Be(AppLanguage.Hebrew);
+        vm.DriverChatMessages[^2].Text.Should().Be("למה המלצת על העדכונים האלה?");
+        vm.DriverChatMessages[^2].Text.Should().NotContain(row.HardwareId);
+        completer.LastPrompt.Should().Contain("clear, natural Hebrew");
+        completer.LastPrompt.Should().Contain(row.HardwareId);
+        completer.LastPrompt.Should().Contain("הסבר את השיקולים");
+        vm.DriverChatMessages[^1].Text.Should().StartWith("המלצתי עליו");
     }
 
     [WpfFact]

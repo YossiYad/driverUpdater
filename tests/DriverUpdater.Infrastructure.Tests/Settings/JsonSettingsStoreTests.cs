@@ -65,6 +65,7 @@ public class JsonSettingsStoreTests : IDisposable
                 GeminiApiKeys = new List<string> { "first-key", "second-key" }
             },
             LogCleanup = new LogCleanupSettings { Enabled = false, RetentionDays = 21 },
+            Onboarding = new OnboardingSettings { ShowOnStartup = false },
             Schedule = new ScheduleSettings
             {
                 Mode = ScheduleMode.ScanAndUpdate,
@@ -87,6 +88,7 @@ public class JsonSettingsStoreTests : IDisposable
         loaded.Ai.GetGeminiApiKeys().Should().Equal("first-key", "second-key");
         loaded.LogCleanup.Enabled.Should().BeFalse();
         loaded.LogCleanup.RetentionDays.Should().Be(21);
+        loaded.Onboarding.ShowOnStartup.Should().BeFalse();
         loaded.Schedule.Mode.Should().Be(ScheduleMode.ScanAndUpdate);
         loaded.Schedule.Cadence.Should().Be(ScheduleCadence.Daily);
         loaded.Schedule.TimeOfDay.Should().Be(new TimeOnly(7, 30));
@@ -104,6 +106,20 @@ public class JsonSettingsStoreTests : IDisposable
 
         settings.Should().NotBeNull();
         settings.Catalog.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Legacy_onboarding_settings_enable_recurring_guide_by_default()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        await File.WriteAllTextAsync(
+            _path,
+            """{"Onboarding":{"LastShownVersion":"0.1.39"}}""");
+        var store = NewStore();
+
+        var settings = await store.LoadAsync();
+
+        settings.Onboarding.ShowOnStartup.Should().BeTrue();
     }
 
     [Fact]

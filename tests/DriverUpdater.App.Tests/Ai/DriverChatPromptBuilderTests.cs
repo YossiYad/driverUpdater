@@ -39,6 +39,9 @@ public class DriverChatPromptBuilderTests
             Array.Empty<DriverChatContextItem>(), Array.Empty<LogChatMessage>(), "What should I update?");
 
         prompt.Should().Contain("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
+        prompt.Should().Contain("SCAN_NOW");
+        prompt.Should().Contain("zero available updates");
+        prompt.Should().Contain("Never output both SCAN_NOW and RECOMMEND_UPDATE");
     }
 
     [Fact]
@@ -65,7 +68,7 @@ public class DriverChatPromptBuilderTests
 
         prompt.Should().Contain("source reliability");
         prompt.Should().Contain("meaningful risk");
-        prompt.Should().Contain("do not output a RECOMMEND_UPDATE line");
+        prompt.Should().Contain("do not output a RECOMMEND_UPDATE or SCAN_NOW line");
         prompt.Should().NotContain("RECOMMEND_UPDATE: <hardwareId>");
     }
 

@@ -87,7 +87,7 @@
                     <TextBlock Margin="0,6,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
-                               Text="This short guide appears once. It will help you turn on the optional AI features and safely use the app." />
+                               Text="This short guide opens when DriverUpdater starts. You can turn off automatic opening below and open it again from Settings at any time." />
 
                     <Border Style="{StaticResource WelcomeCardStyle}">
                         <StackPanel>
@@ -189,12 +189,20 @@
                         </StackPanel>
                     </Border>
 
-                    <Button Padding="20,9"
-                            HorizontalAlignment="Right"
-                            Content="Got it"
-                            IsDefault="True"
-                            Style="{DynamicResource AccentButtonStyle}"
-                            Click="OnClose" />
+                    <DockPanel LastChildFill="False">
+                        <CheckBox x:Name="EnglishDontShowAgain"
+                                  VerticalAlignment="Center"
+                                  Content="Do not open this guide automatically again"
+                                  Checked="OnDontShowAgainChanged"
+                                  Unchecked="OnDontShowAgainChanged" />
+                        <Button Padding="20,9"
+                                Margin="16,0,0,0"
+                                HorizontalAlignment="Right"
+                                Content="Got it"
+                                IsDefault="True"
+                                Style="{DynamicResource AccentButtonStyle}"
+                                Click="OnClose" />
+                    </DockPanel>
                 </StackPanel>
 
                 <StackPanel x:Name="HebrewPanel"
@@ -206,7 +214,7 @@
                     <TextBlock Margin="0,6,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
-                               Text="המדריך הקצר הזה מופיע פעם אחת. הוא יעזור לכם להפעיל את תכונות ה־AI האופציונליות ולהשתמש באפליקציה בצורה בטוחה." />
+                               Text="המדריך הקצר הזה נפתח עם הפעלת DriverUpdater. אפשר לבטל למטה את הפתיחה האוטומטית ולפתוח אותו שוב מההגדרות בכל עת." />
 
                     <Border Style="{StaticResource WelcomeCardStyle}">
                         <StackPanel>
@@ -308,12 +316,20 @@
                         </StackPanel>
                     </Border>
 
-                    <Button Padding="20,9"
-                            HorizontalAlignment="Left"
-                            Content="הבנתי"
-                            IsDefault="True"
-                            Style="{DynamicResource AccentButtonStyle}"
-                            Click="OnClose" />
+                    <DockPanel LastChildFill="False">
+                        <CheckBox x:Name="HebrewDontShowAgain"
+                                  VerticalAlignment="Center"
+                                  Content="לא לפתוח שוב את המדריך באופן אוטומטי"
+                                  Checked="OnDontShowAgainChanged"
+                                  Unchecked="OnDontShowAgainChanged" />
+                        <Button Padding="20,9"
+                                Margin="16,0,0,0"
+                                HorizontalAlignment="Left"
+                                Content="הבנתי"
+                                IsDefault="True"
+                                Style="{DynamicResource AccentButtonStyle}"
+                                Click="OnClose" />
+                    </DockPanel>
                 </StackPanel>
             </Grid>
         </ScrollViewer>

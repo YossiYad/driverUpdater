@@ -13,9 +13,9 @@
     <Product>DriverUpdater</Product>
     <Authors>Yossi Yadgar</Authors>
     <Copyright>Copyright (c) 2026 Yossi Yadgar</Copyright>
-    <Version>0.1.39</Version>
-    <AssemblyVersion>0.1.39.0</AssemblyVersion>
-    <FileVersion>0.1.39.0</FileVersion>
+    <Version>0.1.40</Version>
+    <AssemblyVersion>0.1.40.0</AssemblyVersion>
+    <FileVersion>0.1.40.0</FileVersion>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>

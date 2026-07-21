@@ -1,26 +1,28 @@
 namespace DriverUpdater.App.Ai;
 
 /// <summary>
-/// Extracts the machine-readable RECOMMEND_UPDATE action line that the driver chat prompt asks
-/// the AI to append when it recommends installing specific drivers. Returns the prose without
-/// the action line plus the recommended hardware IDs, so the UI can offer a one-click install.
+/// Extracts the machine-readable action lines that the driver chat prompt asks the AI to append.
+/// Returns the user-facing prose separately from install and scan actions so the UI can render
+/// native buttons without showing protocol details to the user.
 /// </summary>
 public static class DriverChatActionParser
 {
-    private const string Marker = "RECOMMEND_UPDATE:";
+    private const string RecommendUpdateMarker = "RECOMMEND_UPDATE:";
+    private const string ScanNowMarker = "SCAN_NOW";
 
-    public static (string Text, IReadOnlyList<string> HardwareIds) Parse(string answer)
+    public static (string Text, IReadOnlyList<string> HardwareIds, bool RequestsScan) Parse(string answer)
     {
         ArgumentNullException.ThrowIfNull(answer);
 
         var ids = new List<string>();
         var kept = new List<string>();
+        var requestsScan = false;
         foreach (var line in answer.Split('\n'))
         {
             var trimmed = line.TrimEnd('\r').Trim();
-            if (trimmed.StartsWith(Marker, StringComparison.OrdinalIgnoreCase))
+            if (trimmed.StartsWith(RecommendUpdateMarker, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var raw in trimmed[Marker.Length..].Split(';', ','))
+                foreach (var raw in trimmed[RecommendUpdateMarker.Length..].Split(';', ','))
                 {
                     var id = raw.Trim();
                     if (id.Length > 0 && !ids.Contains(id, StringComparer.OrdinalIgnoreCase))
@@ -29,12 +31,16 @@ public static class DriverChatActionParser
                     }
                 }
             }
+            else if (trimmed.Equals(ScanNowMarker, StringComparison.OrdinalIgnoreCase))
+            {
+                requestsScan = true;
+            }
             else
             {
                 kept.Add(line.TrimEnd('\r'));
             }
         }
 
-        return (string.Join('\n', kept).Trim(), ids);
+        return (string.Join('\n', kept).Trim(), ids, requestsScan);
     }
 }

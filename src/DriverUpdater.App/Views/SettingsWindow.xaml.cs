@@ -36,7 +36,9 @@ public partial class SettingsWindow : FluentWindow
             return;
         }
 
-        var welcomeWindow = new WelcomeWindow(_viewModel.SelectedLanguage)
+        var welcomeWindow = new WelcomeWindow(
+            _viewModel.SelectedLanguage,
+            _viewModel.ShowGuideOnStartup)
         {
             Owner = this
         };
@@ -50,7 +52,11 @@ public partial class SettingsWindow : FluentWindow
             SelectAboutTab();
             Activate();
         };
-        welcomeWindow.Closed += (_, _) => _welcomeWindow = null;
+        welcomeWindow.Closed += (_, _) =>
+        {
+            _viewModel.ShowGuideOnStartup = welcomeWindow.ShowOnStartup;
+            _welcomeWindow = null;
+        };
         _welcomeWindow = welcomeWindow;
         welcomeWindow.Show();
     }

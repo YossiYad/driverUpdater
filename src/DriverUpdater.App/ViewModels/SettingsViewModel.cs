@@ -59,6 +59,8 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool _startMinimized;
 
+    [ObservableProperty] private bool _showGuideOnStartup = true;
+
     [ObservableProperty] private bool _enableAutomaticLogCleanup = true;
     [ObservableProperty] private int _logRetentionDays = LogCleanupSettings.DefaultRetentionDays;
 
@@ -468,7 +470,11 @@ public partial class SettingsViewModel : ObservableObject
                 LogCleanupSettings.MinimumRetentionDays,
                 LogCleanupSettings.MaximumRetentionDays)
         },
-        Onboarding = _loadedOnboarding
+        Onboarding = new OnboardingSettings
+        {
+            LastShownVersion = _loadedOnboarding.LastShownVersion,
+            ShowOnStartup = ShowGuideOnStartup
+        }
     };
 
     internal void ApplyFromSettings(AppSettings settings)
@@ -481,7 +487,8 @@ public partial class SettingsViewModel : ObservableObject
         StartMinimized = CanStartMinimized && application.StartMinimized;
         _loadedCatalog = settings.Catalog;
         _loadedUpdater = settings.Updater;
-        _loadedOnboarding = settings.Onboarding;
+        _loadedOnboarding = settings.Onboarding ?? new OnboardingSettings();
+        ShowGuideOnStartup = _loadedOnboarding.ShowOnStartup;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
         EnableMicrosoftCatalog = settings.Catalog.Enabled;
         EnableOemHints = settings.Updater.OemSourcesEnabled;

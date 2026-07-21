@@ -10,14 +10,22 @@ namespace DriverUpdater.App.Views;
 
 public partial class WelcomeWindow : FluentWindow
 {
+    private bool _syncingStartupPreference;
+
     public event EventHandler? OpenAiSettingsRequested;
     public event EventHandler? OpenAutomaticUpdateSettingsRequested;
 
-    public WelcomeWindow(AppLanguage language)
+    public WelcomeWindow(AppLanguage language, bool showOnStartup = true)
     {
         InitializeComponent();
+        _syncingStartupPreference = true;
+        EnglishDontShowAgain.IsChecked = !showOnStartup;
+        HebrewDontShowAgain.IsChecked = !showOnStartup;
+        _syncingStartupPreference = false;
         LanguageSelector.SelectedIndex = ShouldUseHebrew(language) ? 1 : 0;
     }
+
+    public bool ShowOnStartup => EnglishDontShowAgain.IsChecked != true;
 
     private static bool ShouldUseHebrew(AppLanguage language) =>
         language == AppLanguage.Hebrew
@@ -46,6 +54,19 @@ public partial class WelcomeWindow : FluentWindow
     private void OnOpenAutomaticUpdateSettings(object sender, RoutedEventArgs e)
     {
         OpenAutomaticUpdateSettingsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnDontShowAgainChanged(object sender, RoutedEventArgs e)
+    {
+        if (_syncingStartupPreference || sender is not CheckBox source)
+        {
+            return;
+        }
+
+        _syncingStartupPreference = true;
+        EnglishDontShowAgain.IsChecked = source.IsChecked;
+        HebrewDontShowAgain.IsChecked = source.IsChecked;
+        _syncingStartupPreference = false;
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();

@@ -470,19 +470,27 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
-    public async Task SaveAsync_preserves_the_welcome_guide_marker()
+    public async Task SaveAsync_updates_the_guide_startup_preference_and_preserves_the_marker()
     {
         var store = new FakeStore(new AppSettings
         {
-            Onboarding = new OnboardingSettings { LastShownVersion = WelcomeExperience.CurrentVersion }
+            Onboarding = new OnboardingSettings
+            {
+                LastShownVersion = WelcomeExperience.CurrentVersion,
+                ShowOnStartup = false
+            }
         });
         var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
         await vm.LoadAsync();
+        vm.ShowGuideOnStartup.Should().BeFalse();
+
+        vm.ShowGuideOnStartup = true;
 
         await vm.SaveAsync();
 
         store.Saved.Should().NotBeNull();
         store.Saved!.Onboarding.LastShownVersion.Should().Be(WelcomeExperience.CurrentVersion);
+        store.Saved.Onboarding.ShowOnStartup.Should().BeTrue();
     }
 
     [WpfFact]

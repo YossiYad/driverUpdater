@@ -577,7 +577,7 @@
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding HasInstallAction}" Value="True">
+                                                            <DataTrigger Binding="{Binding HasAction}" Value="True">
                                                                 <Setter Property="Visibility" Value="Collapsed" />
                                                             </DataTrigger>
                                                         </Style.Triggers>
@@ -588,7 +588,7 @@
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding HasInstallAction}" Value="True">
+                                                            <DataTrigger Binding="{Binding HasAction}" Value="True">
                                                                 <Setter Property="Visibility" Value="Collapsed" />
                                                             </DataTrigger>
                                                         </Style.Triggers>
@@ -612,6 +612,13 @@
                                                         Command="{Binding DataContext.AskWhyAiRecommendedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                         CommandParameter="{Binding}" />
                                             </StackPanel>
+                                            <Button Padding="14,5"
+                                                    FontSize="12"
+                                                    HorizontalAlignment="Stretch"
+                                                    Content="{Binding ScanActionLabel}"
+                                                    Style="{DynamicResource AccentButtonStyle}"
+                                                    Visibility="{Binding HasScanAction, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                    Command="{Binding DataContext.ScanCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>

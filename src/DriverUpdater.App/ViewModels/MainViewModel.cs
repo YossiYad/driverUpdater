@@ -284,13 +284,23 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var responseLanguage = _aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English;
+        var responseLanguage = message.ResponseLanguage
+            ?? _aiSettings?.CurrentValue.ResponseLanguage
+            ?? AppLanguage.English;
         var deviceList = string.Join(", ", rows.Select(static row => $"{row.DeviceName} ({row.HardwareId})"));
         var question = responseLanguage == AppLanguage.Hebrew
             ? $"למה המלצת לי לעדכן את מנהלי ההתקנים הבאים: {deviceList}? הסבר את השיקולים, התועלת, הסיכונים ורמת הוודאות לגבי כל אחד מהם."
             : $"Why did you recommend updating these drivers: {deviceList}? Explain the evidence, benefit, risks, and uncertainty for each one.";
+        var displayQuestion = responseLanguage == AppLanguage.Hebrew
+            ? "למה המלצת על העדכונים האלה?"
+            : "Why did you recommend these updates?";
 
-        await SendDriverChatQuestionAsync(question, allowInstallActions: false, cancellationToken).ConfigureAwait(true);
+        await SendDriverChatQuestionAsync(
+            question,
+            allowInstallActions: false,
+            cancellationToken,
+            displayQuestion,
+            responseLanguage).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanSendDriverChat), IncludeCancelCommand = true)]
@@ -308,7 +318,9 @@ public partial class MainViewModel : ObservableObject
     private async Task SendDriverChatQuestionAsync(
         string question,
         bool allowInstallActions,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? displayQuestion = null,
+        AppLanguage? responseLanguageOverride = null)
     {
         if (_driverChatCompleter is null || !_driverChatCompleter.IsConfigured)
         {
@@ -319,12 +331,14 @@ public partial class MainViewModel : ObservableObject
 
         var context = BuildDriverChatContext();
         var history = DriverChatMessages.Where(m => !string.IsNullOrWhiteSpace(m.Text)).ToArray();
-        DriverChatMessages.Add(new LogChatMessage(IsUser: true, question));
+        DriverChatMessages.Add(new LogChatMessage(IsUser: true, displayQuestion ?? question));
         IsDriverChatting = true;
         StatusText = "Asking AI about your drivers...";
         try
         {
-            var responseLanguage = _aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English;
+            var responseLanguage = responseLanguageOverride
+                ?? _aiSettings?.CurrentValue.ResponseLanguage
+                ?? AppLanguage.English;
             var prompt = DriverChatPromptBuilder.Build(
                 context,
                 history,
@@ -340,13 +354,32 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            var (text, recommendedIds) = DriverChatActionParser.Parse(answer);
+            var (text, recommendedIds, requestsScan) = DriverChatActionParser.Parse(answer);
             var matched = allowInstallActions
                 ? MatchRecommendedRows(recommendedIds)
                 : Array.Empty<DriverRowViewModel>();
+            var showScanAction = allowInstallActions
+                && requestsScan
+                && matched.Length == 0
+                && context.All(static driver => string.IsNullOrWhiteSpace(driver.AvailableVersion));
+            var questionLanguage = DetectResponseLanguage(displayQuestion ?? question, responseLanguage);
+            var actualResponseLanguage = DetectResponseLanguage(text, questionLanguage);
             if (!string.IsNullOrWhiteSpace(text))
             {
-                DriverChatMessages.Add(new LogChatMessage(IsUser: false, text));
+                DriverChatMessages.Add(new LogChatMessage(
+                    IsUser: false,
+                    text,
+                    ResponseLanguage: actualResponseLanguage));
+            }
+            else if (showScanAction)
+            {
+                var noUpdatesText = actualResponseLanguage == AppLanguage.Hebrew
+                    ? "אני לא רואה כרגע עדכוני מנהלי התקנים זמינים בסריקה הנוכחית. אפשר לבצע סריקה חדשה כדי לרענן את הרשימה."
+                    : "I do not currently see available driver updates in this scan. You can run a new scan to refresh the list.";
+                DriverChatMessages.Add(new LogChatMessage(
+                    IsUser: false,
+                    noUpdatesText,
+                    ResponseLanguage: actualResponseLanguage));
             }
             else if (matched.Length == 0)
             {
@@ -356,8 +389,18 @@ public partial class MainViewModel : ObservableObject
             if (matched.Length > 0)
             {
                 DriverChatMessages.Add(new LogChatMessage(IsUser: false, string.Empty,
-                    matched.Select(r => r.HardwareId).ToArray()));
+                    matched.Select(r => r.HardwareId).ToArray(),
+                    ResponseLanguage: actualResponseLanguage));
                 StatusText = $"AI recommends installing {matched.Length} update(s). Press the button in the chat.";
+            }
+            else if (showScanAction)
+            {
+                DriverChatMessages.Add(new LogChatMessage(
+                    IsUser: false,
+                    Text: string.Empty,
+                    ShowScanAction: true,
+                    ResponseLanguage: actualResponseLanguage));
+                StatusText = "AI does not see available updates in the current scan. Press Scan now to refresh the list.";
             }
             else
             {
@@ -383,6 +426,18 @@ public partial class MainViewModel : ObservableObject
         {
             IsDriverChatting = false;
         }
+    }
+
+    private static AppLanguage DetectResponseLanguage(string text, AppLanguage fallback)
+    {
+        if (text.Any(static character => character is >= '\u0590' and <= '\u05ff'))
+        {
+            return AppLanguage.Hebrew;
+        }
+
+        return text.Any(static character => character is >= 'A' and <= 'Z' or >= 'a' and <= 'z')
+            ? AppLanguage.English
+            : fallback;
     }
 
     [RelayCommand]

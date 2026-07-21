@@ -4,22 +4,20 @@ namespace DriverUpdater.App.Services;
 
 internal static class WelcomeExperience
 {
-    internal const string CurrentVersion = "0.1.39";
+    internal const string CurrentVersion = "0.1.40";
 
     internal static bool ShouldShow(AppSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         settings.Onboarding ??= new OnboardingSettings();
-        return !string.Equals(
-            settings.Onboarding.LastShownVersion,
-            CurrentVersion,
-            StringComparison.Ordinal);
+        return settings.Onboarding.ShowOnStartup;
     }
 
-    internal static void MarkShown(AppSettings settings)
+    internal static void RecordChoice(AppSettings settings, bool showOnStartup)
     {
         ArgumentNullException.ThrowIfNull(settings);
         settings.Onboarding ??= new OnboardingSettings();
         settings.Onboarding.LastShownVersion = CurrentVersion;
+        settings.Onboarding.ShowOnStartup = showOnStartup;
     }
 }
