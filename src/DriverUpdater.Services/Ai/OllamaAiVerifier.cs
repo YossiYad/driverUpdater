@@ -53,7 +53,7 @@ public sealed class OllamaAiVerifier : IAiVerifier
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var prompt = AiVerificationProtocol.BuildPrompt(requests);
+            var prompt = AiVerificationProtocol.BuildPrompt(requests, settings.ResponseLanguage);
             var payload = new
             {
                 model = settings.OllamaModel,

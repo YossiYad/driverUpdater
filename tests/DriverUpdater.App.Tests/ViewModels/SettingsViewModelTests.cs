@@ -310,6 +310,7 @@ public class SettingsViewModelTests
             Ai = new AiSettings
             {
                 Provider = AiProvider.Gemini,
+                ResponseLanguage = AppLanguage.Hebrew,
                 GeminiApiKey = "abc123",
                 GeminiModel = "gemini-2.0-flash",
                 EnableWebSearch = false,
@@ -323,6 +324,7 @@ public class SettingsViewModelTests
         await vm.LoadAsync();
 
         vm.SelectedAiProvider.Should().Be(AiProvider.Gemini);
+        vm.SelectedAiResponseLanguage.Should().Be(AppLanguage.Hebrew);
         vm.GeminiApiKey.Should().Be("abc123");
         vm.GeminiModel.Should().Be("gemini-2.0-flash");
         vm.EnableAiWebSearch.Should().BeFalse();
@@ -330,6 +332,46 @@ public class SettingsViewModelTests
         vm.OllamaModel.Should().Be("mistral");
         vm.IsGeminiSelected.Should().BeTrue();
         vm.IsOllamaSelected.Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task LoadAsync_reads_all_gemini_api_keys_and_keeps_legacy_key_compatible()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            Ai = new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKey = "legacy-key",
+                GeminiApiKeys = new List<string> { "legacy-key", "fallback-key" }
+            }
+        });
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.GeminiApiKeys.Select(entry => entry.Value)
+            .Should().Equal("legacy-key", "fallback-key");
+        vm.GeminiApiKey.Should().Be("legacy-key");
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_writes_unique_non_empty_gemini_api_keys()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        vm.SelectedAiProvider = AiProvider.Gemini;
+        vm.GeminiApiKeys.Clear();
+        vm.GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel { Value = " first-key " });
+        vm.GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel { Value = "first-key" });
+        vm.GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel { Value = "second-key" });
+        vm.GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel { Value = " " });
+
+        await vm.SaveAsync();
+
+        store.Saved!.Ai.GeminiApiKeys.Should().Equal("first-key", "second-key");
+        store.Saved.Ai.GeminiApiKey.Should().Be("first-key");
     }
 
     [WpfFact]
@@ -341,6 +383,7 @@ public class SettingsViewModelTests
         await vm.LoadAsync();
 
         vm.SelectedAiProvider = AiProvider.Ollama;
+        vm.SelectedAiResponseLanguage = AppLanguage.Hebrew;
         vm.OllamaBaseUrl = "http://localhost:11434";
         vm.OllamaModel = "llama3.1";
 
@@ -348,6 +391,7 @@ public class SettingsViewModelTests
 
         store.Saved.Should().NotBeNull();
         store.Saved!.Ai.Provider.Should().Be(AiProvider.Ollama);
+        store.Saved.Ai.ResponseLanguage.Should().Be(AppLanguage.Hebrew);
         store.Saved.Ai.OllamaBaseUrl.Should().Be("http://localhost:11434");
         store.Saved.Ai.OllamaModel.Should().Be("llama3.1");
     }

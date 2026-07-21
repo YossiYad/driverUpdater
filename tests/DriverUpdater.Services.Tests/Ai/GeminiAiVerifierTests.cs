@@ -29,6 +29,20 @@ public class GeminiAiVerifierTests
     }
 
     [Fact]
+    public void IsConfigured_is_true_with_a_key_from_the_multi_key_list()
+    {
+        var verifier = NewVerifier(
+            new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKeys = new List<string> { "key-from-list" }
+            },
+            new CapturingHandler(""));
+
+        verifier.IsConfigured.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task VerifyAsync_sends_api_key_header_and_google_search_tool_when_web_search_enabled()
     {
         var handler = new CapturingHandler(CannedResponse("corr-1", true, "Safe"));
@@ -125,6 +139,27 @@ public class GeminiAiVerifierTests
         first.Should().BeEmpty();
         second.Should().BeEmpty();
         handler.RequestCount.Should().Be(1, "the quota gate should stop repeated requests until reset");
+    }
+
+    [Fact]
+    public async Task VerifyAsync_falls_back_to_the_next_key_after_quota_exhaustion()
+    {
+        var handler = new SequenceHandler(
+            (System.Net.HttpStatusCode.TooManyRequests, "Quota exceeded: GenerateRequestsPerDay"),
+            (System.Net.HttpStatusCode.OK, CannedResponse("corr-1", true, "Safe")));
+        var verifier = NewVerifier(
+            new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKeys = new List<string> { "first-key", "second-key" }
+            },
+            handler);
+
+        var result = await verifier.VerifyAsync(new[] { NewRequest("corr-1") });
+
+        result.Should().ContainKey("corr-1");
+        handler.ApiKeys.Should().Equal("first-key", "second-key");
+        verifier.IsTemporarilyUnavailable.Should().BeFalse();
     }
 
     [Fact]

@@ -73,6 +73,27 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_flushes_history_in_status_order_before_returning()
+    {
+        var history = new DelayedHistoryRepository();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") },
+            NullLogger<InstallPipeline>.Instance,
+            historyRepository: history);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        history.Writes.Should().NotBeEmpty();
+        history.Writes[^1].Status.Should().Be(result.Status);
+        history.Writes[^1].IsTerminal.Should().BeTrue();
+        history.MaximumConcurrentWrites.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_uses_hardware_id_in_restore_point_when_device_name_is_blank()
     {
         // Virtual devices such as Microsoft Print to PDF have a blank DeviceName, which used to
@@ -295,6 +316,26 @@ public class InstallPipelineTests
 
         probe.Invocations.Should().Be(1);
         result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_reports_failure_when_readback_is_a_downgrade()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(0, 9), new DateOnly(2023, 12, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("older or conflicting metadata");
     }
 
     [Fact]
@@ -715,6 +756,51 @@ public class InstallPipelineTests
         }
 
         public void Report(UpdateOperation value) => _onReport(value);
+    }
+
+    private sealed class DelayedHistoryRepository : IHistoryRepository
+    {
+        private readonly object _gate = new();
+        private int _activeWrites;
+        private int _maximumConcurrentWrites;
+
+        public List<UpdateOperation> Writes { get; } = new();
+        public int MaximumConcurrentWrites => Volatile.Read(ref _maximumConcurrentWrites);
+
+        public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public async Task UpsertOperationAsync(
+            UpdateOperation operation,
+            CancellationToken cancellationToken = default)
+        {
+            var active = Interlocked.Increment(ref _activeWrites);
+            lock (_gate)
+            {
+                _maximumConcurrentWrites = Math.Max(_maximumConcurrentWrites, active);
+            }
+            try
+            {
+                await Task.Delay(10, cancellationToken);
+                lock (_gate)
+                {
+                    Writes.Add(operation);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeWrites);
+            }
+        }
+
+        public Task<IReadOnlyList<UpdateOperation>> ListOperationsAsync(
+            int limit = 200,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<UpdateOperation>>(Writes.ToArray());
+
+        public Task<UpdateOperation?> GetOperationAsync(
+            Guid operationId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Writes.LastOrDefault(operation => operation.OperationId == operationId));
     }
 
     private sealed class FakeBackupService : IBackupService

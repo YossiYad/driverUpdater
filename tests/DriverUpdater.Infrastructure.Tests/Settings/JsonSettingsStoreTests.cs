@@ -58,6 +58,12 @@ public class JsonSettingsStoreTests : IDisposable
             },
             Catalog = new CatalogSettings { Enabled = true, MaxConcurrentSearches = 8, CacheDuration = TimeSpan.FromHours(48) },
             Backup = new BackupSettings { RetentionDays = 60 },
+            Ai = new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKey = "first-key",
+                GeminiApiKeys = new List<string> { "first-key", "second-key" }
+            },
             LogCleanup = new LogCleanupSettings { Enabled = false, RetentionDays = 21 },
             Schedule = new ScheduleSettings
             {
@@ -78,6 +84,7 @@ public class JsonSettingsStoreTests : IDisposable
         loaded.Catalog.Enabled.Should().BeTrue();
         loaded.Catalog.MaxConcurrentSearches.Should().Be(8);
         loaded.Backup.RetentionDays.Should().Be(60);
+        loaded.Ai.GetGeminiApiKeys().Should().Equal("first-key", "second-key");
         loaded.LogCleanup.Enabled.Should().BeFalse();
         loaded.LogCleanup.RetentionDays.Should().Be(21);
         loaded.Schedule.Mode.Should().Be(ScheduleMode.ScanAndUpdate);
@@ -108,6 +115,22 @@ public class JsonSettingsStoreTests : IDisposable
 
         File.Exists(_path).Should().BeTrue();
         Directory.Exists(Path.GetDirectoryName(_path)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Concurrent_saves_are_serialized_and_leave_valid_json()
+    {
+        var store = NewStore();
+        var saves = Enumerable.Range(1, 20)
+            .Select(retentionDays => store.SaveAsync(new AppSettings
+            {
+                Backup = new BackupSettings { RetentionDays = retentionDays }
+            }));
+
+        await Task.WhenAll(saves);
+
+        var loaded = await store.LoadAsync();
+        loaded.Backup.RetentionDays.Should().BeInRange(1, 20);
     }
 
     private JsonSettingsStore NewStore() =>

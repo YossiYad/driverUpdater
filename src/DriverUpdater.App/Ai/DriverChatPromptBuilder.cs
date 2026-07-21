@@ -1,5 +1,6 @@
 using System.Text;
 using DriverUpdater.App.Logging;
+using DriverUpdater.Core.Models;
 
 namespace DriverUpdater.App.Ai;
 
@@ -26,7 +27,9 @@ public static class DriverChatPromptBuilder
     public static string Build(
         IReadOnlyList<DriverChatContextItem> drivers,
         IReadOnlyList<LogChatMessage> history,
-        string question)
+        string question,
+        AppLanguage responseLanguage = AppLanguage.English,
+        bool allowInstallActions = true)
     {
         ArgumentNullException.ThrowIfNull(drivers);
         ArgumentNullException.ThrowIfNull(history);
@@ -36,6 +39,9 @@ public static class DriverChatPromptBuilder
         sb.AppendLine("You are a Windows driver advisor inside \"DriverUpdater\", a desktop app that scans and updates");
         sb.AppendLine("device drivers. Below is the current scan of this PC's drivers, followed by a conversation.");
         sb.AppendLine();
+        sb.AppendLine(responseLanguage == AppLanguage.Hebrew
+            ? "Write every user-facing answer in clear, natural Hebrew. Keep driver names, model names, versions, hardware IDs, and URLs unchanged."
+            : "Write every user-facing answer in clear, natural English. Keep driver names, model names, versions, hardware IDs, and URLs unchanged.");
         sb.AppendLine("Answer the user's latest question concisely and practically, grounded in the driver list.");
         sb.AppendLine("Help them decide what is worth updating and what to leave alone. Be cautious with display,");
         sb.AppendLine("storage, firmware, chipset, network, and security drivers, where a bad update can break boot,");
@@ -43,14 +49,24 @@ public static class DriverChatPromptBuilder
         sb.AppendLine("for this exact hardware; note when an OEM/vendor driver is safer than a generic one. If a driver");
         sb.AppendLine("is not in the list, say you don't see it rather than inventing details.");
         sb.AppendLine();
-        sb.AppendLine("When you conclude that specific drivers from the list should be updated now - either because the");
-        sb.AppendLine("user asked you to update/install them or because they asked what to install and you recommend");
-        sb.AppendLine("specific ones - finish your reply with one extra line, exactly in this format:");
-        sb.AppendLine("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
-        sb.AppendLine("Rules for that line: use only hardware IDs copied exactly from the driver list below, only for");
-        sb.AppendLine("drivers that show an available update, and put it on its own line at the very end. Do not talk");
-        sb.AppendLine("about the line itself in your prose; the app turns it into an install button the user can press.");
-        sb.AppendLine("If nothing should be installed, do not output that line at all.");
+        if (allowInstallActions)
+        {
+            sb.AppendLine("When you conclude that specific drivers from the list should be updated now - either because the");
+            sb.AppendLine("user asked you to update/install them or because they asked what to install and you recommend");
+            sb.AppendLine("specific ones - finish your reply with one extra line, exactly in this format:");
+            sb.AppendLine("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
+            sb.AppendLine("Rules for that line: use only hardware IDs copied exactly from the driver list below, only for");
+            sb.AppendLine("drivers that show an available update, and put it on its own line at the very end. Do not talk");
+            sb.AppendLine("about the line itself in your prose; the app turns it into an install button the user can press.");
+            sb.AppendLine("If nothing should be installed, do not output that line at all.");
+        }
+        else
+        {
+            sb.AppendLine("The user is asking why you made an earlier recommendation. Explain the reasoning for each named");
+            sb.AppendLine("driver, including the installed and available versions, source reliability, expected benefit,");
+            sb.AppendLine("hardware or OEM compatibility, meaningful risk, and any uncertainty in the available evidence.");
+            sb.AppendLine("Do not recommend additional updates and do not output a RECOMMEND_UPDATE line in this reply.");
+        }
         sb.AppendLine();
 
         var withUpdates = drivers.Count(d => !string.IsNullOrEmpty(d.AvailableVersion));

@@ -32,6 +32,7 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
         DayOfWeek dayOfWeek,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             if (mode == ScheduleMode.Manual)
@@ -92,6 +93,7 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
 
     public System.Threading.Tasks.Task<ScheduledTaskInfo?> GetCurrentAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var service = new TaskService();
@@ -106,11 +108,11 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
             var mode = task.Definition.Actions
                 .OfType<ExecAction>()
                 .FirstOrDefault()?.Arguments switch
-                {
-                    ScanAndUpdateArgument => ScheduleMode.ScanAndUpdate,
-                    ScanOnlyArgument => ScheduleMode.ScanOnly,
-                    _ => ScheduleMode.Manual
-                };
+            {
+                ScanAndUpdateArgument => ScheduleMode.ScanAndUpdate,
+                ScanOnlyArgument => ScheduleMode.ScanOnly,
+                _ => ScheduleMode.Manual
+            };
 
             return SystemTask.FromResult<ScheduledTaskInfo?>(new ScheduledTaskInfo(
                 TaskPath: $"\\{TaskFolderName}\\{TaskName}",
@@ -137,6 +139,7 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
 
     public SystemTask RemoveAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Remove();
         return SystemTask.CompletedTask;
     }

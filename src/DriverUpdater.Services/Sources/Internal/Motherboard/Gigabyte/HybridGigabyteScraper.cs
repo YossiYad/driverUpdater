@@ -54,6 +54,10 @@ public sealed class HybridGigabyteScraper : IMotherboardScraper
             _logger.LogInformation("Falling back to Playwright headless browser for Gigabyte support page");
             return await _playwright.Value.GetDriversAsync(motherboardModel, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception playwrightEx)
         {
             _logger.LogWarning(playwrightEx, "Playwright fallback also failed; returning no Gigabyte drivers");

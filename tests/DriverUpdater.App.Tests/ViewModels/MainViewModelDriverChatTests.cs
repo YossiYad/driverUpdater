@@ -115,6 +115,51 @@ public class MainViewModelDriverChatTests
         completer.LastPrompt.Should().NotContain("Assistant: \n");
     }
 
+    [WpfFact]
+    public async Task AskWhy_sends_an_explanation_only_follow_up_for_the_recommended_rows()
+    {
+        var row = new DriverRowViewModel(NewDriver("Intel Iris Xe Graphics"));
+        row.AvailableUpdate = NewCandidate(row.HardwareId);
+        var completer = new StubTextCompleter(isConfigured: true,
+            reply: $"Update it.\nRECOMMEND_UPDATE: {row.HardwareId}");
+        var vm = NewVm(completer);
+        vm.Drivers.Add(row);
+        vm.DriverChatInput = "What should I update?";
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+        var action = vm.DriverChatMessages[^1];
+        completer.Reply = "I recommended it because the available stable release fixes display issues.";
+
+        await vm.AskWhyAiRecommendedCommand.ExecuteAsync(action);
+
+        vm.DriverChatMessages[^2].IsUser.Should().BeTrue();
+        vm.DriverChatMessages[^2].Text.Should().Contain("Why did you recommend");
+        vm.DriverChatMessages[^2].Text.Should().Contain(row.HardwareId);
+        vm.DriverChatMessages[^1].Text.Should().Contain("stable release");
+        vm.DriverChatMessages[^1].HasInstallAction.Should().BeFalse();
+        completer.LastPrompt.Should().Contain("Do not recommend additional updates");
+    }
+
+    [WpfFact]
+    public async Task Recommendation_matches_a_secondary_hardware_id()
+    {
+        const string secondaryId = "PCI\\VEN_8086&DEV_A7A0&SUBSYS_1234";
+        var driver = NewDriver("Intel Iris Xe Graphics") with
+        {
+            HardwareIds = new[] { "HW\\Intel Iris Xe Graphics", secondaryId }
+        };
+        var row = new DriverRowViewModel(driver)
+        {
+            AvailableUpdate = NewCandidate(secondaryId)
+        };
+        var vm = NewVm(new StubTextCompleter(true, $"Update it.\nRECOMMEND_UPDATE: {secondaryId}"));
+        vm.Drivers.Add(row);
+        vm.DriverChatInput = "What should I update?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        vm.DriverChatMessages.Should().ContainSingle(message => message.HasInstallAction);
+    }
+
     private static UpdateCandidate NewCandidate(string hardwareId) => new(
         ForHardwareId: hardwareId,
         Source: UpdateSource.MicrosoftCatalog,
@@ -155,11 +200,11 @@ public class MainViewModelDriverChatTests
 
     private sealed class StubTextCompleter : IAiTextCompleter
     {
-        private readonly string _reply;
+        public string Reply { get; set; }
         public StubTextCompleter(bool isConfigured, string reply)
         {
             IsConfigured = isConfigured;
-            _reply = reply;
+            Reply = reply;
         }
 
         public AiProvider Provider => AiProvider.Gemini;
@@ -171,7 +216,7 @@ public class MainViewModelDriverChatTests
         {
             WasCalled = true;
             LastPrompt = prompt;
-            return Task.FromResult<string?>(_reply);
+            return Task.FromResult<string?>(Reply);
         }
     }
 

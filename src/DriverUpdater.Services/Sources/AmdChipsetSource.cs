@@ -81,7 +81,9 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             foreach (var driver in matched)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                yield return BuildVendorPageCandidate(driver);
+                yield return BuildVendorPageCandidate(
+                    driver,
+                    DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime));
             }
             yield break;
         }
@@ -173,9 +175,8 @@ public sealed partial class AmdChipsetSource : IUpdateSource
             Confidence: UpdateConfidence.Advisory);
     }
 
-    private static UpdateCandidate BuildVendorPageCandidate(DriverInfo driver)
+    private static UpdateCandidate BuildVendorPageCandidate(DriverInfo driver, DateOnly today)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         return new UpdateCandidate(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,

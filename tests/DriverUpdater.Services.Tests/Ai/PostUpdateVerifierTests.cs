@@ -61,6 +61,22 @@ public class PostUpdateVerifierTests
     }
 
     [Fact]
+    public async Task Older_active_driver_is_not_reported_as_a_verified_update()
+    {
+        var probe = new FakeProbe(new InstalledDriverState(
+            new Version(0, 9, 0, 0),
+            new DateOnly(2024, 12, 1)));
+        var verifier = NewVerifier(probe, new FakeCompleter(false, null));
+
+        var report = await verifier.VerifyAsync(
+            NewBatch(NewOperation(UpdateStatus.Succeeded)),
+            isAfterRestart: true,
+            AppLanguage.English);
+
+        report.Items.Should().ContainSingle().Which.Status.Should().Be(UpdateVerificationStatus.NotUpdated);
+    }
+
+    [Fact]
     public async Task Summary_prompt_distinguishes_a_completed_installer_from_a_verified_driver_change()
     {
         var probe = new FakeProbe(new InstalledDriverState(

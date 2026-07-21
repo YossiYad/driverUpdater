@@ -53,6 +53,28 @@ public class ScheduledScanRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_matches_candidate_returned_for_a_secondary_hardware_id()
+    {
+        const string primaryId = "PCI\\VEN_8086&DEV_4682";
+        const string secondaryId = "PCI\\VEN_8086&DEV_4682&SUBSYS_1234";
+        var driver = NewDriver("Intel Display", primaryId, new Version(1, 0, 0, 0)) with
+        {
+            HardwareIds = new[] { primaryId, secondaryId }
+        };
+        var cache = new StubDriverCacheStore();
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate,
+                NewCandidate(secondaryId, new Version(2, 0, 0, 0))) },
+            new ThrowingInstallPipeline(),
+            cache);
+
+        await runner.RunAsync(installUpdates: false);
+
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task RunAsync_installs_confirmed_updates_when_requested()
     {
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));

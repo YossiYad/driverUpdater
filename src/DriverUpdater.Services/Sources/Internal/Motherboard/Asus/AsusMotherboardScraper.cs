@@ -57,30 +57,37 @@ public sealed class AsusMotherboardScraper : IMotherboardScraper
                 $"https://www.asus.com/support/download-center/");
             response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new ScraperUnavailableException("ASUS API request failed", ex);
         }
 
-        if (!response.IsSuccessStatusCode)
+        using (response)
         {
-            throw new ScraperUnavailableException(
-                $"ASUS API returned HTTP {(int)response.StatusCode} for {motherboardModel}");
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new ScraperUnavailableException(
+                    $"ASUS API returned HTTP {(int)response.StatusCode} for {motherboardModel}");
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!TryParseResponse(body, out var entries))
+            {
+                _logger.LogWarning(
+                    "ASUS scraper: could not parse API response for {Model} ({Length} bytes). " +
+                    "The ASUS API format may have changed - inspect the raw response to update the parser.",
+                    motherboardModel, body.Length);
+                throw new ScraperUnavailableException("ASUS API response could not be parsed");
+            }
+
+            _logger.LogInformation("ASUS scraper: parsed {Count} driver entries for {Model}", entries.Count, motherboardModel);
+            return entries;
         }
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!TryParseResponse(body, out var entries))
-        {
-            _logger.LogWarning(
-                "ASUS scraper: could not parse API response for {Model} ({Length} bytes). " +
-                "The ASUS API format may have changed - inspect the raw response to update the parser.",
-                motherboardModel, body.Length);
-            throw new ScraperUnavailableException("ASUS API response could not be parsed");
-        }
-
-        _logger.LogInformation("ASUS scraper: parsed {Count} driver entries for {Model}", entries.Count, motherboardModel);
-        return entries;
     }
 
     internal static bool TryParseResponse(string json, out IReadOnlyList<MotherboardDriverEntry> entries)

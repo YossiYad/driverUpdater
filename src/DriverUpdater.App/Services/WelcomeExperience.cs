@@ -4,7 +4,7 @@ namespace DriverUpdater.App.Services;
 
 internal static class WelcomeExperience
 {
-    internal const string CurrentVersion = "0.1.36";
+    internal const string CurrentVersion = "0.1.39";
 
     internal static bool ShouldShow(AppSettings settings)
     {

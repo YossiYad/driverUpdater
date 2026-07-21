@@ -87,6 +87,7 @@ public class AiCompositionIntegrationTests
         {
             o.Provider = ai.Provider;
             o.GeminiApiKey = ai.GeminiApiKey;
+            o.GeminiApiKeys = ai.GeminiApiKeys.ToList();
             o.GeminiModel = ai.GeminiModel;
             o.EnableWebSearch = ai.EnableWebSearch;
             o.OllamaBaseUrl = ai.OllamaBaseUrl;

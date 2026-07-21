@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Services.Scanning;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Ai;
@@ -101,6 +102,10 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
         {
             current = await _installedDriverProbe.GetCurrentAsync(before.DeviceId, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not verify installed driver for {Device}", before.DeviceName);
@@ -117,8 +122,7 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
                     : UpdateVerificationStatus.Inconclusive);
         }
 
-        var changed = !Equals(current.Version, before.CurrentVersion)
-            || current.Date != before.CurrentDate;
+        var changed = InstalledDriverChangeClassifier.IsUpgrade(before, current);
         return CreateItem(
             operation,
             current,

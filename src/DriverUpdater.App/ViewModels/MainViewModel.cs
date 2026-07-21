@@ -44,6 +44,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IRebootPrompt? _rebootPrompt;
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
     private readonly IAiTextCompleter? _driverChatCompleter;
+    private readonly IOptionsMonitor<AiSettings>? _aiSettings;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
     private readonly Dispatcher _dispatcher;
@@ -166,7 +167,8 @@ public partial class MainViewModel : ObservableObject
         IIneffectiveUpdateStore? ineffectiveUpdateStore = null,
         IAiTextCompleter? driverChatCompleter = null,
         IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null,
-        ISupportWindowOpener? supportWindowOpener = null)
+        ISupportWindowOpener? supportWindowOpener = null,
+        IOptionsMonitor<AiSettings>? aiSettings = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -195,6 +197,7 @@ public partial class MainViewModel : ObservableObject
         _rebootPrompt = rebootPrompt;
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _driverChatCompleter = driverChatCompleter;
+        _aiSettings = aiSettings;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
         _logger = logger;
@@ -225,6 +228,7 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendDriverChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AskWhyAiRecommendedCommand))]
     private bool _isDriverChatting;
 
     [ObservableProperty]
@@ -256,10 +260,38 @@ public partial class MainViewModel : ObservableObject
     private DriverRowViewModel[] MatchRecommendedRows(IReadOnlyList<string> hardwareIds) =>
         Drivers
             .Where(r => r.AvailableUpdate is not null
-                && hardwareIds.Contains(r.HardwareId, StringComparer.OrdinalIgnoreCase))
+                && r.Driver.HardwareIds.Any(id =>
+                    hardwareIds.Contains(id, StringComparer.OrdinalIgnoreCase)))
             .ToArray();
 
     private bool CanSendDriverChat() => !IsDriverChatting && !string.IsNullOrWhiteSpace(DriverChatInput);
+
+    private bool CanAskWhyAiRecommended(LogChatMessage? message) =>
+        !IsDriverChatting && message?.RecommendedHardwareIds is { Count: > 0 };
+
+    [RelayCommand(CanExecute = nameof(CanAskWhyAiRecommended))]
+    private async Task AskWhyAiRecommendedAsync(LogChatMessage? message, CancellationToken cancellationToken)
+    {
+        if (message?.RecommendedHardwareIds is not { Count: > 0 } ids)
+        {
+            return;
+        }
+
+        var rows = MatchRecommendedRows(ids);
+        if (rows.Length == 0)
+        {
+            StatusText = "The recommended updates are no longer available. Rescan and ask again.";
+            return;
+        }
+
+        var responseLanguage = _aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English;
+        var deviceList = string.Join(", ", rows.Select(static row => $"{row.DeviceName} ({row.HardwareId})"));
+        var question = responseLanguage == AppLanguage.Hebrew
+            ? $"למה המלצת לי לעדכן את מנהלי ההתקנים הבאים: {deviceList}? הסבר את השיקולים, התועלת, הסיכונים ורמת הוודאות לגבי כל אחד מהם."
+            : $"Why did you recommend updating these drivers: {deviceList}? Explain the evidence, benefit, risks, and uncertainty for each one.";
+
+        await SendDriverChatQuestionAsync(question, allowInstallActions: false, cancellationToken).ConfigureAwait(true);
+    }
 
     [RelayCommand(CanExecute = nameof(CanSendDriverChat), IncludeCancelCommand = true)]
     private async Task SendDriverChatAsync(CancellationToken cancellationToken)
@@ -269,23 +301,36 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
+        DriverChatInput = string.Empty;
+        await SendDriverChatQuestionAsync(question, allowInstallActions: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task SendDriverChatQuestionAsync(
+        string question,
+        bool allowInstallActions,
+        CancellationToken cancellationToken)
+    {
         if (_driverChatCompleter is null || !_driverChatCompleter.IsConfigured)
         {
             DriverChatMessages.Add(new LogChatMessage(IsUser: false,
                 "AI is not configured. Open Settings > AI to enable it, then ask again."));
-            DriverChatInput = string.Empty;
             return;
         }
 
         var context = BuildDriverChatContext();
         var history = DriverChatMessages.Where(m => !string.IsNullOrWhiteSpace(m.Text)).ToArray();
         DriverChatMessages.Add(new LogChatMessage(IsUser: true, question));
-        DriverChatInput = string.Empty;
         IsDriverChatting = true;
         StatusText = "Asking AI about your drivers...";
         try
         {
-            var prompt = DriverChatPromptBuilder.Build(context, history, question);
+            var responseLanguage = _aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English;
+            var prompt = DriverChatPromptBuilder.Build(
+                context,
+                history,
+                question,
+                responseLanguage,
+                allowInstallActions);
             var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(answer))
             {
@@ -296,7 +341,9 @@ public partial class MainViewModel : ObservableObject
             }
 
             var (text, recommendedIds) = DriverChatActionParser.Parse(answer);
-            var matched = MatchRecommendedRows(recommendedIds);
+            var matched = allowInstallActions
+                ? MatchRecommendedRows(recommendedIds)
+                : Array.Empty<DriverRowViewModel>();
             if (!string.IsNullOrWhiteSpace(text))
             {
                 DriverChatMessages.Add(new LogChatMessage(IsUser: false, text));
@@ -365,6 +412,10 @@ public partial class MainViewModel : ObservableObject
         {
             DetectedOem = await _oemDetectionService.DetectAsync(cancellationToken).ConfigureAwait(true);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "OEM detection failed");
@@ -421,6 +472,10 @@ public partial class MainViewModel : ObservableObject
                 await UpdateAppAsync(cancellationToken).ConfigureAwait(true);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Checking for an app update failed");
@@ -444,6 +499,10 @@ public partial class MainViewModel : ObservableObject
             // On success the app downloads the new version and restarts immediately, so
             // execution does not return past this call.
             await _appUpdater.DownloadAndApplyAsync(progress, cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StatusText = "App update cancelled.";
         }
         catch (Exception ex)
         {
@@ -515,6 +574,10 @@ public partial class MainViewModel : ObservableObject
                 "Loaded {Count} drivers from cache captured at {CapturedAt}",
                 Drivers.Count, snapshot.CapturedAt);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load the driver cache");
@@ -547,6 +610,10 @@ public partial class MainViewModel : ObservableObject
                 entries.Length,
                 Drivers.Count(row => row.AvailableUpdate is not null && !row.IsUpdateFromCache),
                 Drivers.Count(row => row.AvailableUpdate is not null && row.IsUpdateFromCache));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -901,15 +968,15 @@ public partial class MainViewModel : ObservableObject
                     }
                 }
             }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Source {Source} failed", source.DisplayName);
-                    StatusText = $"{source.DisplayName} failed: {ex.Message}";
-                }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Source {Source} failed", source.DisplayName);
+                StatusText = $"{source.DisplayName} failed: {ex.Message}";
+            }
             finally
             {
                 _logger.LogInformation(
@@ -966,6 +1033,10 @@ public partial class MainViewModel : ObservableObject
                 }
                 installedVersions.Add(r.InstalledVersionAtAttempt);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1042,6 +1113,10 @@ public partial class MainViewModel : ObservableObject
                 finished.Candidate.NewVersion.ToString(),
                 finished.TargetSnapshot.CurrentVersion?.ToString(),
                 cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1750,7 +1825,11 @@ public partial class MainViewModel : ObservableObject
     }
 
     private static Uri? TryCreateAbsoluteUri(string? raw) =>
-        Uri.TryCreate(raw, UriKind.Absolute, out var uri) ? uri : null;
+        Uri.TryCreate(raw, UriKind.Absolute, out var uri)
+        && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            ? uri
+            : null;
 
     private static bool IsActionableAiDiscoveryLead(DriverRowViewModel row, Uri url)
     {

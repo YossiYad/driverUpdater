@@ -8,8 +8,8 @@ namespace DriverUpdater.Services.Web;
 /// Owns the single Playwright browser instance shared by every component that needs a real
 /// browser (Gigabyte scraping, vendor-page fetching). Boots the user's installed Chrome or
 /// Edge first so the TLS/HTTP2 fingerprint matches a real browser - Akamai-style bot managers
-    /// fingerprint far below the JS layer, so bundled headless Chromium gets caught even with
-    /// stealth shims. Chromium is downloaded only if neither Chrome nor Edge is available.
+/// fingerprint far below the JS layer, so bundled headless Chromium gets caught even with
+/// stealth shims. Chromium is downloaded only if neither Chrome nor Edge is available.
 /// </summary>
 public sealed class PlaywrightBrowserProvider : IAsyncDisposable
 {

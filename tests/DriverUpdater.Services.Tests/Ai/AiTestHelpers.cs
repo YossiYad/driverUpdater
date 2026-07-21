@@ -83,6 +83,34 @@ internal sealed class CapturingHandler : HttpMessageHandler
     }
 }
 
+internal sealed class SequenceHandler : HttpMessageHandler
+{
+    private readonly Queue<(HttpStatusCode Status, string Body)> _responses;
+
+    public SequenceHandler(params (HttpStatusCode Status, string Body)[] responses)
+    {
+        _responses = new Queue<(HttpStatusCode Status, string Body)>(responses);
+    }
+
+    public List<string> ApiKeys { get; } = new();
+
+    public int RequestCount => ApiKeys.Count;
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        ApiKeys.Add(request.Headers.GetValues("x-goog-api-key").Single());
+        var response = _responses.Count > 0
+            ? _responses.Dequeue()
+            : throw new InvalidOperationException("No canned HTTP response remains.");
+        return Task.FromResult(new HttpResponseMessage(response.Status)
+        {
+            Content = new StringContent(response.Body)
+        });
+    }
+}
+
 internal sealed class ThrowingHandler : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(

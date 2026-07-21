@@ -114,6 +114,10 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         {
             batch = await _store.LoadAsync(cancellationToken).ConfigureAwait(true);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not load pending post-restart verification");

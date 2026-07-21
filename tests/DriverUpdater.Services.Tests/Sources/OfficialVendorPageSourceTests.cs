@@ -47,7 +47,7 @@ public class OfficialVendorPageSourceTests
             new FakeTimeProvider(new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero)),
             httpClient: new HttpClient(new StaticHtmlHandler("""
                 <html><body>
-                  <a href="https://downloads.example.com/realtek-driver-1.2.3.msi">Download driver</a>
+                  <a href="https://downloads.realtek.com/realtek-driver-1.2.3.msi">Download driver</a>
                 </body></html>
                 """)));
 
@@ -60,7 +60,19 @@ public class OfficialVendorPageSourceTests
         results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
         results[0].Confidence.Should().Be(UpdateConfidence.Confirmed);
         results[0].SourceUpdateId.Should().StartWith("vendor-installer:msi-wrapper:Realtek:");
-        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://downloads.example.com/realtek-driver-1.2.3.msi");
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://downloads.realtek.com/realtek-driver-1.2.3.msi");
+    }
+
+    [Fact]
+    public void TryFindAppInstallablePackage_rejects_cross_site_downloads()
+    {
+        var ok = OfficialVendorPageSource.TryFindAppInstallablePackage(
+            new Uri("https://vendor.example.com/support/device"),
+            """<a href="https://unrelated.example.net/driver-pack.zip">Driver package</a>""",
+            out _,
+            out _);
+
+        ok.Should().BeFalse();
     }
 
     [Fact]

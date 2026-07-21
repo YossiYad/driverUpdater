@@ -11,6 +11,7 @@ public sealed class JsonSettingsStore : ISettingsStore
     public const string SettingsFileName = "settings.json";
 
     private readonly ILogger<JsonSettingsStore> _logger;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
         WriteIndented = true,
@@ -31,47 +32,62 @@ public sealed class JsonSettingsStore : ISettingsStore
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(SettingsPath))
-        {
-            _logger.LogInformation("No settings file at {Path}; using defaults", SettingsPath);
-            return new AppSettings();
-        }
-
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var stream = File.OpenRead(SettingsPath);
-            var settings = await JsonSerializer.DeserializeAsync<AppSettings>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Loaded settings from {Path}", SettingsPath);
-            return settings ?? new AppSettings();
+            if (!File.Exists(SettingsPath))
+            {
+                _logger.LogInformation("No settings file at {Path}; using defaults", SettingsPath);
+                return new AppSettings();
+            }
+
+            try
+            {
+                await using var stream = File.OpenRead(SettingsPath);
+                var settings = await JsonSerializer.DeserializeAsync<AppSettings>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Loaded settings from {Path}", SettingsPath);
+                return settings ?? new AppSettings();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not parse settings.json, using defaults");
+                return new AppSettings();
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not parse settings.json, using defaults");
-            return new AppSettings();
+            _gate.Release();
         }
     }
 
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-
-        var directory = Path.GetDirectoryName(SettingsPath);
-        if (!string.IsNullOrEmpty(directory))
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            Directory.CreateDirectory(directory);
-        }
+            var directory = Path.GetDirectoryName(SettingsPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
 
-        var tempPath = SettingsPath + ".tmp";
-        await using (var stream = File.Create(tempPath))
+            var tempPath = SettingsPath + ".tmp";
+            await using (var stream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, settings, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            }
+            File.Move(tempPath, SettingsPath, overwrite: true);
+
+            _logger.LogInformation("Saved settings to {Path}", SettingsPath);
+        }
+        finally
         {
-            await JsonSerializer.SerializeAsync(stream, settings, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            _gate.Release();
         }
-        File.Move(tempPath, SettingsPath, overwrite: true);
-
-        _logger.LogInformation("Saved settings to {Path}", SettingsPath);
     }
 }

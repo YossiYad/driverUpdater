@@ -73,15 +73,18 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
 
     private async Task QueryUpdateSourcesAsync(List<DriverState> states, CancellationToken cancellationToken)
     {
-        // First state per hardware ID is the match target, mirroring the interactive grid
-        // which binds a candidate to the first row in its hardware-ID bucket.
+        // First state per hardware ID is the match target, mirroring the interactive grid.
+        // Include compatible and secondary IDs because update sources do not always return
+        // the same ID that WMI selected as the row's primary identifier.
         var index = new Dictionary<string, DriverState>(StringComparer.OrdinalIgnoreCase);
         foreach (var state in states)
         {
-            var key = state.Driver.HardwareId;
-            if (!string.IsNullOrWhiteSpace(key) && !index.ContainsKey(key))
+            foreach (var key in state.Driver.HardwareIds.Prepend(state.Driver.HardwareId))
             {
-                index[key] = state;
+                if (!string.IsNullOrWhiteSpace(key) && !index.ContainsKey(key))
+                {
+                    index[key] = state;
+                }
             }
         }
 
@@ -188,7 +191,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                 case UpdateStatus.Failed:
                     state.Status = DriverStatus.Error;
                     break;
-                // Skipped / Cancelled: leave the candidate in place so the next run retries it.
+                    // Skipped / Cancelled: leave the candidate in place so the next run retries it.
             }
         }
     }
@@ -202,6 +205,10 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                 .ToArray();
             var snapshot = new DriverCacheSnapshot(DateTimeOffset.UtcNow, entries);
             await _driverCacheStore.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

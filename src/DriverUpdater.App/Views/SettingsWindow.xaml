@@ -10,8 +10,8 @@
         d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
         Title="DriverUpdater - Settings"
         Icon="pack://application:,,,/Assets/app.ico"
-        Width="720" Height="640"
-        MinWidth="640" MinHeight="500"
+        Width="760" Height="700"
+        MinWidth="680" MinHeight="560"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
         Loaded="OnLoaded">
@@ -286,14 +286,37 @@
                                    Margin="0,0,0,12"
                                    Text="{DynamicResource Settings.Ai.Intro}" />
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <TextBlock Width="120"
                                        VerticalAlignment="Center"
                                        Text="{DynamicResource Settings.Ai.Provider}" />
-                            <ComboBox Width="220"
+                            <ComboBox Width="240"
                                       ItemsSource="{Binding AvailableAiProviders}"
                                       SelectedItem="{Binding SelectedAiProvider}" />
                         </StackPanel>
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="240" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       VerticalAlignment="Center"
+                                       Text="{DynamicResource Settings.Ai.ResponseLanguage}" />
+                            <ComboBox Grid.Column="1"
+                                      SelectedValuePath="Tag"
+                                      SelectedValue="{Binding SelectedAiResponseLanguage}">
+                                <ComboBoxItem Content="{DynamicResource Settings.Ai.ResponseLanguage.English}"
+                                              Tag="{x:Static models:AppLanguage.English}" />
+                                <ComboBoxItem Content="{DynamicResource Settings.Ai.ResponseLanguage.Hebrew}"
+                                              Tag="{x:Static models:AppLanguage.Hebrew}" />
+                            </ComboBox>
+                        </Grid>
+                        <TextBlock Margin="120,0,0,12"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="{DynamicResource Settings.Ai.ResponseLanguageHint}" />
 
                         <Border Padding="14,12"
                                 CornerRadius="6"
@@ -301,18 +324,85 @@
                                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                                 Visibility="{Binding IsGeminiSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="Google Gemini" />
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.ApiKey}" />
-                                    <PasswordBox x:Name="GeminiKeyBox"
-                                                 Width="320"
-                                                 PasswordChanged="OnGeminiKeyChanged" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                    <TextBlock Width="120" VerticalAlignment="Center" Text="{DynamicResource Settings.Ai.Model}" />
-                                    <TextBox Width="320" Text="{Binding GeminiModel}" />
-                                </StackPanel>
-                                <CheckBox Margin="0,10,0,0"
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Google Gemini" />
+                                        <TextBlock Margin="0,3,0,0"
+                                                   Opacity="0.7"
+                                                   FontSize="12"
+                                                   Text="Use Gemini to verify driver updates after each scan." />
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Margin="16,0,0,0"
+                                            Padding="12,6"
+                                            VerticalAlignment="Top"
+                                            Style="{DynamicResource AccentButtonStyle}"
+                                            Content="{DynamicResource Settings.Ai.OpenApiKeys}"
+                                            Click="OnOpenGeminiApiKeys" />
+                                </Grid>
+
+                                <Separator Margin="0,14,0,12" />
+                                <TextBlock Text="{DynamicResource Settings.Ai.ApiKeys}"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Margin="0,3,0,8"
+                                           Opacity="0.7"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Text="Add one or more keys. DriverUpdater moves to the next key when a quota is reached." />
+                                <ItemsControl ItemsSource="{Binding GeminiApiKeys}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <PasswordBox Grid.Column="0"
+                                                             MinWidth="260"
+                                                             Loaded="OnGeminiKeyBoxLoaded"
+                                                             PasswordChanged="OnGeminiKeyChanged" />
+                                                <Button Grid.Column="1"
+                                                        Margin="8,0,0,0"
+                                                        Padding="12,6"
+                                                        Content="{DynamicResource Settings.Ai.RemoveKey}"
+                                                        Command="{Binding DataContext.RemoveGeminiApiKeyCommand, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}"
+                                                        CommandParameter="{Binding}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Margin="0,2,0,0"
+                                        Padding="12,6"
+                                        HorizontalAlignment="Left"
+                                        Content="{DynamicResource Settings.Ai.AddKey}"
+                                        Command="{Binding AddGeminiApiKeyCommand}" />
+                                <Border Margin="0,10,0,0"
+                                        Padding="12,10"
+                                        CornerRadius="6"
+                                        Background="#FFFFF4E5">
+                                    <TextBlock TextWrapping="Wrap"
+                                               Foreground="#FF8B5A00"
+                                               FontSize="12"
+                                               Text="{DynamicResource Settings.Ai.FallbackExplanation}" />
+                                </Border>
+                                <Separator Margin="0,14,0,12" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               VerticalAlignment="Center"
+                                               Text="{DynamicResource Settings.Ai.Model}" />
+                                    <TextBox Grid.Column="1"
+                                             MinWidth="220"
+                                             Text="{Binding GeminiModel}" />
+                                </Grid>
+                                <CheckBox Margin="0,12,0,0"
                                           IsChecked="{Binding EnableAiWebSearch}"
                                           Content="{DynamicResource Settings.Ai.WebSearch}" />
 
@@ -324,9 +414,9 @@
                                                    Opacity="0.9"
                                                    Text="{DynamicResource Settings.Ai.GeminiGuideBody}" />
                                         <TextBlock Margin="0,8,0,0" FontSize="12">
-                                            <Hyperlink NavigateUri="https://aistudio.google.com/apikey"
+                                            <Hyperlink NavigateUri="https://aistudio.google.com/api-keys"
                                                        RequestNavigate="OnHyperlinkRequestNavigate">
-                                                <Run Text="https://aistudio.google.com/apikey" />
+                                                <Run Text="https://aistudio.google.com/api-keys" />
                                             </Hyperlink>
                                         </TextBlock>
                                     </StackPanel>

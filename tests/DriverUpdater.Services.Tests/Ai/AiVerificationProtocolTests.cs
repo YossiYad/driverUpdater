@@ -25,6 +25,17 @@ public class AiVerificationProtocolTests
     }
 
     [Fact]
+    public void BuildPrompt_instructs_the_ai_to_write_user_facing_fields_in_the_selected_language()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "AMD Radeon", "1.0.0.0", "2.0.0.0") },
+            AppLanguage.Hebrew);
+
+        prompt.Should().Contain("clear, natural Hebrew");
+        prompt.Should().Contain("JSON property names and enum values in English");
+    }
+
+    [Fact]
     public void ParseVerdicts_reads_clean_json_object()
     {
         const string raw = """

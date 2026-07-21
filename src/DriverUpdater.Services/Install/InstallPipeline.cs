@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Services.Scanning;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Install;
@@ -75,7 +76,7 @@ public sealed class InstallPipeline : IInstallPipeline
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(options);
 
-        var recordingProgress = WrapWithRecorder(progress, cancellationToken);
+        var recordingProgress = new RecordingProgress(progress, _historyRepository, _logger);
 
         try
         {
@@ -154,25 +155,26 @@ public sealed class InstallPipeline : IInstallPipeline
             recordingProgress.Report(operation);
             return operation;
         }
+        finally
+        {
+            await recordingProgress.FlushAsync().ConfigureAwait(false);
+        }
     }
-
-    private IProgress<UpdateOperation> WrapWithRecorder(IProgress<UpdateOperation>? outer, CancellationToken cancellationToken) =>
-        new RecordingProgress(outer, _historyRepository, _logger, cancellationToken);
 
     private sealed class RecordingProgress : IProgress<UpdateOperation>
     {
         private readonly IProgress<UpdateOperation>? _outer;
         private readonly IHistoryRepository? _repository;
         private readonly ILogger _logger;
-        private readonly CancellationToken _cancellationToken;
+        private readonly object _gate = new();
         private UpdateStatus? _lastRecordedStatus;
+        private Task _pendingWrite = Task.CompletedTask;
 
-        public RecordingProgress(IProgress<UpdateOperation>? outer, IHistoryRepository? repository, ILogger logger, CancellationToken cancellationToken)
+        public RecordingProgress(IProgress<UpdateOperation>? outer, IHistoryRepository? repository, ILogger logger)
         {
             _outer = outer;
             _repository = repository;
             _logger = logger;
-            _cancellationToken = cancellationToken;
         }
 
         public void Report(UpdateOperation value)
@@ -185,22 +187,36 @@ public sealed class InstallPipeline : IInstallPipeline
             // Skip per-byte download progress reports - the row's status hasn't moved, only
             // DownloadedBytes is ticking. Persisting every 256KB chunk to SQLite would be
             // ~300 writes for a 76MB download, all of which the UI does not care about.
-            if (_lastRecordedStatus == value.Status && !value.IsTerminal)
+            lock (_gate)
             {
-                return;
+                if (_lastRecordedStatus == value.Status && !value.IsTerminal)
+                {
+                    return;
+                }
+                _lastRecordedStatus = value.Status;
+                _pendingWrite = RecordAfterAsync(_pendingWrite, value);
             }
-            _lastRecordedStatus = value.Status;
-            _ = Task.Run(async () =>
+        }
+
+        public Task FlushAsync()
+        {
+            lock (_gate)
             {
-                try
-                {
-                    await _repository.UpsertOperationAsync(value, _cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to record operation {Id}", value.OperationId);
-                }
-            }, CancellationToken.None);
+                return _pendingWrite;
+            }
+        }
+
+        private async Task RecordAfterAsync(Task previous, UpdateOperation value)
+        {
+            await previous.ConfigureAwait(false);
+            try
+            {
+                await _repository!.UpsertOperationAsync(value, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to record operation {Id}", value.OperationId);
+            }
         }
     }
 
@@ -343,13 +359,33 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var versionChanged = !Equals(current.Version, before.CurrentVersion);
         var dateChanged = current.Date != before.CurrentDate;
-        if (versionChanged || dateChanged)
+        if (InstalledDriverChangeClassifier.IsUpgrade(before, current))
         {
             _logger.LogInformation(
                 "Install verified for {Device}: active driver changed from {OldVersion} ({OldDate}) to {NewVersion} ({NewDate}).",
                 deviceName,
                 before.CurrentVersion?.ToString() ?? "?", before.CurrentDate?.ToString() ?? "?",
                 current.Version?.ToString() ?? "?", current.Date?.ToString() ?? "?");
+            return operation;
+        }
+
+        if (versionChanged || dateChanged)
+        {
+            _logger.LogError(
+                "Install verification failed for {Device}: active driver changed from {OldVersion} ({OldDate}) " +
+                "to older or conflicting metadata {NewVersion} ({NewDate}).",
+                deviceName,
+                before.CurrentVersion?.ToString() ?? "?", before.CurrentDate?.ToString() ?? "?",
+                current.Version?.ToString() ?? "?", current.Date?.ToString() ?? "?");
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage =
+                    $"The active driver changed to older or conflicting metadata " +
+                    $"({current.Version?.ToString() ?? "unknown"}, {current.Date?.ToString() ?? "unknown"}).",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
             return operation;
         }
 

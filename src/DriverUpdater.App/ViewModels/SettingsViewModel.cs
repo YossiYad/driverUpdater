@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DriverUpdater.App.Services;
@@ -25,9 +26,12 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
+    public IReadOnlyList<AppLanguage> AvailableAiResponseLanguages { get; } =
+        [AppLanguage.English, AppLanguage.Hebrew];
     public IReadOnlyList<AiProvider> AvailableAiProviders { get; } = Enum.GetValues<AiProvider>().ToArray();
 
     [ObservableProperty] private AppLanguage _selectedLanguage = AppLanguage.SystemDefault;
+    [ObservableProperty] private AppLanguage _selectedAiResponseLanguage = AppLanguage.English;
 
     [ObservableProperty] private bool _enableWindowsUpdate = true;
     [ObservableProperty] private bool _enableMicrosoftCatalog = true;
@@ -62,7 +66,28 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
     private AiProvider _selectedAiProvider = AiProvider.Off;
-    [ObservableProperty] private string _geminiApiKey = string.Empty;
+    public ObservableCollection<GeminiApiKeyEntryViewModel> GeminiApiKeys { get; } =
+        new() { new GeminiApiKeyEntryViewModel() };
+
+    public string GeminiApiKey
+    {
+        get => GeminiApiKeys.FirstOrDefault()?.Value ?? string.Empty;
+        set
+        {
+            if (GeminiApiKeys.Count == 0)
+            {
+                GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel());
+            }
+
+            if (GeminiApiKeys[0].Value == value)
+            {
+                return;
+            }
+
+            GeminiApiKeys[0].Value = value;
+            OnPropertyChanged();
+        }
+    }
     [ObservableProperty] private string _geminiModel = "gemini-3.5-flash";
     [ObservableProperty] private bool _enableAiWebSearch = true;
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
@@ -297,6 +322,34 @@ public partial class SettingsViewModel : ObservableObject
 
     private bool CanClearDriverCache() => _driverCacheStore is not null && !IsBusy;
 
+    [RelayCommand]
+    private void AddGeminiApiKey()
+    {
+        GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel());
+        _logger.LogInformation(
+            "Added Gemini API key field in Settings: configuredFields={FieldCount}",
+            GeminiApiKeys.Count);
+    }
+
+    [RelayCommand]
+    private void RemoveGeminiApiKey(GeminiApiKeyEntryViewModel? entry)
+    {
+        if (entry is null || !GeminiApiKeys.Remove(entry))
+        {
+            return;
+        }
+
+        if (GeminiApiKeys.Count == 0)
+        {
+            GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel());
+        }
+
+        OnPropertyChanged(nameof(GeminiApiKey));
+        _logger.LogInformation(
+            "Removed Gemini API key field in Settings: remainingFields={FieldCount}",
+            GeminiApiKeys.Count);
+    }
+
     [RelayCommand(CanExecute = nameof(CanClearDriverCache))]
     private async Task ClearDriverCacheAsync(CancellationToken cancellationToken)
     {
@@ -406,15 +459,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             EnablePlaywrightFallback = EnablePlaywrightFallback
         },
-        Ai = new AiSettings
-        {
-            Provider = SelectedAiProvider,
-            GeminiApiKey = GeminiApiKey,
-            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.5-flash" : GeminiModel.Trim(),
-            EnableWebSearch = EnableAiWebSearch,
-            OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
-            OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
-        },
+        Ai = BuildAiSettings(),
         LogCleanup = new LogCleanupSettings
         {
             Enabled = EnableAutomaticLogCleanup,
@@ -448,10 +493,13 @@ public partial class SettingsViewModel : ObservableObject
         ScheduleTimeOfDay = settings.Schedule.TimeOfDay;
         ScheduleDayOfWeek = settings.Schedule.DayOfWeek;
         SelectedLanguage = settings.Language.Language;
+        SelectedAiResponseLanguage = settings.Ai.ResponseLanguage is AppLanguage.Hebrew
+            ? AppLanguage.Hebrew
+            : AppLanguage.English;
         AcceptedAutoUpdateRisk = settings.Schedule.Mode == ScheduleMode.ScanAndUpdate;
         EnablePlaywrightFallback = settings.Scraper.EnablePlaywrightFallback;
         SelectedAiProvider = settings.Ai.Provider;
-        GeminiApiKey = settings.Ai.GeminiApiKey;
+        SetGeminiApiKeys(settings.Ai.GetGeminiApiKeys());
         GeminiModel = settings.Ai.GeminiModel;
         EnableAiWebSearch = settings.Ai.EnableWebSearch;
         OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
@@ -462,4 +510,54 @@ public partial class SettingsViewModel : ObservableObject
             LogCleanupSettings.MinimumRetentionDays,
             LogCleanupSettings.MaximumRetentionDays);
     }
+
+    private AiSettings BuildAiSettings()
+    {
+        var keys = GeminiApiKeys
+            .Select(entry => entry.Value.Trim())
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        _logger.LogInformation(
+            "Saving Gemini configuration with {KeyCount} unique API key(s); key values are not logged",
+            keys.Count);
+
+        return new AiSettings
+        {
+            Provider = SelectedAiProvider,
+            ResponseLanguage = SelectedAiResponseLanguage,
+            GeminiApiKey = keys.FirstOrDefault() ?? string.Empty,
+            GeminiApiKeys = keys,
+            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.5-flash" : GeminiModel.Trim(),
+            EnableWebSearch = EnableAiWebSearch,
+            OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
+            OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
+        };
+    }
+
+    private void SetGeminiApiKeys(IReadOnlyList<string> keys)
+    {
+        GeminiApiKeys.Clear();
+        foreach (var key in keys)
+        {
+            GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel { Value = key });
+        }
+
+        if (GeminiApiKeys.Count == 0)
+        {
+            GeminiApiKeys.Add(new GeminiApiKeyEntryViewModel());
+        }
+
+        OnPropertyChanged(nameof(GeminiApiKey));
+        _logger.LogInformation(
+            "Loaded Gemini configuration with {KeyCount} API key(s); key values are not logged",
+            keys.Count);
+    }
+}
+
+public partial class GeminiApiKeyEntryViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private string _value = string.Empty;
 }

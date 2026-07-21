@@ -38,9 +38,16 @@ public sealed class GeminiAiVerifier : IAiVerifier
 
     public bool IsConfigured =>
         _settings.CurrentValue.Provider == AiProvider.Gemini
-        && !string.IsNullOrWhiteSpace(_settings.CurrentValue.GeminiApiKey);
+        && _settings.CurrentValue.GetGeminiApiKeys().Count > 0;
 
-    public bool IsTemporarilyUnavailable => _quotaGate.IsBlocked;
+    public bool IsTemporarilyUnavailable
+    {
+        get
+        {
+            var keys = _settings.CurrentValue.GetGeminiApiKeys();
+            return _quotaGate.AreAllBlocked(keys);
+        }
+    }
 
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
@@ -52,75 +59,122 @@ public sealed class GeminiAiVerifier : IAiVerifier
         {
             return empty;
         }
-        if (_quotaGate.TryGetBlockedMessage(out var quotaMessage))
+        var settings = _settings.CurrentValue;
+        var apiKeys = settings.GetGeminiApiKeys();
+        if (_quotaGate.AreAllBlocked(apiKeys))
         {
-            _logger.LogWarning("Gemini verification skipped: {Reason}", quotaMessage);
+            _quotaGate.TryGetBlockedMessage(apiKeys[0], out var quotaMessage);
+            _logger.LogWarning(
+                "Gemini verification skipped because all {KeyCount} configured API keys are unavailable: {Reason}",
+                apiKeys.Count,
+                quotaMessage);
             return empty;
         }
 
-        var settings = _settings.CurrentValue;
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{settings.GeminiModel}:generateContent";
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var prompt = AiVerificationProtocol.BuildPrompt(requests);
+            var prompt = AiVerificationProtocol.BuildPrompt(requests, settings.ResponseLanguage);
             var payload = BuildPayload(prompt, settings.EnableWebSearch);
 
             _logger.LogInformation(
-                "Gemini verification starting: model={Model}, webSearch={WebSearch}, candidates={Count}, endpoint={Url}",
-                settings.GeminiModel, settings.EnableWebSearch, requests.Count, url);
+                "Gemini verification starting: model={Model}, webSearch={WebSearch}, candidates={Count}, apiKeys={KeyCount}, endpoint={Url}",
+                settings.GeminiModel, settings.EnableWebSearch, requests.Count, apiKeys.Count, url);
             _logger.LogDebug("Gemini prompt ({Length} chars):{NewLine}{Prompt}", prompt.Length, Environment.NewLine, prompt);
             _logger.LogDebug("Gemini request payload (api key sent via header, not logged):{NewLine}{Payload}",
                 Environment.NewLine, SerializePayload(payload));
 
             var client = _httpClientFactory.CreateClient(HttpClientName);
-            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            for (var keyIndex = 0; keyIndex < apiKeys.Count; keyIndex++)
             {
-                Content = JsonContent.Create(payload)
-            };
-            request.Headers.Add("x-goog-api-key", settings.GeminiApiKey);
-
-            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            stopwatch.Stop();
-            _logger.LogInformation(
-                "Gemini HTTP {Status} ({StatusText}) in {ElapsedMs} ms",
-                (int)response.StatusCode, response.StatusCode, stopwatch.ElapsedMilliseconds);
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                var apiKey = apiKeys[keyIndex];
+                if (_quotaGate.TryGetBlockedMessage(apiKey, out var blockedMessage))
                 {
-                    _quotaGate.RecordTooManyRequests(response, json);
+                    _logger.LogInformation(
+                        "Gemini API key {KeyNumber} of {KeyCount} is still unavailable and was skipped: {Reason}",
+                        keyIndex + 1,
+                        apiKeys.Count,
+                        blockedMessage);
+                    continue;
                 }
-                _logger.LogWarning(
-                    "Gemini verification failed: HTTP {Status} after {ElapsedMs} ms. Body: {Body}",
-                    (int)response.StatusCode, stopwatch.ElapsedMilliseconds, Truncate(json, 2000));
-                return empty;
-            }
 
-            _logger.LogDebug("Gemini raw response ({Length} chars):{NewLine}{Body}",
-                json.Length, Environment.NewLine, Truncate(json, 8000));
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = JsonContent.Create(payload)
+                };
+                request.Headers.Add("x-goog-api-key", apiKey);
 
-            var text = ExtractText(json);
-            _logger.LogDebug("Gemini extracted model text ({Length} chars):{NewLine}{Text}",
-                text?.Length ?? 0, Environment.NewLine, text ?? "(none)");
-
-            var verdicts = AiVerificationProtocol.ParseVerdicts(text);
-            if (verdicts.Count == 0)
-            {
-                _logger.LogWarning(
-                    "Gemini returned HTTP 200 but no verdicts could be parsed from the response (model text length {Length}). " +
-                    "The model output is logged at Debug above.", text?.Length ?? 0);
-            }
-            else
-            {
                 _logger.LogInformation(
-                    "Gemini returned {Count} verdicts for {Requested} requests in {ElapsedMs} ms",
-                    verdicts.Count, requests.Count, stopwatch.ElapsedMilliseconds);
-                LogVerdicts(_logger, "Gemini", verdicts);
+                    "Trying Gemini API key {KeyNumber} of {KeyCount}",
+                    keyIndex + 1,
+                    apiKeys.Count);
+                using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Gemini HTTP {Status} ({StatusText}) using API key {KeyNumber} of {KeyCount} after {ElapsedMs} ms",
+                    (int)response.StatusCode,
+                    response.StatusCode,
+                    keyIndex + 1,
+                    apiKeys.Count,
+                    stopwatch.ElapsedMilliseconds);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    {
+                        _quotaGate.RecordTooManyRequests(apiKey, response, json);
+                        _logger.LogWarning(
+                            "Gemini API key {KeyNumber} of {KeyCount} reached its quota. Falling back to the next configured key.",
+                            keyIndex + 1,
+                            apiKeys.Count);
+                        continue;
+                    }
+
+                    _logger.LogWarning(
+                        "Gemini verification failed: HTTP {Status} using API key {KeyNumber} of {KeyCount} after {ElapsedMs} ms. Body: {Body}",
+                        (int)response.StatusCode,
+                        keyIndex + 1,
+                        apiKeys.Count,
+                        stopwatch.ElapsedMilliseconds,
+                        Truncate(json, 2000));
+                    return empty;
+                }
+
+                stopwatch.Stop();
+                _logger.LogDebug("Gemini raw response ({Length} chars):{NewLine}{Body}",
+                    json.Length, Environment.NewLine, Truncate(json, 8000));
+
+                var text = ExtractText(json);
+                _logger.LogDebug("Gemini extracted model text ({Length} chars):{NewLine}{Text}",
+                    text?.Length ?? 0, Environment.NewLine, text ?? "(none)");
+
+                var verdicts = AiVerificationProtocol.ParseVerdicts(text);
+                if (verdicts.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "Gemini returned HTTP 200 but no verdicts could be parsed from the response (model text length {Length}). " +
+                        "The model output is logged at Debug above.", text?.Length ?? 0);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Gemini returned {Count} verdicts for {Requested} requests using API key {KeyNumber} of {KeyCount} in {ElapsedMs} ms",
+                        verdicts.Count,
+                        requests.Count,
+                        keyIndex + 1,
+                        apiKeys.Count,
+                        stopwatch.ElapsedMilliseconds);
+                    LogVerdicts(_logger, "Gemini", verdicts);
+                }
+                return verdicts;
             }
-            return verdicts;
+
+            stopwatch.Stop();
+            _logger.LogWarning(
+                "Gemini verification could not run because all {KeyCount} configured API keys reached their quota",
+                apiKeys.Count);
+            return empty;
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {

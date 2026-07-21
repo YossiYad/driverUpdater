@@ -42,6 +42,21 @@ public class GeminiQuotaGateTests
         notice.RetryAtUtc.Should().Be(now.AddSeconds(50));
     }
 
+    [Fact]
+    public void Quota_is_tracked_separately_for_each_api_key()
+    {
+        var gate = new GeminiQuotaGate(
+            new FixedTimeProvider(new DateTimeOffset(2026, 7, 15, 12, 0, 0, TimeSpan.Zero)));
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+
+        gate.RecordTooManyRequests("first-key", response, "Quota exceeded: GenerateRequestsPerDay");
+
+        gate.IsKeyBlocked("first-key").Should().BeTrue();
+        gate.IsKeyBlocked("second-key").Should().BeFalse();
+        gate.AreAllBlocked(new[] { "first-key", "second-key" }).Should().BeFalse();
+        gate.AreAllBlocked(new[] { "first-key" }).Should().BeTrue();
+    }
+
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;

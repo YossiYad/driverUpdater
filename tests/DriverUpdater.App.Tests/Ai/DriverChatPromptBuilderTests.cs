@@ -1,5 +1,6 @@
 using DriverUpdater.App.Ai;
 using DriverUpdater.App.Logging;
+using DriverUpdater.Core.Models;
 using FluentAssertions;
 
 namespace DriverUpdater.App.Tests.Ai;
@@ -38,6 +39,34 @@ public class DriverChatPromptBuilderTests
             Array.Empty<DriverChatContextItem>(), Array.Empty<LogChatMessage>(), "What should I update?");
 
         prompt.Should().Contain("RECOMMEND_UPDATE: <hardwareId>; <hardwareId>");
+    }
+
+    [Fact]
+    public void Build_instructs_the_ai_to_answer_in_the_selected_language()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "מה כדאי לעדכן?",
+            AppLanguage.Hebrew);
+
+        prompt.Should().Contain("clear, natural Hebrew");
+    }
+
+    [Fact]
+    public void Build_explanation_turn_requests_reasoning_without_a_new_install_action()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "Why this driver?",
+            AppLanguage.English,
+            allowInstallActions: false);
+
+        prompt.Should().Contain("source reliability");
+        prompt.Should().Contain("meaningful risk");
+        prompt.Should().Contain("do not output a RECOMMEND_UPDATE line");
+        prompt.Should().NotContain("RECOMMEND_UPDATE: <hardwareId>");
     }
 
     [Fact]

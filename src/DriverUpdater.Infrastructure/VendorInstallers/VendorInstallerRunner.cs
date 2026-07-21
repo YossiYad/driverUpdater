@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Infrastructure.VendorInstallers;
@@ -52,7 +53,7 @@ public sealed class VendorInstallerRunner : IVendorInstallerRunner
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        await ProcessCancellation.WaitForExitAsync(process, _logger, cancellationToken).ConfigureAwait(false);
 
         return new ProcessResult(process.ExitCode, stdOut.ToString(), stdErr.ToString());
     }

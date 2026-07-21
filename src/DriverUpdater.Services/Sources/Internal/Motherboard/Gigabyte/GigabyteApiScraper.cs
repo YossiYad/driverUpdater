@@ -48,26 +48,33 @@ public sealed class GigabyteApiScraper : IMotherboardScraper
             request.Headers.Referrer = new Uri($"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support");
             response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new ScraperUnavailableException("Gigabyte API request failed", ex);
         }
 
-        if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.BadRequest)
+        using (response)
         {
-            throw new ScraperUnavailableException($"Gigabyte API returned {(int)response.StatusCode}");
+            if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.BadRequest)
+            {
+                throw new ScraperUnavailableException($"Gigabyte API returned {(int)response.StatusCode}");
+            }
+
+            response.EnsureSuccessStatusCode();
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!TryParseDriverList(body, out var entries))
+            {
+                throw new ScraperUnavailableException("Gigabyte API response could not be parsed");
+            }
+
+            _logger.LogInformation("GigabyteApi: parsed {Count} driver entries for {Model}", entries.Count, normalized);
+            return entries;
         }
-
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!TryParseDriverList(body, out var entries))
-        {
-            throw new ScraperUnavailableException("Gigabyte API response could not be parsed");
-        }
-
-        _logger.LogInformation("GigabyteApi: parsed {Count} driver entries for {Model}", entries.Count, normalized);
-        return entries;
     }
 
     internal static string NormalizeModel(string model)

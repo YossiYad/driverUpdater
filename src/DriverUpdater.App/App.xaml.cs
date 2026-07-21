@@ -169,8 +169,11 @@ public partial class App : Application
             };
             welcomeWindow.ShowDialog();
 
-            WelcomeExperience.MarkShown(settings);
-            await settingsStore.SaveAsync(settings).ConfigureAwait(true);
+            // A settings window can be opened from the guide. Reload before writing the
+            // onboarding marker so a save made in that window is not overwritten here.
+            var latestSettings = await settingsStore.LoadAsync().ConfigureAwait(true);
+            WelcomeExperience.MarkShown(latestSettings);
+            await settingsStore.SaveAsync(latestSettings).ConfigureAwait(true);
         }
         catch (Exception ex)
         {

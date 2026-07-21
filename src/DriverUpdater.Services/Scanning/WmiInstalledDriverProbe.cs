@@ -44,6 +44,10 @@ public sealed class WmiInstalledDriverProbe : IInstalledDriverProbe
                 return new InstalledDriverState(version, date);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Post-install driver probe failed for {DeviceId}", deviceId);

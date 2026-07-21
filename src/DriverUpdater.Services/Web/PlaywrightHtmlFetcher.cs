@@ -35,12 +35,14 @@ public sealed class PlaywrightHtmlFetcher : IBrowserHtmlFetcher
         try
         {
             await using var context = await _browserProvider.NewStealthContextAsync(cancellationToken).ConfigureAwait(false);
-            var page = await context.NewPageAsync().ConfigureAwait(false);
+            var page = await context.NewPageAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
             var response = await page.GotoAsync(url.AbsoluteUri, new PageGotoOptions
             {
                 Timeout = PageLoadTimeoutMs,
                 WaitUntil = WaitUntilState.DOMContentLoaded
-            }).ConfigureAwait(false);
+            })
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             if (response is not null && response.Status >= 400)
             {
@@ -51,8 +53,8 @@ public sealed class PlaywrightHtmlFetcher : IBrowserHtmlFetcher
             }
 
             // Give SPA pages a moment to render their download links after DOMContentLoaded.
-            await page.WaitForTimeoutAsync(1_500).ConfigureAwait(false);
-            var html = await page.ContentAsync().ConfigureAwait(false);
+            await Task.Delay(1_500, cancellationToken).ConfigureAwait(false);
+            var html = await page.ContentAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Browser fetch of {Url} returned {Length} chars of rendered HTML", url, html.Length);
             return html;
         }

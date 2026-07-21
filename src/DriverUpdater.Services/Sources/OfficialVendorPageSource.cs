@@ -163,7 +163,8 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
         {
             var raw = match.Groups["url"].Value;
             if (!Uri.TryCreate(page, raw, out var resolved)
-                || resolved.Scheme is not ("http" or "https"))
+                || resolved.Scheme is not ("http" or "https")
+                || !IsSameVendorSite(page, resolved))
             {
                 continue;
             }
@@ -187,6 +188,19 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
         packageUrl = null!;
         installerKind = string.Empty;
         return false;
+    }
+
+    private static bool IsSameVendorSite(Uri page, Uri package)
+    {
+        var pageLabels = page.Host.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (pageLabels.Length < 2)
+        {
+            return string.Equals(page.Host, package.Host, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var vendorDomain = string.Join('.', pageLabels[^2..]);
+        return string.Equals(package.Host, vendorDomain, StringComparison.OrdinalIgnoreCase)
+            || package.Host.EndsWith('.' + vendorDomain, StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool TryResolveVendorPage(DriverInfo driver, out string vendorName, out Uri page)

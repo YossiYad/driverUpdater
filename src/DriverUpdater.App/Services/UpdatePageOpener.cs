@@ -17,6 +17,12 @@ public sealed class UpdatePageOpener : IUpdatePageOpener
     public void Open(UpdateCandidate candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
+        if (!candidate.DownloadUrl.IsAbsoluteUri
+            || !string.Equals(candidate.DownloadUrl.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(candidate.DownloadUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Only HTTP and HTTPS update pages can be opened.");
+        }
 
         var psi = new ProcessStartInfo
         {

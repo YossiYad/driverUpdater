@@ -9,6 +9,7 @@ namespace DriverUpdater.App.Views;
 
 public partial class SettingsWindow : FluentWindow
 {
+    private static readonly Uri GeminiApiKeysUri = new("https://aistudio.google.com/api-keys");
     private const int AiTabIndex = 5;
     private const int AboutTabIndex = 6;
     private readonly SettingsViewModel _viewModel;
@@ -57,21 +58,31 @@ public partial class SettingsWindow : FluentWindow
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         await _viewModel.LoadAsync().ConfigureAwait(true);
+    }
 
-        // PasswordBox.Password is not bindable, so sync it after the view model has
-        // loaded its settings and again whenever the user types.
+    private void OnGeminiKeyBoxLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not PasswordBox passwordBox
+            || passwordBox.DataContext is not GeminiApiKeyEntryViewModel entry)
+        {
+            return;
+        }
+
         _syncingKey = true;
-        GeminiKeyBox.Password = _viewModel.GeminiApiKey;
+        passwordBox.Password = entry.Value;
         _syncingKey = false;
     }
 
     private void OnGeminiKeyChanged(object sender, RoutedEventArgs e)
     {
-        if (_syncingKey)
+        if (_syncingKey
+            || sender is not PasswordBox passwordBox
+            || passwordBox.DataContext is not GeminiApiKeyEntryViewModel entry)
         {
             return;
         }
-        _viewModel.GeminiApiKey = GeminiKeyBox.Password;
+
+        entry.Value = passwordBox.Password;
     }
 
     private void OnHyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
@@ -85,6 +96,18 @@ public partial class SettingsWindow : FluentWindow
             // Opening the browser is best-effort; the URL is still visible to copy.
         }
         e.Handled = true;
+    }
+
+    private void OnOpenGeminiApiKeys(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(GeminiApiKeysUri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // Opening the browser is best-effort.
+        }
     }
 
     private void OnClose(object sender, RoutedEventArgs e)

@@ -13,10 +13,15 @@ internal static class AiVerificationProtocol
         PropertyNameCaseInsensitive = true
     };
 
-    public static string BuildPrompt(IReadOnlyList<AiVerificationRequest> requests)
+    public static string BuildPrompt(
+        IReadOnlyList<AiVerificationRequest> requests,
+        AppLanguage responseLanguage = AppLanguage.English)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are a Windows driver advisor and update verification assistant.");
+        sb.AppendLine(responseLanguage == AppLanguage.Hebrew
+            ? "Write every user-facing text field in clear, natural Hebrew. Keep the JSON property names and enum values in English so the app can parse them. Keep driver names, versions, hardware IDs, and URLs unchanged."
+            : "Write every user-facing text field in clear, natural English. Keep the JSON property names and enum values in English so the app can parse them. Keep driver names, versions, hardware IDs, and URLs unchanged.");
         sb.AppendLine("For each driver below, decide TWO things:");
         sb.AppendLine("1. isGenuinelyNewer: for normal candidate checks, is the candidate truly a newer/different driver than what is already installed? For findLatestWhenNoCandidate=true, search the web for the latest official driver for this exact device/hardware and set true only when you find evidence of a newer version than installed. Set false if the candidate/latest version equals (or is older/same as) the installed version, or if it is clearly the same driver just published under a later date. A false here means the update should NOT be offered.");
         sb.AppendLine("2. risk: how likely is installing this driver to cause problems (bugs, instability, regressions, known issues)? Use the web to check for reported problems with this exact version when possible. Values: Safe, Caution, HighRisk, Unknown.");

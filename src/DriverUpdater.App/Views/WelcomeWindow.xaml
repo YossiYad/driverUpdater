@@ -180,7 +180,7 @@
                                 <Run FontWeight="SemiBold" Text="3. Update: " />
                                 <Run Text="Select one or more rows and use Update selected, or use Update all when you have reviewed the list.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="4. Ask AI: " />
-                                <Run Text="Use the purple sparkle button to ask which updates are worth installing or whether an update looks safe for your computer.&#x0a;&#x0a;" />
+                                <Run Text="Use the purple sparkle button to ask which updates are worth installing or whether an update looks safe for your computer. When the AI recommends updates, choose Ask me why beside the Install button to see the evidence, benefits, risks, and uncertainty behind its decision.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="5. Check logs: " />
                                 <Run Text="Open Logs when something fails. The AI chat there stays closed until you choose to open it.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="6. Manufacturer tools: " />
@@ -299,7 +299,7 @@
                                 <Run FontWeight="SemiBold" Text="3. עדכון: " />
                                 <Run Text="בחרו שורה אחת או יותר ולחצו על Update selected. השתמשו ב־Update all רק לאחר שבדקתם את הרשימה.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="4. שאלת ה־AI: " />
-                                <Run Text="לחצו על כפתור הניצוצות הסגול כדי לשאול אילו עדכונים כדאי להתקין והאם עדכון נראה בטוח עבור המחשב שלכם.&#x0a;&#x0a;" />
+                                <Run Text="לחצו על כפתור הניצוצות הסגול כדי לשאול אילו עדכונים כדאי להתקין והאם עדכון נראה בטוח עבור המחשב שלכם. כשה־AI ממליץ על עדכונים, לחצו על Ask me why לצד כפתור ההתקנה כדי לראות את הראיות, התועלת, הסיכונים ורמת הוודאות שמאחורי ההמלצה.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="5. בדיקת לוגים: " />
                                 <Run Text="פתחו את Logs כאשר משהו נכשל. צ׳אט ה־AI שם נשאר סגור עד שתבחרו לפתוח אותו.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="6. כלי היצרן: " />

@@ -12,9 +12,9 @@ public sealed class GeminiQuotaGate
 
     private readonly object _sync = new();
     private readonly TimeProvider _clock;
-    private DateTimeOffset _blockedUntilUtc;
-    private string? _blockedMessage;
-    private bool _isDailyQuota;
+    private readonly Dictionary<string, QuotaBlock> _blocks = new(StringComparer.Ordinal);
+
+    private const string LegacyKey = "__legacy__";
 
     public GeminiQuotaGate()
         : this(TimeProvider.System)
@@ -29,38 +29,46 @@ public sealed class GeminiQuotaGate
 
     public event EventHandler<GeminiQuotaExceededEventArgs>? QuotaExceeded;
 
-    public bool IsBlocked
-    {
-        get
-        {
-            lock (_sync)
-            {
-                return _blockedUntilUtc > _clock.GetUtcNow()
-                    && !string.IsNullOrWhiteSpace(_blockedMessage);
-            }
-        }
-    }
+    public bool IsBlocked => IsKeyBlocked(LegacyKey);
 
-    public bool TryGetBlockedMessage(out string message)
+    public bool IsKeyBlocked(string apiKey) => TryGetBlockedMessage(apiKey, out _);
+
+    public bool AreAllBlocked(IReadOnlyList<string> apiKeys) =>
+        apiKeys.Count > 0 && apiKeys.All(IsKeyBlocked);
+
+    public bool TryGetBlockedMessage(out string message) =>
+        TryGetBlockedMessage(LegacyKey, out message);
+
+    public bool TryGetBlockedMessage(string apiKey, out string message)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
+
         lock (_sync)
         {
-            if (_blockedUntilUtc <= _clock.GetUtcNow() || string.IsNullOrWhiteSpace(_blockedMessage))
+            if (!_blocks.TryGetValue(apiKey, out var block))
             {
-                _blockedUntilUtc = default;
-                _blockedMessage = null;
-                _isDailyQuota = false;
                 message = string.Empty;
                 return false;
             }
 
-            message = _blockedMessage;
+            if (block.BlockedUntilUtc <= _clock.GetUtcNow())
+            {
+                _blocks.Remove(apiKey);
+                message = string.Empty;
+                return false;
+            }
+
+            message = block.Message;
             return true;
         }
     }
 
-    public void RecordTooManyRequests(HttpResponseMessage response, string responseBody)
+    public void RecordTooManyRequests(HttpResponseMessage response, string responseBody) =>
+        RecordTooManyRequests(LegacyKey, response, responseBody);
+
+    public void RecordTooManyRequests(string apiKey, HttpResponseMessage response, string responseBody)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
         ArgumentNullException.ThrowIfNull(response);
 
         var now = _clock.GetUtcNow();
@@ -75,11 +83,10 @@ public sealed class GeminiQuotaGate
 
         lock (_sync)
         {
-            var wasBlocked = _blockedUntilUtc > now && !string.IsNullOrWhiteSpace(_blockedMessage);
-            var quotaChangedToDaily = isDailyQuota && !_isDailyQuota;
-            _blockedUntilUtc = blockedUntil;
-            _blockedMessage = message;
-            _isDailyQuota = isDailyQuota;
+            var wasBlocked = _blocks.TryGetValue(apiKey, out var previous)
+                && previous.BlockedUntilUtc > now;
+            var quotaChangedToDaily = isDailyQuota && previous is { IsDailyQuota: false };
+            _blocks[apiKey] = new QuotaBlock(blockedUntil, message, isDailyQuota);
 
             if (!wasBlocked || quotaChangedToDaily)
             {
@@ -92,6 +99,11 @@ public sealed class GeminiQuotaGate
             QuotaExceeded?.Invoke(this, eventArgs);
         }
     }
+
+    private sealed record QuotaBlock(
+        DateTimeOffset BlockedUntilUtc,
+        string Message,
+        bool IsDailyQuota);
 
     private static bool IsDailyQuota(string responseBody) =>
         responseBody.Contains("GenerateRequestsPerDay", StringComparison.OrdinalIgnoreCase)

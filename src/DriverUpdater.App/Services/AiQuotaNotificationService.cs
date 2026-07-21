@@ -1,27 +1,33 @@
 using System.Globalization;
 using System.Windows;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Ai;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.App.Services;
 
 public sealed class AiQuotaNotificationService : IDisposable
 {
     private readonly GeminiQuotaGate _quotaGate;
+    private readonly IOptionsMonitor<AiSettings> _settings;
     private readonly ILocalizationService _localization;
     private readonly ILogger<AiQuotaNotificationService> _logger;
     private bool _started;
 
     public AiQuotaNotificationService(
         GeminiQuotaGate quotaGate,
+        IOptionsMonitor<AiSettings> settings,
         ILocalizationService localization,
         ILogger<AiQuotaNotificationService> logger)
     {
         ArgumentNullException.ThrowIfNull(quotaGate);
+        ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(localization);
         ArgumentNullException.ThrowIfNull(logger);
         _quotaGate = quotaGate;
+        _settings = settings;
         _localization = localization;
         _logger = logger;
     }
@@ -39,6 +45,14 @@ public sealed class AiQuotaNotificationService : IDisposable
 
     private void OnQuotaExceeded(object? sender, GeminiQuotaExceededEventArgs e)
     {
+        var apiKeys = _settings.CurrentValue.GetGeminiApiKeys();
+        if (apiKeys.Count > 0 && !_quotaGate.AreAllBlocked(apiKeys))
+        {
+            _logger.LogInformation(
+                "A Gemini API key reached its quota, but another configured key is available for fallback");
+            return;
+        }
+
         var application = Application.Current;
         if (application is null)
         {

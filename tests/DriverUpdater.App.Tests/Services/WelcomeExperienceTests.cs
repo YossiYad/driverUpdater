@@ -7,6 +7,12 @@ namespace DriverUpdater.App.Tests.Services;
 public class WelcomeExperienceTests
 {
     [Fact]
+    public void Current_guide_is_bound_to_the_new_release()
+    {
+        WelcomeExperience.CurrentVersion.Should().Be("0.1.39");
+    }
+
+    [Fact]
     public void New_user_sees_the_welcome_guide_once()
     {
         var settings = new AppSettings();
