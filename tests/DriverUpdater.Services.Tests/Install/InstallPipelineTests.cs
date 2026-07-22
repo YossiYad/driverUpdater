@@ -319,6 +319,33 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_keeps_succeeded_when_version_increases_but_driver_date_moves_back()
+    {
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(32, 0, 16, 1074), new DateOnly(2026, 7, 2))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(), new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+        var operation = NewOperation() with
+        {
+            TargetSnapshot = NewOperation().TargetSnapshot with
+            {
+                CurrentVersion = new Version(32, 0, 16, 1047),
+                CurrentDate = new DateOnly(2026, 7, 15)
+            }
+        };
+
+        var result = await pipeline.ExecuteAsync(
+            operation,
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_reports_failure_when_readback_is_a_downgrade()
     {
         var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
@@ -522,6 +549,17 @@ public class InstallPipelineTests
     public void IsSuccessfulAmdChipsetLog_requires_explicit_success_and_zero_status(string log, bool expected)
     {
         InstallPipeline.IsSuccessfulAmdChipsetLog(log).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Reboot needed to complete driver update", true)]
+    [InlineData("Restart required for any devices using this driver", true)]
+    [InlineData("PROPERTY CHANGE: Adding MsiSystemRebootPending property. Its value is '1'.", true)]
+    [InlineData("Property(S): MsiSystemRebootPending = 1", true)]
+    [InlineData("Skipping action: ScheduleReboot (condition is false)", false)]
+    public void AmdChipsetLogRequiresReboot_recognizes_positive_reboot_evidence(string log, bool expected)
+    {
+        InstallPipeline.AmdChipsetLogRequiresReboot(log).Should().Be(expected);
     }
 
     [Fact]

@@ -64,7 +64,9 @@ public sealed class UpdateSummaryItemViewModel
             };
 
     private static string FriendlyExplanation(UpdateVerificationItem item, AppLanguage language) =>
-        language == AppLanguage.Hebrew
+        item.Status == UpdateVerificationStatus.Failed
+            ? FailedExplanation(item, language)
+            : language == AppLanguage.Hebrew
             ? item.Status switch
             {
                 UpdateVerificationStatus.VerifiedUpdated => "Windows אישר שהמכשיר משתמש כעת בדרייבר החדש.",
@@ -82,13 +84,32 @@ public sealed class UpdateSummaryItemViewModel
                 UpdateVerificationStatus.VerifiedUpdated => "Windows confirmed that the device is now using the new driver.",
                 UpdateVerificationStatus.PendingRestart => "The update is installed, but it will only become active after the computer restarts.",
                 UpdateVerificationStatus.NotUpdated => "The installer completed, but this component did not change. It may already have been current.",
-                UpdateVerificationStatus.Failed => item.CurrentVersion is not null || item.CurrentDate is not null
-                    ? "The installer reported a failure, and Windows confirmed that the previous driver is still active."
-                    : "The installer reported a failure, and the app could not verify which version is active now.",
+                UpdateVerificationStatus.Failed => FailedExplanation(item, language),
                 UpdateVerificationStatus.Skipped => "The update was not installed and the driver was not changed.",
                 UpdateVerificationStatus.ManualActionRequired => "No safe automatic installer was found. The vendor page was opened for a manual check or installation.",
                 _ => "The app could not read which driver Windows is using now. Run another scan to check again."
             };
+
+    private static string FailedExplanation(UpdateVerificationItem item, AppLanguage language)
+    {
+        if (item.CurrentVersion is null && item.CurrentDate is null)
+        {
+            return language == AppLanguage.Hebrew
+                ? "המתקין דיווח על כשל, והאפליקציה לא הצליחה לוודא איזו גרסה פעילה כעת."
+                : "The installer reported a failure, and the app could not verify which version is active now.";
+        }
+
+        if (item.CurrentVersion == item.PreviousVersion && item.CurrentDate == item.PreviousDate)
+        {
+            return language == AppLanguage.Hebrew
+                ? "המתקין דיווח על כשל, ו-Windows אישר שהדרייבר הקודם עדיין פעיל."
+                : "The installer reported a failure, and Windows confirmed that the previous driver is still active.";
+        }
+
+        return language == AppLanguage.Hebrew
+            ? "המתקין דיווח על כשל, ו-Windows מציג כעת פרטי דרייבר שונים. מומלץ לסרוק שוב לפני ניסיון עדכון נוסף."
+            : "The installer reported a failure, and Windows now reports different driver metadata. Run another scan before retrying the update.";
+    }
 
     private static string FriendlyCategory(DriverCategory category, AppLanguage language)
     {

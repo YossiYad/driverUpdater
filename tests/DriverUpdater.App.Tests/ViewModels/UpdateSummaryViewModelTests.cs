@@ -55,6 +55,39 @@ public class UpdateSummaryViewModelTests
         vm.Items[0].VersionText.Should().Contain("No automatic change was made");
     }
 
+    [Fact]
+    public void Failed_update_with_changed_readback_does_not_claim_previous_driver_is_active()
+    {
+        var item = new UpdateVerificationItem(
+            Guid.NewGuid(),
+            "NVIDIA graphics",
+            DriverCategory.Display,
+            new Version(32, 0, 16, 1047),
+            new DateOnly(2026, 7, 15),
+            new Version(32, 0, 16, 1074),
+            new DateOnly(2026, 7, 2),
+            new Version(32, 0, 16, 1074),
+            new DateOnly(2026, 7, 2),
+            UpdateVerificationStatus.Failed,
+            "Conflicting metadata",
+            UpdateStatus.Failed,
+            UpdateInstallKind.VendorInstaller,
+            UpdateConfidence.Confirmed,
+            null);
+        var report = new UpdateVerificationReport(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            false,
+            new[] { item },
+            null,
+            false);
+
+        var vm = new UpdateSummaryViewModel(report, AppLanguage.English);
+
+        vm.Items[0].Explanation.Should().Contain("different driver metadata");
+        vm.Items[0].Explanation.Should().NotContain("previous driver is still active");
+    }
+
     private static UpdateVerificationReport NewReport(
         UpdateVerificationStatus status,
         string? aiSummary,
