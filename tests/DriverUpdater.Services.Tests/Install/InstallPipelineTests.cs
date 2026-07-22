@@ -449,7 +449,7 @@ public class InstallPipelineTests
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         result.Status.Should().Be(UpdateStatus.Skipped);
-        result.ErrorMessage.Should().Contain("vendor page");
+        result.ErrorMessage.Should().Contain("no external page will be opened");
         pnputil.Arguments.Should().BeEmpty();
     }
 
@@ -474,6 +474,7 @@ public class InstallPipelineTests
 
         result.Status.Should().Be(UpdateStatus.Succeeded);
         http.RequestedUris.Should().ContainSingle().Which.Should().Be(new Uri("https://download.example.com/driver.cab"));
+        http.Referrers.Should().ContainSingle().Which.Should().Be(new Uri("https://download.example.com/"));
         powerShell.Invocations.Should().ContainSingle(s => s.Contains("expand.exe", StringComparison.OrdinalIgnoreCase));
         pnputil.Arguments.Should().ContainSingle();
         pnputil.Arguments[0].Should().Contain("/add-driver");
@@ -492,7 +493,8 @@ public class InstallPipelineTests
             new FakeWuApiClient(),
             NullLogger<InstallPipeline>.Instance,
             vendorInstallerRunner: vendorInstaller,
-            httpClientFactory: http);
+            httpClientFactory: http,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
 
         var result = await pipeline.ExecuteAsync(
             NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.msi")),
@@ -503,6 +505,56 @@ public class InstallPipelineTests
         vendorInstaller.Invocations[0].FileName.Should().EndWith("msiexec.exe");
         vendorInstaller.Invocations[0].Arguments.Should().Contain("/qn");
         vendorInstaller.Invocations[0].Arguments.Should().Contain("/norestart");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_rejects_vendor_installer_with_untrusted_signature()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([1, 2, 3]),
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(false, null, null, "signature mismatch")
+            });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.msi")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("digital-signature");
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_rejects_trusted_signature_from_unexpected_publisher()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([1, 2, 3]),
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "CN=Unexpected Publisher", "BAD123", null)
+            });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.msi")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("unexpected publisher");
+        vendorInstaller.Invocations.Should().BeEmpty();
     }
 
     [Fact]
@@ -520,7 +572,8 @@ public class InstallPipelineTests
             NullLogger<InstallPipeline>.Instance,
             vendorInstallerRunner: vendorInstaller,
             httpClientFactory: new FakeHttpClientFactory([0x4D, 0x5A, 0x00, 0x00]),
-            installedDriverProbe: probe);
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
         var operation = NewOperation(
             UpdateSource.Oem,
             UpdateInstallKind.VendorInstaller,
@@ -626,7 +679,8 @@ public class InstallPipelineTests
             NullLogger<InstallPipeline>.Instance,
             vendorInstallerRunner: vendorInstaller,
             httpClientFactory: http,
-            vendorPageResolver: resolver);
+            vendorPageResolver: resolver,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
 
         var result = await pipeline.ExecuteAsync(
             NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
@@ -702,7 +756,8 @@ public class InstallPipelineTests
             NullLogger<InstallPipeline>.Instance,
             vendorInstallerRunner: new FakeVendorInstallerRunner(),
             httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
-            vendorPageResolver: resolver);
+            vendorPageResolver: resolver,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
 
         var result = await pipeline.ExecuteAsync(
             NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
@@ -952,6 +1007,14 @@ public class InstallPipelineTests
         }
     }
 
+    private sealed class FakeFileSignatureVerifier : IFileSignatureVerifier
+    {
+        public FileSignatureVerification Verification { get; init; } =
+            new(true, "CN=Test", "ABC123", null);
+
+        public FileSignatureVerification Verify(string filePath) => Verification;
+    }
+
     private sealed class FakeHttpClientFactory : IHttpClientFactory
     {
         private readonly byte[] _content;
@@ -962,23 +1025,27 @@ public class InstallPipelineTests
         }
 
         public List<Uri> RequestedUris { get; } = new();
+        public List<Uri?> Referrers { get; } = new();
 
-        public HttpClient CreateClient(string name) => new(new Handler(_content, RequestedUris));
+        public HttpClient CreateClient(string name) => new(new Handler(_content, RequestedUris, Referrers));
 
         private sealed class Handler : HttpMessageHandler
         {
             private readonly byte[] _content;
             private readonly List<Uri> _requestedUris;
+            private readonly List<Uri?> _referrers;
 
-            public Handler(byte[] content, List<Uri> requestedUris)
+            public Handler(byte[] content, List<Uri> requestedUris, List<Uri?> referrers)
             {
                 _content = content;
                 _requestedUris = requestedUris;
+                _referrers = referrers;
             }
 
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             {
                 _requestedUris.Add(request.RequestUri!);
+                _referrers.Add(request.Headers.Referrer);
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new ByteArrayContent(_content)

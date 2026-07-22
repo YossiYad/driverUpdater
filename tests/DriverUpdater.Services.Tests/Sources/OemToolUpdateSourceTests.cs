@@ -23,7 +23,9 @@ public class OemToolUpdateSourceTests
                     "Dell Command Update",
                     toolPath,
                     new Uri("https://www.dell.com/support"))),
-                NullLogger<OemToolUpdateSource>.Instance);
+                NullLogger<OemToolUpdateSource>.Instance,
+                new DellReportingRunner(updateCount: 2),
+                new TrustedSignatureVerifier("CN=Dell Inc."));
 
             var results = await CollectAsync(source.SearchAsync(new[] { NewDriver() }));
 
@@ -32,10 +34,75 @@ public class OemToolUpdateSourceTests
             results[0].Confidence.Should().Be(UpdateConfidence.Confirmed);
             results[0].DownloadUrl.IsFile.Should().BeTrue();
             results[0].SourceUpdateId.Should().StartWith("vendor-installer:oem-tool:dell-command-update:");
+            results[0].SourceUpdateId.Should().EndWith(":2");
         }
         finally
         {
             File.Delete(toolPath);
+        }
+    }
+
+    [Fact]
+    public async Task SearchAsync_returns_nothing_when_verified_oem_scan_has_no_updates()
+    {
+        var toolDirectory = Path.Combine(Path.GetTempPath(), "DriverUpdaterTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(toolDirectory);
+        var toolPath = Path.Combine(toolDirectory, "dcu-cli.exe");
+        await File.WriteAllTextAsync(toolPath, string.Empty);
+        try
+        {
+            var source = new OemToolUpdateSource(
+                new FakeOemDetectionService(new OemInfo(
+                    OemVendor.Dell,
+                    "Dell",
+                    "Latitude",
+                    "Dell Command Update",
+                    toolPath,
+                    new Uri("https://www.dell.com/support"))),
+                NullLogger<OemToolUpdateSource>.Instance,
+                new DellReportingRunner(updateCount: 0),
+                new TrustedSignatureVerifier("CN=Dell Inc."));
+
+            var results = await CollectAsync(source.SearchAsync(new[] { NewDriver() }));
+
+            results.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(toolDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SearchAsync_rejects_oem_tool_signed_by_wrong_publisher()
+    {
+        var toolDirectory = Path.Combine(Path.GetTempPath(), "DriverUpdaterTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(toolDirectory);
+        var toolPath = Path.Combine(toolDirectory, "dcu-cli.exe");
+        await File.WriteAllTextAsync(toolPath, string.Empty);
+        try
+        {
+            var runner = new DellReportingRunner(updateCount: 1);
+            var source = new OemToolUpdateSource(
+                new FakeOemDetectionService(new OemInfo(
+                    OemVendor.Dell,
+                    "Dell",
+                    "Latitude",
+                    "Dell Command Update",
+                    toolPath,
+                    new Uri("https://www.dell.com/support"))),
+                NullLogger<OemToolUpdateSource>.Instance,
+                runner,
+                new TrustedSignatureVerifier("CN=Unknown Publisher"));
+
+            var results = await CollectAsync(source.SearchAsync(new[] { NewDriver() }));
+
+            results.Should().BeEmpty();
+            runner.Invocations.Should().Be(0);
+        }
+        finally
+        {
+            Directory.Delete(toolDirectory, recursive: true);
         }
     }
 
@@ -100,5 +167,33 @@ public class OemToolUpdateSourceTests
         }
 
         public Task<OemInfo?> DetectAsync(CancellationToken cancellationToken = default) => Task.FromResult(_oem);
+    }
+
+    private sealed class DellReportingRunner(int updateCount) : IVendorInstallerRunner
+    {
+        public int Invocations { get; private set; }
+
+        public Task<ProcessResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
+        {
+            Invocations++;
+            const string marker = "-report=\"";
+            var start = arguments.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (start >= 0)
+            {
+                start += marker.Length;
+                var end = arguments.IndexOf('"', start);
+                var reportPath = arguments[start..end];
+                Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
+                var updates = string.Concat(Enumerable.Range(0, updateCount).Select(index => $"<update id=\"{index}\" />"));
+                File.WriteAllText(reportPath, $"<updates>{updates}</updates>");
+            }
+            return Task.FromResult(new ProcessResult(0, "scan complete", string.Empty));
+        }
+    }
+
+    private sealed class TrustedSignatureVerifier(string publisher) : IFileSignatureVerifier
+    {
+        public FileSignatureVerification Verify(string filePath) =>
+            new(true, publisher, "ABC123", null);
     }
 }

@@ -40,8 +40,8 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
 
         string? aiSummary = null;
         var aiWasUsed = false;
-        // When every row ended as "open the vendor page yourself" or was skipped outright,
-        // there is no installation outcome to explain - the static summary already covers it.
+        // When every row ended without a safe in-app installer or was skipped outright,
+        // there is no installation outcome to explain. The static summary already covers it.
         // Spending an AI request (Gemini quota is a hard daily limit) on that adds nothing.
         var hasInstallOutcome = items.Any(static item =>
             item.Status is not (UpdateVerificationStatus.ManualActionRequired or UpdateVerificationStatus.Skipped));
@@ -139,7 +139,7 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             UpdateStatus.Cancelled => UpdateVerificationStatus.Skipped,
             UpdateStatus.RolledBack => UpdateVerificationStatus.NotUpdated,
             UpdateStatus.Skipped when operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
-                || operation.ErrorMessage?.Contains("Open the official vendor page", StringComparison.OrdinalIgnoreCase) == true
+                || operation.ErrorMessage?.Contains("No safe in-app installer", StringComparison.OrdinalIgnoreCase) == true
                 => UpdateVerificationStatus.ManualActionRequired,
             UpdateStatus.Skipped when operation.ErrorMessage?.Contains("kept the existing", StringComparison.OrdinalIgnoreCase) == true
                 || operation.ErrorMessage?.Contains("version unchanged", StringComparison.OrdinalIgnoreCase) == true
@@ -174,7 +174,5 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             InstallerStatus: operation.Status,
             InstallKind: operation.Candidate.InstallKind,
             Confidence: operation.Candidate.Confidence,
-            ActionUrl: operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
-                ? operation.Candidate.DownloadUrl
-                : null);
+            ActionUrl: null);
 }

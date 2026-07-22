@@ -29,8 +29,8 @@ public sealed class UpdateSummaryViewModel
             ? $"{report.PendingRestartCount} ממתינים להפעלה מחדש"
             : $"{report.PendingRestartCount} waiting for restart";
         ManualActionCountText = hebrew
-            ? $"{report.ManualActionCount} להמשך באתר היצרן"
-            : $"{report.ManualActionCount} continue on vendor website";
+            ? $"{report.ManualActionCount} ללא מתקין פנימי בטוח"
+            : $"{report.ManualActionCount} without a safe in-app installer";
         AttentionCountText = hebrew
             ? $"{report.AttentionCount} דורשים תשומת לב"
             : $"{report.AttentionCount} need attention";
@@ -79,8 +79,8 @@ public sealed class UpdateSummaryViewModel
         if (report.ManualActionCount > 0)
         {
             parts.Add(hebrew
-                ? $"עבור {report.ManualActionCount} פריטים לא בוצעה התקנה אוטומטית, ונפתח דף היצרן להמשך ידני."
-                : $"No automatic installation was attempted for {report.ManualActionCount} items, and their vendor pages were opened for manual follow-up.");
+                ? $"עבור {report.ManualActionCount} פריטים לא נמצא מתקין פנימי בטוח. לא נפתחו דפים חיצוניים."
+                : $"No safe in-app installer was found for {report.ManualActionCount} items. No external pages were opened.");
         }
         if (parts.Count == 0)
         {

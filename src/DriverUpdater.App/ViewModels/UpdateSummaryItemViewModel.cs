@@ -49,7 +49,7 @@ public sealed class UpdateSummaryItemViewModel
                 UpdateVerificationStatus.NotUpdated => "לא עודכן",
                 UpdateVerificationStatus.Failed => "העדכון נכשל",
                 UpdateVerificationStatus.Skipped => "לא בוצע",
-                UpdateVerificationStatus.ManualActionRequired => "המשך באתר היצרן",
+                UpdateVerificationStatus.ManualActionRequired => "לא נמצא מתקין פנימי בטוח",
                 _ => "לא ניתן לוודא"
             }
             : status switch
@@ -59,7 +59,7 @@ public sealed class UpdateSummaryItemViewModel
                 UpdateVerificationStatus.NotUpdated => "Not updated",
                 UpdateVerificationStatus.Failed => "Update failed",
                 UpdateVerificationStatus.Skipped => "Not installed",
-                UpdateVerificationStatus.ManualActionRequired => "Continue on vendor website",
+                UpdateVerificationStatus.ManualActionRequired => "No safe in-app installer",
                 _ => "Could not verify"
             };
 
@@ -76,7 +76,7 @@ public sealed class UpdateSummaryItemViewModel
                     ? "המתקין דיווח על כשל, ו־Windows אישר שהדרייבר הקודם עדיין פעיל."
                     : "המתקין דיווח על כשל, והאפליקציה לא הצליחה לאמת איזו גרסה פעילה כעת.",
                 UpdateVerificationStatus.Skipped => "העדכון לא הותקן ולא נעשה שינוי בדרייבר.",
-                UpdateVerificationStatus.ManualActionRequired => "לא נמצא קובץ התקנה אוטומטי בטוח. דף היצרן נפתח לבדיקה או להתקנה ידנית.",
+                UpdateVerificationStatus.ManualActionRequired => "לא נמצא מתקין פנימי בטוח. לא נפתח דף חיצוני ולא בוצע שינוי במערכת.",
                 _ => "האפליקציה לא הצליחה לקרוא מ־Windows איזה דרייבר פעיל כעת. מומלץ לבצע סריקה נוספת."
             }
             : item.Status switch
@@ -86,7 +86,7 @@ public sealed class UpdateSummaryItemViewModel
                 UpdateVerificationStatus.NotUpdated => "The installer completed, but this component did not change. It may already have been current.",
                 UpdateVerificationStatus.Failed => FailedExplanation(item, language),
                 UpdateVerificationStatus.Skipped => "The update was not installed and the driver was not changed.",
-                UpdateVerificationStatus.ManualActionRequired => "No safe automatic installer was found. The vendor page was opened for a manual check or installation.",
+                UpdateVerificationStatus.ManualActionRequired => "No safe in-app installer was found. No external page was opened and no system change was made.",
                 _ => "The app could not read which driver Windows is using now. Run another scan to check again."
             };
 

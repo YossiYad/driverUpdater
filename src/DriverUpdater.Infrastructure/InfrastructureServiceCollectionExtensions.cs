@@ -28,6 +28,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IPnPUtilRunner, PnPUtilRunner>();
         services.AddSingleton<IPowerShellInvoker, PowerShellInvoker>();
         services.AddSingleton<IVendorInstallerRunner, VendorInstallerRunner>();
+        services.AddSingleton<IFileSignatureVerifier, AuthenticodeFileSignatureVerifier>();
         services.AddSingleton<IInstalledSoftwareVersionProvider, WindowsInstalledSoftwareVersionProvider>();
         services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();

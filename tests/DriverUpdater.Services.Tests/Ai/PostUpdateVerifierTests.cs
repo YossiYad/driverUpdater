@@ -134,7 +134,7 @@ public class PostUpdateVerifierTests
     {
         var probe = new FakeProbe(null);
         var verifier = NewVerifier(probe, new FakeCompleter(false, null));
-        var operation = NewOperation(UpdateStatus.Skipped, "Open the official vendor page to install this update") with
+        var operation = NewOperation(UpdateStatus.Skipped, "No safe in-app installer was found on the official vendor page") with
         {
             Candidate = NewOperation(UpdateStatus.Skipped).Candidate with
             {
@@ -151,7 +151,7 @@ public class PostUpdateVerifierTests
 
         report.Items.Should().ContainSingle().Which.Status.Should().Be(UpdateVerificationStatus.ManualActionRequired);
         report.Items[0].CurrentVersion.Should().Be(new Version(1, 0, 0, 0));
-        report.Items[0].ActionUrl.Should().Be(new Uri("https://vendor.example.com/support"));
+        report.Items[0].ActionUrl.Should().BeNull();
         probe.CallCount.Should().Be(0);
     }
 
@@ -161,7 +161,7 @@ public class PostUpdateVerifierTests
         var probe = new FakeProbe(null);
         var ai = new FakeCompleter(isConfigured: true, response: "should not be requested");
         var verifier = NewVerifier(probe, ai);
-        var operation = NewOperation(UpdateStatus.Skipped, "Open the official vendor page to install this update") with
+        var operation = NewOperation(UpdateStatus.Skipped, "No safe in-app installer was found on the official vendor page") with
         {
             Candidate = NewOperation(UpdateStatus.Skipped).Candidate with
             {

@@ -27,7 +27,7 @@
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
-    <sys:String x:Key="Toolbar.OpenVendorChecks">פתח בדיקות יצרן</sys:String>
+    <sys:String x:Key="Toolbar.OpenVendorChecks">פתור בדיקות יצרן באפליקציה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
     <sys:String x:Key="Toolbar.Logs">לוגים</sys:String>
     <sys:String x:Key="Toolbar.Settings">הגדרות</sys:String>

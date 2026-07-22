@@ -94,7 +94,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         {
             _logger.LogWarning(
                 "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}. " +
-                "The row will fall back to opening the page in a browser.",
+                "The row will remain unresolved in the application.",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
             return null;
         }
@@ -136,8 +136,8 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         return await _browserFetcher.Value.TryFetchHtmlAsync(candidate.DownloadUrl, cancellationToken).ConfigureAwait(false);
     }
 
-    // Explains, in the logs, why a vendor page could not be turned into a silent install so it
-    // fell back to opening a browser. Lists every downloadable link found on the page and how
+    // Explains, in the logs, why a vendor page could not be turned into a silent install. It
+    // lists every downloadable link found on the page and how
     // it was classified - most often the page only offers .exe installers whose unattended
     // flags are not yet known (TryClassifyExe rejects them), which is the signal for what to add.
     private void LogInstallerCandidateDiagnostics(UpdateCandidate candidate, string html)
@@ -168,7 +168,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
 
         _logger.LogWarning(
             "Vendor page resolve for {SourceUpdateId} ({Device}) found no installable package on {Url} " +
-            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row falls back to opening the page. " +
+            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row remains unresolved in the application. " +
             "To install this in-app, the page needs a recognised .msi/.zip, or one of its .exe links must be added " +
             "to the known unattended-installer list with the correct silent flags.",
             candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl, html.Length,

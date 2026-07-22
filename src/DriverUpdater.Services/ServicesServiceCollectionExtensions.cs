@@ -30,11 +30,11 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();
-        services.AddSingleton<IUpdateSource, OemSupportSource>();
 
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
+        ConfigureIntelDsaHttpClient(services);
         ConfigureOfficialVendorPageHttpClient(services);
         ConfigureAsusScrapingHttpClient(services);
 
@@ -50,6 +50,9 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource>(sp => new NvidiaGraphicsSource(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(NvidiaGraphicsSource.HttpClientName),
             sp.GetRequiredService<ILogger<NvidiaGraphicsSource>>()));
+        services.AddSingleton<IUpdateSource>(sp => new IntelGraphicsSource(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(IntelGraphicsSource.HttpClientName),
+            sp.GetRequiredService<ILogger<IntelGraphicsSource>>()));
 
         ConfigureVendorInstallerDownloadHttpClient(services);
         ConfigureGigabyteHttpClient(services);
@@ -150,6 +153,23 @@ public static class ServicesServiceCollectionExtensions
             sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
     }
 
+    private static void ConfigureIntelDsaHttpClient(IServiceCollection services)
+    {
+        services.AddHttpClient(IntelGraphicsSource.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://dsadata.intel.com/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            // Mozilla/5.0 is an HTTP compatibility token, not a Firefox dependency.
+            // This request is sent by HttpClient and never invokes the user's browser.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DriverUpdater/0.1");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/zip,application/octet-stream");
+        })
+        .AddTransientHttpErrorPolicy(builder => builder.WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt))));
+    }
+
     private static void ConfigureAsusScrapingHttpClient(IServiceCollection services)
     {
         // ASUS's internal helpdesk API (product.asmx/GetPDLevel) requires a browser
@@ -172,6 +192,7 @@ public static class ServicesServiceCollectionExtensions
     {
         // Intel's download center returns 403 for non-browser User-Agents. Use a full
         // browser UA so Intel, Realtek, and similar vendor pages serve the page correctly.
+        // This is only an HTTP header and does not depend on the default browser.
         services.AddHttpClient(OfficialVendorPageSource.HttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
@@ -187,10 +208,9 @@ public static class ServicesServiceCollectionExtensions
 
     private static void ConfigureVendorInstallerDownloadHttpClient(IServiceCollection services)
     {
-        // AMD's CDN 302-redirects non-browser User-Agents to an HTML "download-incomplete"
-        // page, leaving us with HTML masquerading as .exe and Process.Start failing with
-        // "file or directory is corrupted and unreadable". Mimic a Chrome request so the
-        // CDN serves the actual PE binary.
+        // AMD's CDN redirects non-browser User-Agents to an HTML "download-incomplete"
+        // page. Mimic a compatible browser request so the CDN serves the actual binary.
+        // InstallPipeline adds the matching vendor host as Referer per download request.
         services.AddHttpClient(InstallPipeline.DownloadsHttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromMinutes(15);
@@ -198,7 +218,6 @@ public static class ServicesServiceCollectionExtensions
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("*/*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-            client.DefaultRequestHeaders.Referrer = new Uri("https://www.google.com/");
         });
     }
 

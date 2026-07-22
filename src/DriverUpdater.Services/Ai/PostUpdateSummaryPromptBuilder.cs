@@ -22,7 +22,7 @@ internal static class PostUpdateSummaryPromptBuilder
         sb.AppendLine("Write 2 to 5 short sentences. Start with the overall result, then mention only items that need attention.");
         sb.AppendLine("The Windows read-back results below are authoritative. Do not invent results, causes, or actions.");
         sb.AppendLine("Do not claim that AI directly inspected hardware. Explain that the app checked Windows and you are summarizing the result.");
-        sb.AppendLine("ManualActionRequired is not a failed installation. It means the app found only an advisory vendor page and opened it so the user can check or install manually.");
+        sb.AppendLine("ManualActionRequired is not a failed installation. It means the app found only an advisory vendor page and could not resolve a safe in-app installer. No external page was opened.");
         sb.AppendLine("A successful installer process is not the same as a verified driver change.");
         sb.AppendLine("When Installer process result is Succeeded but Verified result is NotUpdated, say that the installer ran but Windows did not show a driver change. Do not say that no automatic installation was attempted.");
         sb.AppendLine("Say that no automatic installation was attempted only for ManualActionRequired items.");
@@ -50,7 +50,7 @@ internal static class PostUpdateSummaryPromptBuilder
             }
             if (item.ActionUrl is not null)
             {
-                sb.Append("Manual action page: ").AppendLine(item.ActionUrl.AbsoluteUri);
+                sb.Append("Reference URL, not opened by the app: ").AppendLine(item.ActionUrl.AbsoluteUri);
             }
             sb.AppendLine();
         }

@@ -12,7 +12,7 @@
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
-    <sys:String x:Key="Toolbar.OpenVendorChecks">Open vendor checks</sys:String>
+    <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve vendor checks in app</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>
     <sys:String x:Key="Toolbar.Logs">Logs</sys:String>
     <sys:String x:Key="Toolbar.Settings">Settings</sys:String>

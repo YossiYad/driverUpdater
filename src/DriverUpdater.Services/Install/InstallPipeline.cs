@@ -28,6 +28,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IPnPUtilRunner? _pnputil;
     private readonly IPowerShellInvoker? _powerShell;
     private readonly IVendorInstallerRunner? _vendorInstallerRunner;
+    private readonly IFileSignatureVerifier? _fileSignatureVerifier;
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
@@ -47,7 +48,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null,
         IVendorPageInstallerResolver? vendorPageResolver = null,
-        IInstalledDriverProbe? installedDriverProbe = null)
+        IInstalledDriverProbe? installedDriverProbe = null,
+        IFileSignatureVerifier? fileSignatureVerifier = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -59,6 +61,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _pnputil = pnputil;
         _powerShell = powerShell;
         _vendorInstallerRunner = vendorInstallerRunner;
+        _fileSignatureVerifier = fileSignatureVerifier;
         _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
         _vendorPageResolver = vendorPageResolver;
@@ -427,14 +430,14 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         _logger.LogInformation(
-            "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
+            "Vendor page update for {Device} cannot be installed in-app ({Reason}); no external page will be opened for {Url}",
             operation.TargetSnapshot.DeviceName,
             _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
             operation.Candidate.DownloadUrl);
         operation = operation with
         {
             Status = UpdateStatus.Skipped,
-            ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+            ErrorMessage = $"No safe in-app installer was found on the official vendor page: {operation.Candidate.DownloadUrl}",
             CompletedAt = _clock.GetUtcNow()
         };
         progress?.Report(operation);
@@ -451,7 +454,7 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with
             {
                 Status = UpdateStatus.Skipped,
-                ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+                ErrorMessage = $"No safe in-app installer was found on the official vendor page: {operation.Candidate.DownloadUrl}",
                 CompletedAt = _clock.GetUtcNow()
             };
             progress?.Report(operation);
@@ -585,6 +588,58 @@ public sealed class InstallPipeline : IInstallPipeline
                 return operation;
             }
 
+            if (_fileSignatureVerifier is null)
+            {
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = "Digital-signature verification is not configured.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            var signature = _fileSignatureVerifier.Verify(installerPath);
+            if (!signature.IsTrusted)
+            {
+                _logger.LogError(
+                    "Vendor installer {Path} failed Authenticode verification: {Reason}",
+                    installerPath,
+                    signature.ErrorMessage ?? "unknown trust failure");
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"The downloaded installer failed digital-signature verification: {signature.ErrorMessage ?? "untrusted signature"}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            if (!IsExpectedPublisher(operation.Candidate, operation.TargetSnapshot, signature.Publisher))
+            {
+                _logger.LogError(
+                    "Vendor installer {Path} has an unexpected Authenticode publisher {Publisher} for {SourceUpdateId}",
+                    installerPath,
+                    signature.Publisher ?? "<missing>",
+                    operation.Candidate.SourceUpdateId);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"The downloaded installer is signed by an unexpected publisher: {signature.Publisher ?? "unknown"}.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            _logger.LogInformation(
+                "Authenticode verification accepted {Path}, publisher {Publisher}, certificate {Thumbprint}",
+                installerPath,
+                signature.Publisher,
+                signature.CertificateThumbprint);
+
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
@@ -696,7 +751,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 operation = operation with
                 {
                     Status = UpdateStatus.Skipped,
-                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil. Open the vendor page to install manually: {operation.Candidate.DownloadUrl}",
+                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil, and no external page will be opened: {operation.Candidate.DownloadUrl}",
                     CompletedAt = _clock.GetUtcNow()
                 };
                 progress?.Report(operation);
@@ -975,6 +1030,108 @@ public sealed class InstallPipeline : IInstallPipeline
             : $"{message} {rebootMessage}";
     }
 
+    internal static bool IsExpectedPublisher(
+        UpdateCandidate candidate,
+        DriverInfo driver,
+        string? publisher)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(driver);
+
+        if (string.IsNullOrWhiteSpace(publisher))
+        {
+            return false;
+        }
+
+        var source = candidate.SourceUpdateId;
+        var host = candidate.DownloadUrl.IsFile ? string.Empty : candidate.DownloadUrl.Host;
+        var expected = new List<string>();
+
+        AddKnownPublisherTokens(source, host, expected);
+        AddDevicePublisherToken(driver.Provider, expected);
+        AddDevicePublisherToken(driver.Manufacturer, expected);
+
+        return expected.Any(token => publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AddKnownPublisherTokens(string source, string host, List<string> expected)
+    {
+        if (ContainsEither(source, host, "nvidia"))
+        {
+            expected.Add("NVIDIA Corporation");
+        }
+        if (ContainsEither(source, host, "amd") || source.Contains("Advanced Micro Devices", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("Advanced Micro Devices");
+        }
+        if (ContainsEither(source, host, "intel"))
+        {
+            expected.Add("Intel Corporation");
+        }
+        if (ContainsEither(source, host, "dell"))
+        {
+            expected.Add("Dell");
+        }
+        if (ContainsEither(source, host, "lenovo"))
+        {
+            expected.Add("Lenovo");
+        }
+        if (source.Contains("hp-image-assistant", StringComparison.OrdinalIgnoreCase)
+            || source.Contains(":hp:", StringComparison.OrdinalIgnoreCase)
+            || host.Contains("hp.com", StringComparison.OrdinalIgnoreCase)
+            || host.Contains("hpcloud", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("HP Inc");
+            expected.Add("Hewlett-Packard");
+        }
+        if (ContainsEither(source, host, "gigabyte") || source.Contains(":gigabyte:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("GIGA-BYTE");
+            expected.Add("GIGABYTE");
+        }
+        if (ContainsEither(source, host, "asus") || source.Contains(":asus:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("ASUSTeK");
+            expected.Add("ASUS");
+        }
+        if (source.Contains(":msi:", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("msi.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".msi.com", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("MICRO-STAR");
+        }
+        if (ContainsEither(source, host, "asrock") || source.Contains(":asrock:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("ASRock");
+        }
+        if (ContainsEither(source, host, "realtek"))
+        {
+            expected.Add("Realtek Semiconductor");
+        }
+        if (ContainsEither(source, host, "logitech") || ContainsEither(source, host, "logi"))
+        {
+            expected.Add("Logitech");
+        }
+    }
+
+    private static bool ContainsEither(string source, string host, string value) =>
+        source.Contains(value, StringComparison.OrdinalIgnoreCase)
+        || host.Contains(value, StringComparison.OrdinalIgnoreCase);
+
+    private static void AddDevicePublisherToken(string value, List<string> expected)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Equals("Microsoft", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Microsoft Corporation", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Standard system devices", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("(Standard system devices)", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        expected.Add(value.Trim());
+    }
+
     // A human-readable label for a device that never yields an empty string. Virtual/inbox
     // devices (e.g. Microsoft Print to PDF) can have a blank DeviceName, which otherwise leaks
     // into the restore point description ("DriverUpdater - before ") and logs.
@@ -1247,6 +1404,12 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        if (sourceUpdateId.StartsWith("vendor-installer:intel-graphics:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "--overwrite -s";
+            return true;
+        }
+
         if (sourceUpdateId.StartsWith("vendor-installer:inno:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
@@ -1261,7 +1424,7 @@ public sealed class InstallPipeline : IInstallPipeline
 
         if (sourceUpdateId.StartsWith("vendor-installer:oem-tool:dell-command-update:", StringComparison.OrdinalIgnoreCase))
         {
-            arguments = "/applyUpdates -silent -reboot=disable";
+            arguments = "/applyUpdates -silent -updateType=driver,firmware -reboot=disable";
             return true;
         }
 
@@ -1275,7 +1438,7 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             var downloadFolder = Path.Combine(Path.GetTempPath(), "DriverUpdater", "HPImageAssistant");
             Directory.CreateDirectory(downloadFolder);
-            arguments = $"/Operation:Analyze /Action:Install /Silent /Noninteractive /SoftpaqDownloadFolder:\"{downloadFolder}\"";
+            arguments = $"/Operation:Analyze /Category:Drivers,Firmware /Selection:All /Action:Install /Silent /Noninteractive /SoftpaqDownloadFolder:\"{downloadFolder}\"";
             return true;
         }
 

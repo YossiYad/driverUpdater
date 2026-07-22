@@ -27,7 +27,6 @@ public static class AppServices
         services.AddSingleton<ApplicationBehaviorState>();
         services.AddSingleton<NotificationAreaService>();
         services.AddHostedService<LogCleanupBackgroundService>();
-        services.AddSingleton<IUpdatePageOpener, UpdatePageOpener>();
         services.AddSingleton<IAiResultTranslator, AiResultTranslator>();
         services.AddSingleton<IAiResultWindowOpener, AiResultWindowOpener>();
         services.AddSingleton<AiQuotaNotificationService>();

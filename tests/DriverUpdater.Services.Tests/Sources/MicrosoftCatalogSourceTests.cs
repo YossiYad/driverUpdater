@@ -237,6 +237,10 @@ public class MicrosoftCatalogSourceTests
             {
                 ["PCI\\VEN_OK"] = new[] { Hit("guid-ok", "Good", new Version(2, 0, 0, 0), new DateOnly(2026, 1, 1)) }
             },
+            DownloadsById =
+            {
+                ["guid-ok"] = new CatalogDownloadInfo("guid-ok", new Uri("https://download.example.com/good.cab"), 1024)
+            },
             FailQueries = { "PCI\\VEN_BAD" }
         };
 
@@ -283,15 +287,14 @@ public class MicrosoftCatalogSourceTests
     }
 
     [Fact]
-    public void TryMap_falls_back_to_scoped_view_url_when_no_download_info()
+    public void TryMap_discards_hit_when_no_download_info_is_available()
     {
         var hit = Hit("guid-z", "Sample", new Version(5, 0, 0, 0), new DateOnly(2026, 1, 1), sizeBytes: 100);
 
         var ok = MicrosoftCatalogSource.TryMap(hit, "PCI\\HW_1", new Dictionary<string, CatalogDownloadInfo>(), out var candidate);
 
-        ok.Should().BeTrue();
-        candidate.DownloadUrl.AbsoluteUri.Should().StartWith("https://www.catalog.update.microsoft.com/ScopedViewInline.aspx");
-        candidate.DownloadUrl.AbsoluteUri.Should().Contain("guid-z");
+        ok.Should().BeFalse();
+        candidate.Should().BeNull();
     }
 
     [Fact]
