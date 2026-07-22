@@ -18,6 +18,10 @@ public sealed class AiSettings
 
     public bool EnableWebSearch { get; set; } = true;
 
+    public int GeminiDailyRequestLimit { get; set; }
+
+    public bool ShowAiScanUsageWarning { get; set; } = true;
+
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
 
     public string OllamaModel { get; set; } = "llama3.1";

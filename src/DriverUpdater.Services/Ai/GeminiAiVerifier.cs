@@ -186,7 +186,7 @@ public sealed class GeminiAiVerifier : IAiVerifier
         catch (OperationCanceledException)
         {
             _logger.LogInformation(
-                "Gemini verification cancelled by the user after {ElapsedMs} ms",
+                "Gemini verification cancelled by the calling operation after {ElapsedMs} ms",
                 stopwatch.ElapsedMilliseconds);
             throw;
         }

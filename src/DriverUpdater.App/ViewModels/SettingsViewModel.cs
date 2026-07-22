@@ -92,6 +92,8 @@ public partial class SettingsViewModel : ObservableObject
     }
     [ObservableProperty] private string _geminiModel = "gemini-3.5-flash";
     [ObservableProperty] private bool _enableAiWebSearch = true;
+    [ObservableProperty] private int _geminiDailyRequestLimit;
+    [ObservableProperty] private bool _showAiScanUsageWarning = true;
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
     [ObservableProperty] private string _ollamaModel = "llama3.1";
 
@@ -509,6 +511,8 @@ public partial class SettingsViewModel : ObservableObject
         SetGeminiApiKeys(settings.Ai.GetGeminiApiKeys());
         GeminiModel = settings.Ai.GeminiModel;
         EnableAiWebSearch = settings.Ai.EnableWebSearch;
+        GeminiDailyRequestLimit = Math.Max(0, settings.Ai.GeminiDailyRequestLimit);
+        ShowAiScanUsageWarning = settings.Ai.ShowAiScanUsageWarning;
         OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
         OllamaModel = settings.Ai.OllamaModel;
         EnableAutomaticLogCleanup = settings.LogCleanup.Enabled;
@@ -538,6 +542,8 @@ public partial class SettingsViewModel : ObservableObject
             GeminiApiKeys = keys,
             GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.5-flash" : GeminiModel.Trim(),
             EnableWebSearch = EnableAiWebSearch,
+            GeminiDailyRequestLimit = Math.Max(0, GeminiDailyRequestLimit),
+            ShowAiScanUsageWarning = ShowAiScanUsageWarning,
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         };

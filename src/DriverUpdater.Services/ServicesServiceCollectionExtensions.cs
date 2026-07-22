@@ -96,8 +96,10 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IInstallPipeline, InstallPipeline>();
         services.AddSingleton<IScheduledScanRunner, ScheduledScanRunner>();
 
-        ConfigureAiHttpClient(services);
         services.AddSingleton<GeminiQuotaGate>();
+        services.AddSingleton<GeminiRequestUsageTracker>();
+        services.AddTransient<GeminiUsageTrackingHandler>();
+        ConfigureAiHttpClient(services);
         services.AddSingleton<GeminiAiVerifier>();
         services.AddSingleton<OllamaAiVerifier>();
         services.AddSingleton<IAiVerifier, AiVerifierSelector>();
@@ -114,7 +116,7 @@ public static class ServicesServiceCollectionExtensions
     {
         services.AddHttpClient(GeminiAiVerifier.HttpClientName, client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(90);
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         })
@@ -130,7 +132,8 @@ public static class ServicesServiceCollectionExtensions
                         ? delta
                         : TimeSpan.FromSeconds(Math.Pow(2, attempt));
                 },
-                onRetryAsync: (_, _, _, _) => Task.CompletedTask));
+                onRetryAsync: (_, _, _, _) => Task.CompletedTask))
+        .AddHttpMessageHandler<GeminiUsageTrackingHandler>();
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)

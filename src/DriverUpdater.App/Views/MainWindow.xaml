@@ -215,6 +215,11 @@
                             Command="{Binding ScanCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
                     <Button Margin="8,0,0,0"
+                            MinWidth="112"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.ScanWithAi}"
+                            Command="{Binding ScanWithAiCommand}" />
+                    <Button Margin="8,0,0,0"
                             MinWidth="72"
                             Padding="14,6"
                             Content="{DynamicResource Toolbar.Cancel}"
@@ -278,9 +283,9 @@
 
         <Grid Grid.Row="3" MinWidth="0" ClipToBounds="True">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="DriversColumn" Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="DriverChatColumn" Width="Auto" />
             </Grid.ColumnDefinitions>
 
         <DataGrid x:Name="DriversGrid"

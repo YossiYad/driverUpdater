@@ -8,6 +8,7 @@
     <sys:String x:Key="App.NotElevated">Not elevated</sys:String>
 
     <sys:String x:Key="Toolbar.Scan">Scan now</sys:String>
+    <sys:String x:Key="Toolbar.ScanWithAi">Scan with AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
@@ -24,6 +25,17 @@
     <sys:String x:Key="AiQuota.Title">AI quota reached</sys:String>
     <sys:String x:Key="AiQuota.DailyMessage">The Gemini AI request and token quota has been used up. Daily quotas reset at midnight Pacific time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
     <sys:String x:Key="AiQuota.TemporaryMessage">Gemini is temporarily limiting AI requests because too many requests or tokens were used in a short time. AI should be available again around {0}. Driver scanning and updates can continue without AI.</sys:String>
+    <sys:String x:Key="AiScanWarning.Title">Scan with AI</sys:String>
+    <sys:String x:Key="AiScanWarning.Heading">Gemini request usage</sys:String>
+    <sys:String x:Key="AiScanWarning.UsageKnown">This scan plans {0} Gemini request(s). DriverUpdater has sent {1} request(s) today for {4}. Projected local usage after the scan: {2} of {3} daily requests.</sys:String>
+    <sys:String x:Key="AiScanWarning.UsageUnknown">This scan plans {0} Gemini request(s). DriverUpdater has sent {1} request(s) today for {2}. Enter the daily RPD limit shown in Google AI Studio to see usage out of your quota.</sys:String>
+    <sys:String x:Key="AiScanWarning.QuotaExplanation">Google applies quotas per project and model. DriverUpdater counts requests sent by this app, but only AI Studio knows your active quota and usage from other apps. Retries or fallback attempts can add requests.</sys:String>
+    <sys:String x:Key="AiScanWarning.DailyLimitLabel">Daily request limit</sys:String>
+    <sys:String x:Key="AiScanWarning.DailyLimitHint">Enter the total RPD across configured projects. Count keys from the same project only once. Leave empty if unknown.</sys:String>
+    <sys:String x:Key="AiScanWarning.OpenLimits">Open AI Studio</sys:String>
+    <sys:String x:Key="AiScanWarning.DoNotShowAgain">Do not show this warning again</sys:String>
+    <sys:String x:Key="AiScanWarning.Cancel">Use regular scan</sys:String>
+    <sys:String x:Key="AiScanWarning.Start">Start AI scan</sys:String>
 
     <sys:String x:Key="Filter.Search">Search device, provider, hardware ID...</sys:String>
     <sys:String x:Key="Filter.AllCategories">All categories</sys:String>
@@ -75,7 +87,7 @@
     <sys:String x:Key="Settings.Tab.About">About</sys:String>
     <sys:String x:Key="Settings.Language.Label">Language</sys:String>
     <sys:String x:Key="Settings.Language.Hint">Restart the app to fully apply the language change in every window.</sys:String>
-    <sys:String x:Key="Settings.Ai.Intro">After each scan, an AI assistant can verify that found updates are genuinely newer than what is installed and flag drivers that may cause problems. It is optional and best-effort: if it is off or unavailable, scans work exactly as before.</sys:String>
+    <sys:String x:Key="Settings.Ai.Intro">Scan now runs without AI. Scan with AI adds verification that found updates are genuinely newer than what is installed and searches for newer official drivers. AI is optional, and regular scans never use AI requests.</sys:String>
     <sys:String x:Key="Settings.Ai.Provider">Provider</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage">AI response language</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage.English">English</sys:String>
@@ -83,16 +95,20 @@
     <sys:String x:Key="Settings.Ai.ResponseLanguageHint">Ask AI and driver verification responses will be written in this language.</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKey">API key</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKeys">Gemini API keys</sys:String>
+    <sys:String x:Key="Settings.Ai.GeminiDescription">Used only when you choose Scan with AI or Ask AI.</sys:String>
     <sys:String x:Key="Settings.Ai.OpenApiKeys">Create or manage API keys</sys:String>
     <sys:String x:Key="Settings.Ai.AddKey">Add another API key</sys:String>
     <sys:String x:Key="Settings.Ai.RemoveKey">Remove</sys:String>
-    <sys:String x:Key="Settings.Ai.FallbackExplanation">When a key reaches its quota, DriverUpdater automatically tries the next key. Important: create each API key from a different Google account. Keys from the same account normally share the same quota, so fallback may not help.</sys:String>
+    <sys:String x:Key="Settings.Ai.FallbackExplanation">When a key's project reaches its quota, DriverUpdater automatically tries the next key. For useful fallback, use keys from different Google Cloud projects. Keys from the same project share quota.</sys:String>
     <sys:String x:Key="Settings.Ai.Model">Model</sys:String>
+    <sys:String x:Key="Settings.Ai.DailyRequestLimit">Daily RPD limit</sys:String>
+    <sys:String x:Key="Settings.Ai.DailyRequestLimitHint">Enter the total RPD available across the configured projects. Count a shared project only once. Use 0 when unknown.</sys:String>
+    <sys:String x:Key="Settings.Ai.ShowScanWarning">Show the Gemini request usage warning before AI scans</sys:String>
     <sys:String x:Key="Settings.Ai.WebSearch">Use live web search to check for the latest version and reported issues</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaUrl">Base URL</sys:String>
     <sys:String x:Key="Settings.Ai.KeyWarning">Gemini API keys are stored in plain text in settings.json on this computer. Only enable this on a machine you trust.</sys:String>
     <sys:String x:Key="Settings.Ai.GeminiGuideHeader">How to set up Gemini (free)</sys:String>
-    <sys:String x:Key="Settings.Ai.GeminiGuideBody">1. Open Google AI Studio (link below) and sign in with a Google account.&#x0a;2. Click "Create API key" and copy the key.&#x0a;3. Paste it into the first API key field above.&#x0a;4. For fallback, click "Add another API key" and add keys created from other Google accounts. Each key must come from a different account because keys from the same account normally share quota.&#x0a;5. Keep the default model (gemini-2.5-flash) or type another Gemini model name.&#x0a;6. Leave web search on so the model can check the newest version and known issues.&#x0a;&#x0a;When one key reaches its quota, DriverUpdater automatically tries the next available key. Keys are sent only to Google.</sys:String>
+    <sys:String x:Key="Settings.Ai.GeminiGuideBody">1. Open Google AI Studio (link below) and sign in.&#x0a;2. Click "Create API key" and copy the key.&#x0a;3. Paste it into the first API key field above.&#x0a;4. For fallback, click "Add another API key" and use a key from a different Google Cloud project. Keys from the same project share quota.&#x0a;5. Keep the default model or type another Gemini model name.&#x0a;6. Leave web search on so the model can check the newest version and known issues.&#x0a;&#x0a;When one project reaches its quota, DriverUpdater tries the next available key. Keys are sent only to Google.</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaGuideHeader">How to set up Ollama (local, no key)</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaGuideBody">1. Download and install Ollama from the link below.&#x0a;2. Open a terminal and run:  ollama pull llama3.1&#x0a;3. Make sure Ollama is running. It listens on http://localhost:11434 by default.&#x0a;4. Keep the default base URL, or change it if Ollama runs elsewhere.&#x0a;5. Type the model you pulled (for example llama3.1) in the model box above.&#x0a;&#x0a;Ollama runs entirely on your PC - no API key and no internet are needed.</sys:String>
     <sys:String x:Key="Settings.OpenGuide">Open the setup guide</sys:String>
