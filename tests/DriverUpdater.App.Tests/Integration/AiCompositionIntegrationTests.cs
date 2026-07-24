@@ -52,7 +52,7 @@ public class AiCompositionIntegrationTests
         var client = factory.CreateClient(GeminiAiVerifier.HttpClientName);
 
         client.Should().NotBeNull();
-        client.Timeout.Should().Be(TimeSpan.FromSeconds(90));
+        client.Timeout.Should().Be(Timeout.InfiniteTimeSpan);
     }
 
     [Fact]

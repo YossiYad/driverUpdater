@@ -28,6 +28,7 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(VersionSummaryText))]
     [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
+    [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
     [NotifyPropertyChangedFor(nameof(CanAskAi))]
     private UpdateCandidate? _availableUpdate;
@@ -43,6 +44,11 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(UpdateActionText))]
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
     [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
+    [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
+    [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
+    [NotifyPropertyChangedFor(nameof(AiRiskText))]
+    [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
+    [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
     private bool _isUpdateFromCache;
 
     [ObservableProperty]
@@ -154,9 +160,9 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool HasAiVerdict => AvailableUpdate?.AiVerification is not null;
+    public bool HasAiVerdict => HasAvailableUpdate && AvailableUpdate?.AiVerification is not null;
 
-    public string AiRiskText => AvailableUpdate?.AiVerification?.Risk switch
+    public string AiRiskText => !HasAvailableUpdate ? string.Empty : AvailableUpdate?.AiVerification?.Risk switch
     {
         AiRiskLevel.Safe => "Safe",
         AiRiskLevel.Caution => "Caution",
@@ -168,6 +174,11 @@ public partial class DriverRowViewModel : ObservableObject
     {
         get
         {
+            if (!HasAvailableUpdate)
+            {
+                return null;
+            }
+
             var verdict = AvailableUpdate?.AiVerification;
             if (verdict is null)
             {
@@ -210,6 +221,11 @@ public partial class DriverRowViewModel : ObservableObject
     {
         get
         {
+            if (!HasAvailableUpdate)
+            {
+                return string.Empty;
+            }
+
             var verdict = AvailableUpdate?.AiVerification;
             if (verdict is null)
             {
@@ -229,11 +245,13 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool CanUpdate => !IsUpdateFromCache
-        && AvailableUpdate is not null
-        && (Status == DriverStatus.Outdated || AvailableUpdate.InstallKind == UpdateInstallKind.VendorPage);
+    public bool HasAvailableUpdate => !IsUpdateFromCache && AvailableUpdate is not null;
 
-    public bool CanAskAi => !IsAiChecking;
+    public bool CanUpdate => HasAvailableUpdate
+        && AvailableUpdate is { } update
+        && (Status == DriverStatus.Outdated || update.InstallKind == UpdateInstallKind.VendorPage);
+
+    public bool CanAskAi => !IsAiChecking && IsScannedThisRun;
 
     public bool IsBusy => ActiveOperation is { } op
         && !op.IsTerminal

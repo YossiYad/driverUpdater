@@ -16,15 +16,26 @@ internal static class InstalledDriverChangeClassifier
             ? current.Date.Value.CompareTo(before.CurrentDate.Value)
             : (int?)null;
 
-        // Conflicting or older metadata is not proof of a successful update. This avoids
-        // reporting an accidental downgrade as verified merely because the value changed.
-        if (versionComparison < 0 || dateComparison < 0)
+        // Driver versions are the primary ordering signal. Vendors sometimes publish a
+        // higher version with an older INF date, so rejecting that combination produces a
+        // false downgrade result. Only use the date to order drivers when their versions
+        // are equal or one side has no readable version.
+        if (versionComparison is > 0)
+        {
+            return true;
+        }
+
+        if (versionComparison is < 0)
         {
             return false;
         }
 
-        return versionComparison > 0
-            || dateComparison > 0
+        if (versionComparison is null && dateComparison is not null and not 0)
+        {
+            return dateComparison > 0;
+        }
+
+        return dateComparison > 0
             || before.CurrentVersion is null && current.Version is not null
             || before.CurrentDate is null && current.Date is not null;
     }

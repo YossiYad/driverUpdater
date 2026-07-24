@@ -725,6 +725,13 @@ public class MainViewModelUpdateSourceTests
         vm.Drivers[1].AvailableUpdate.Should().BeNull();
         vm.UpdatesFoundCount.Should().Be(0);
         vm.ScannedCount.Should().Be(2);
+        vm.ProgressText.Should().Be("2 cached drivers (scan to refresh)");
+        vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
+
+        vm.UpdateFilter = DriverUpdateFilter.UpdatesAvailable;
+        vm.DriversView.Cast<DriverRowViewModel>().Should().BeEmpty(
+            "cached results require a fresh scan and cannot be updated");
+
         counting.SearchInvocations.Should().Be(0, "loading from cache must be instant and not hit update sources");
         vm.StatusText.Should().StartWith("Loaded 2 drivers from last scan");
     }
@@ -780,7 +787,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_keeps_cached_drivers_missing_from_current_scan()
+    public async Task ScanAsync_removes_cached_drivers_missing_from_current_inventory()
     {
         var scannedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var missingDriver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
@@ -790,9 +797,10 @@ public class MainViewModelUpdateSourceTests
             new CachedDriverEntry(scannedDriver, DriverStatus.UpToDate, null),
             new CachedDriverEntry(missingDriver, DriverStatus.Outdated, pending)
         }));
+        var source = new RecordingDriverUpdateSource(Array.Empty<UpdateCandidate>());
         var vm = new MainViewModel(
             new FakeScanService(new[] { scannedDriver }),
-            new[] { (IUpdateSource)new FakeUpdateSource(Array.Empty<UpdateCandidate>()) },
+            new[] { (IUpdateSource)source },
             new NullOemDetectionService(),
             new NullInstallPipeline(),
             new NullInstallConfirmation(),
@@ -805,17 +813,51 @@ public class MainViewModelUpdateSourceTests
         await vm.InitializeAsync();
         await vm.ScanCommand.ExecuteAsync(null);
 
-        vm.Drivers.Should().HaveCount(2);
+        vm.Drivers.Should().ContainSingle();
+        vm.Drivers.Single().DeviceName.Should().Be("Intel Display");
         vm.ScannedCount.Should().Be(1);
-        var kept = vm.Drivers.Single(r => r.DeviceName == "Realtek Audio");
-        kept.AvailableUpdate.Should().NotBeNull();
-        kept.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
-        kept.IsScannedThisRun.Should().BeFalse();
-        kept.IsUpdateFromCache.Should().BeTrue();
-        kept.Status.Should().Be(DriverStatus.VerificationInconclusive);
-        kept.CanUpdate.Should().BeFalse();
+        source.ReceivedDrivers.Should().ContainSingle()
+            .Which.Select(driver => driver.DeviceName).Should().Equal("Intel Display");
         vm.UpdatesFoundCount.Should().Be(0);
-        cache.Saved.Should().ContainSingle().Which.Entries.Should().HaveCount(2);
+        cache.Saved.Should().ContainSingle().Which.Entries.Should().ContainSingle()
+            .Which.Driver.DeviceName.Should().Be("Intel Display");
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_does_not_accept_update_for_driver_missing_from_current_inventory()
+    {
+        var scannedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var missingDriver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var freshUpdate = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(3, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(scannedDriver, DriverStatus.UpToDate, null),
+            new CachedDriverEntry(missingDriver, DriverStatus.UpToDate, null)
+        }));
+        var source = new RecordingDriverUpdateSource(new[] { freshUpdate });
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { scannedDriver }),
+            new[] { (IUpdateSource)source },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        source.ReceivedDrivers.Should().ContainSingle()
+            .Which.Select(driver => driver.DeviceName).Should().Equal("Intel Display");
+        vm.Drivers.Should().ContainSingle();
+        vm.Drivers.Single().DeviceName.Should().Be("Intel Display");
+        vm.ScannedCount.Should().Be(1);
+        vm.UpdatesFoundCount.Should().Be(0);
+        cache.Saved.Should().ContainSingle().Which.Entries.Should().ContainSingle()
+            .Which.Driver.DeviceName.Should().Be("Intel Display");
     }
 
     [WpfFact]
@@ -874,6 +916,10 @@ public class MainViewModelUpdateSourceTests
             driverCacheStore: cache);
 
         await vm.InitializeAsync();
+        vm.Drivers.Single().CanAskAi.Should().BeFalse();
+        await vm.AskAiCommand.ExecuteAsync(vm.Drivers.Single());
+        vm.StatusText.Should().Be("Run Scan before asking AI to review this driver.");
+
         await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers.Single());
 
         pipeline.Operations.Should().BeEmpty();
@@ -1060,6 +1106,33 @@ public class MainViewModelUpdateSourceTests
             SearchInvocations++;
             await Task.Yield();
             yield break;
+        }
+    }
+
+    private sealed class RecordingDriverUpdateSource : IUpdateSource
+    {
+        private readonly IReadOnlyList<UpdateCandidate> _candidates;
+
+        public RecordingDriverUpdateSource(IReadOnlyList<UpdateCandidate> candidates)
+        {
+            _candidates = candidates;
+        }
+
+        public List<IReadOnlyCollection<DriverInfo>> ReceivedDrivers { get; } = new();
+        public UpdateSource Kind => UpdateSource.WindowsUpdate;
+        public string DisplayName => "Recording";
+
+        public async IAsyncEnumerable<UpdateCandidate> SearchAsync(
+            IReadOnlyCollection<DriverInfo> drivers,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            ReceivedDrivers.Add(drivers);
+            foreach (var candidate in _candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+                yield return candidate;
+            }
         }
     }
 

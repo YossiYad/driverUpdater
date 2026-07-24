@@ -62,7 +62,9 @@ public class JsonSettingsStoreTests : IDisposable
             {
                 Provider = AiProvider.Gemini,
                 GeminiApiKey = "first-key",
-                GeminiApiKeys = new List<string> { "first-key", "second-key" }
+                GeminiApiKeys = new List<string> { "first-key", "second-key" },
+                GeminiDailyRequestLimit = 500,
+                ShowAiScanUsageWarning = false
             },
             LogCleanup = new LogCleanupSettings { Enabled = false, RetentionDays = 21 },
             Onboarding = new OnboardingSettings { ShowOnStartup = false },
@@ -86,6 +88,8 @@ public class JsonSettingsStoreTests : IDisposable
         loaded.Catalog.MaxConcurrentSearches.Should().Be(8);
         loaded.Backup.RetentionDays.Should().Be(60);
         loaded.Ai.GetGeminiApiKeys().Should().Equal("first-key", "second-key");
+        loaded.Ai.GeminiDailyRequestLimit.Should().Be(500);
+        loaded.Ai.ShowAiScanUsageWarning.Should().BeFalse();
         loaded.LogCleanup.Enabled.Should().BeFalse();
         loaded.LogCleanup.RetentionDays.Should().Be(21);
         loaded.Onboarding.ShowOnStartup.Should().BeFalse();

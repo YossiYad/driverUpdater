@@ -598,9 +598,13 @@ public sealed class InstallPipeline : IInstallPipeline
             var result = await _vendorInstallerRunner.RunAsync(fileName, arguments, cancellationToken).ConfigureAwait(false);
             var installElapsed = _clock.GetUtcNow() - installStart;
             var amdLogDetail = string.Empty;
-            var amdLogConfirmedSuccess = !result.IsSuccess
-                && IsAmdChipsetCandidate(operation.Candidate)
-                && TryConfirmAmdChipsetSuccess(installStart, out amdLogDetail);
+            var amdRebootRequired = false;
+            var amdLogReportsSuccess = IsAmdChipsetCandidate(operation.Candidate)
+                && TryConfirmAmdChipsetSuccess(
+                    installStart,
+                    out amdLogDetail,
+                    out amdRebootRequired);
+            var amdLogConfirmedSuccess = !result.IsSuccess && amdLogReportsSuccess;
             if (!result.IsSuccess && !amdLogConfirmedSuccess)
             {
                 var harvestedLogs = TryHarvestInstallerLogTails(installStart, operation.Candidate.SourceUpdateId);
@@ -633,9 +637,11 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with
             {
                 Status = UpdateStatus.Succeeded,
-                ErrorMessage = amdLogConfirmedSuccess
-                    ? $"AMD chipset package completed successfully. The outer installer returned exit {result.ExitCode}, but the official AMD installer log reported success."
-                    : operation.ErrorMessage,
+                ErrorMessage = BuildAmdChipsetSuccessMessage(
+                    operation.ErrorMessage,
+                    result.ExitCode,
+                    amdLogConfirmedSuccess,
+                    amdRebootRequired),
                 CompletedAt = _clock.GetUtcNow()
             };
             progress?.Report(operation);
@@ -895,9 +901,13 @@ public sealed class InstallPipeline : IInstallPipeline
     internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryConfirmAmdChipsetSuccess(DateTimeOffset installStart, out string detail)
+    private static bool TryConfirmAmdChipsetSuccess(
+        DateTimeOffset installStart,
+        out string detail,
+        out bool rebootRequired)
     {
         detail = string.Empty;
+        rebootRequired = false;
         try
         {
             var systemRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
@@ -921,6 +931,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 return false;
             }
 
+            rebootRequired = AmdChipsetLogRequiresReboot(log);
             detail = "AMD_Chipset_Software_Install.log reports configuration success with MSI status 0";
             return true;
         }
@@ -935,6 +946,34 @@ public sealed class InstallPipeline : IInstallPipeline
         && log.Contains("Configuration completed successfully", StringComparison.OrdinalIgnoreCase)
         && (log.Contains("error status: 0", StringComparison.OrdinalIgnoreCase)
             || log.Contains("MainEngineThread is returning 0", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool AmdChipsetLogRequiresReboot(string log) =>
+        !string.IsNullOrWhiteSpace(log)
+        && (log.Contains("Reboot needed to complete driver update", StringComparison.OrdinalIgnoreCase)
+            || log.Contains("Restart required for any devices using this driver", StringComparison.OrdinalIgnoreCase)
+            || log.Contains("MsiSystemRebootPending property. Its value is '1'", StringComparison.OrdinalIgnoreCase)
+            || log.Contains("MsiSystemRebootPending = 1", StringComparison.OrdinalIgnoreCase));
+
+    private static string? BuildAmdChipsetSuccessMessage(
+        string? existingMessage,
+        int exitCode,
+        bool logConfirmedSuccess,
+        bool rebootRequired)
+    {
+        var message = logConfirmedSuccess
+            ? $"AMD chipset package completed successfully. The outer installer returned exit {exitCode}, but the official AMD installer log reported success."
+            : existingMessage;
+
+        if (!rebootRequired)
+        {
+            return message;
+        }
+
+        const string rebootMessage = "Reboot required to complete installation.";
+        return string.IsNullOrWhiteSpace(message)
+            ? rebootMessage
+            : $"{message} {rebootMessage}";
+    }
 
     // A human-readable label for a device that never yields an empty string. Virtual/inbox
     // devices (e.g. Microsoft Print to PDF) can have a blank DeviceName, which otherwise leaks

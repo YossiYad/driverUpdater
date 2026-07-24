@@ -214,9 +214,37 @@ public class DriverRowViewModelTests
         row.CanUpdate.Should().BeTrue();
 
         row.IsUpdateFromCache = true;
+        row.HasAvailableUpdate.Should().BeFalse();
         row.CanUpdate.Should().BeFalse();
+        row.CanAskAi.Should().BeTrue("the row still belongs to the current scan in this unit test");
         row.StatusText.Should().Be("Cached result, re-scan required");
         row.ConfidenceText.Should().Be("Cached, not reverified");
+    }
+
+    [Fact]
+    public void Cached_ai_verdict_is_not_presented_as_a_current_recommendation()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate() with
+            {
+                AiVerification = new AiVerdict(
+                    true,
+                    AiRiskLevel.Safe,
+                    "Recommended",
+                    "The candidate appears compatible.",
+                    "2.0.0.0")
+            },
+            IsUpdateFromCache = true,
+            IsScannedThisRun = false
+        };
+
+        row.HasAvailableUpdate.Should().BeFalse();
+        row.HasAiVerdict.Should().BeFalse();
+        row.AiRecommendationText.Should().BeEmpty();
+        row.AiRiskText.Should().BeEmpty();
+        row.AiRiskTooltip.Should().BeNull();
+        row.CanAskAi.Should().BeFalse();
     }
 
     [Fact]

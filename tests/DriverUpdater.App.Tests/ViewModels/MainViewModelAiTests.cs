@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using DriverUpdater.App.Services;
 using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
@@ -27,7 +28,7 @@ public class MainViewModelAiTests
         };
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().BeNull();
@@ -50,7 +51,7 @@ public class MainViewModelAiTests
         };
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
         vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
@@ -61,11 +62,11 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
-    public async Task ScanAsync_does_not_call_ai_when_not_configured()
+    public async Task ScanNow_does_not_call_ai_even_when_ai_is_configured()
     {
         var driver = NewDriver("AMD Radeon", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0), "amd-update");
-        var verifier = new StubAiVerifier(isConfigured: false);
+        var verifier = new StubAiVerifier(isConfigured: true);
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
         await vm.ScanCommand.ExecuteAsync(null);
@@ -84,7 +85,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true) { Throws = true };
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
         vm.Drivers[0].Status.Should().Be(DriverStatus.Outdated);
@@ -106,7 +107,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true) { Verdicts = { [sharedId] = verdict } };
 
         var vm = NewVm(new[] { driverA, driverB, driverC }, new[] { candA, candB, candC }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.LastRequests.Should().ContainSingle("the shared installer should be sent to the AI only once");
         verifier.LastRequests[0].CorrelationId.Should().Be(sharedId);
@@ -122,7 +123,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true);
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
@@ -144,7 +145,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true);
 
         var vm = NewVm(new[] { driver }, new[] { advisory }, verifier);
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeTrue();
         verifier.LastRequests.Should().ContainSingle();
@@ -170,7 +171,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true);
         var vm = NewVm(drivers, new[] { advisory }, verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.RequestsByCall.Should().HaveCount(2);
         verifier.RequestsByCall.SelectMany(requests => requests)
@@ -192,7 +193,7 @@ public class MainViewModelAiTests
         var verifier = new StubAiVerifier(isConfigured: true);
         var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.RequestsByCall.Should().HaveCount(2);
         verifier.RequestsByCall[0].Should().HaveCount(20);
@@ -214,10 +215,47 @@ public class MainViewModelAiTests
         };
         var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.RequestsByCall.Should().ContainSingle();
         verifier.RequestsByCall[0].Should().HaveCount(20);
+    }
+
+    [WpfFact]
+    public async Task ScanWithAi_calculates_planned_requests_and_prompts_before_ai()
+    {
+        var drivers = Enumerable.Range(1, 21)
+            .Select(index => NewDriver(
+                $"Device {index}",
+                $"PCI\\VEN_1234&DEV_{index:X4}",
+                new Version(1, 0, 0, 0)))
+            .ToArray();
+        var verifier = new StubAiVerifier(isConfigured: true);
+        var confirmation = new StubAiScanConfirmation(approved: true);
+        var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier, confirmation);
+
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
+
+        confirmation.LastEstimate.Should().NotBeNull();
+        confirmation.LastEstimate!.DriverCount.Should().Be(21);
+        confirmation.LastEstimate.PlannedRequests.Should().Be(2);
+        verifier.RequestsByCall.Should().HaveCount(2);
+    }
+
+    [WpfFact]
+    public async Task ScanWithAi_keeps_regular_results_when_usage_warning_is_declined()
+    {
+        var driver = NewDriver("AMD Radeon", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "amd-update");
+        var verifier = new StubAiVerifier(isConfigured: true);
+        var confirmation = new StubAiScanConfirmation(approved: false);
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, confirmation);
+
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
+
+        confirmation.LastEstimate!.PlannedRequests.Should().Be(1);
+        verifier.WasCalled.Should().BeFalse();
+        vm.Drivers[0].AvailableUpdate.Should().NotBeNull();
     }
 
     [WpfFact]
@@ -382,7 +420,7 @@ public class MainViewModelAiTests
         };
         var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeTrue();
         verifier.LastRequests.Should().ContainSingle();
@@ -423,7 +461,7 @@ public class MainViewModelAiTests
         };
         var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeTrue();
         vm.Drivers[0].AvailableUpdate.Should().BeNull(
@@ -465,7 +503,7 @@ public class MainViewModelAiTests
         };
         var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
 
-        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         vm.Drivers[0].AvailableUpdate.Should().BeNull();
         vm.Drivers[0].Status.Should().NotBe(DriverStatus.Outdated);
@@ -475,7 +513,8 @@ public class MainViewModelAiTests
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,
-        IAiVerifier aiVerifier) =>
+        IAiVerifier aiVerifier,
+        IAiScanConfirmation? aiScanConfirmation = null) =>
         new(new FakeScanService(drivers),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
             new NullOemDetectionService(),
@@ -485,7 +524,8 @@ public class MainViewModelAiTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            aiVerifier: aiVerifier);
+            aiVerifier: aiVerifier,
+            aiScanConfirmation: aiScanConfirmation);
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",
@@ -559,6 +599,23 @@ public class MainViewModelAiTests
                 throw new InvalidOperationException("ai failed");
             }
             return Task.FromResult((IReadOnlyDictionary<string, AiVerdict>)Verdicts);
+        }
+    }
+
+    private sealed class StubAiScanConfirmation : IAiScanConfirmation
+    {
+        private readonly bool _approved;
+
+        public StubAiScanConfirmation(bool approved) => _approved = approved;
+
+        public AiScanUsageEstimate? LastEstimate { get; private set; }
+
+        public Task<bool> ConfirmAsync(
+            AiScanUsageEstimate estimate,
+            CancellationToken cancellationToken = default)
+        {
+            LastEstimate = estimate;
+            return Task.FromResult(_approved);
         }
     }
 

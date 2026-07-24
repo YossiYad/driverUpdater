@@ -46,6 +46,7 @@ _ReSharper*/
 Releases/
 build/output/
 build/desktop-*/
+artifacts/
 
 ## Local development tools
 

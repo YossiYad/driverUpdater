@@ -40,6 +40,7 @@ public partial class MainWindow : FluentWindow
         _logger = logger;
         DataContext = viewModel;
         _viewModel.ScrollToRowRequested += OnScrollToRowRequested;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Closing += OnWindowClosing;
         Closed += OnWindowClosed;
         _notificationArea.OpenRequested += OnNotificationAreaOpenRequested;
@@ -94,6 +95,21 @@ public partial class MainWindow : FluentWindow
             DriversGrid.ScrollIntoView(row);
             DriversGrid.SelectedItem = row;
         }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.IsDriverChatVisible)
+            && !_viewModel.IsDriverChatVisible)
+        {
+            ResetDriverChatColumns();
+        }
+    }
+
+    private void ResetDriverChatColumns()
+    {
+        DriversColumn.Width = new GridLength(1, GridUnitType.Star);
+        DriverChatColumn.Width = GridLength.Auto;
     }
 
     private void OnDriverSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -197,6 +213,7 @@ public partial class MainWindow : FluentWindow
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         _viewModel.ScrollToRowRequested -= OnScrollToRowRequested;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _notificationArea.OpenRequested -= OnNotificationAreaOpenRequested;
         _notificationArea.ExitRequested -= OnNotificationAreaExitRequested;
         _notificationArea.Dispose();

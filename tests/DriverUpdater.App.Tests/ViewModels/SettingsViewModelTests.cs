@@ -314,6 +314,8 @@ public class SettingsViewModelTests
                 GeminiApiKey = "abc123",
                 GeminiModel = "gemini-2.0-flash",
                 EnableWebSearch = false,
+                GeminiDailyRequestLimit = 250,
+                ShowAiScanUsageWarning = false,
                 OllamaBaseUrl = "http://host:1234",
                 OllamaModel = "mistral"
             }
@@ -328,6 +330,8 @@ public class SettingsViewModelTests
         vm.GeminiApiKey.Should().Be("abc123");
         vm.GeminiModel.Should().Be("gemini-2.0-flash");
         vm.EnableAiWebSearch.Should().BeFalse();
+        vm.GeminiDailyRequestLimit.Should().Be(250);
+        vm.ShowAiScanUsageWarning.Should().BeFalse();
         vm.OllamaBaseUrl.Should().Be("http://host:1234");
         vm.OllamaModel.Should().Be("mistral");
         vm.IsGeminiSelected.Should().BeTrue();
@@ -386,6 +390,8 @@ public class SettingsViewModelTests
         vm.SelectedAiResponseLanguage = AppLanguage.Hebrew;
         vm.OllamaBaseUrl = "http://localhost:11434";
         vm.OllamaModel = "llama3.1";
+        vm.GeminiDailyRequestLimit = 250;
+        vm.ShowAiScanUsageWarning = false;
 
         await vm.SaveAsync();
 
@@ -394,6 +400,8 @@ public class SettingsViewModelTests
         store.Saved.Ai.ResponseLanguage.Should().Be(AppLanguage.Hebrew);
         store.Saved.Ai.OllamaBaseUrl.Should().Be("http://localhost:11434");
         store.Saved.Ai.OllamaModel.Should().Be("llama3.1");
+        store.Saved.Ai.GeminiDailyRequestLimit.Should().Be(250);
+        store.Saved.Ai.ShowAiScanUsageWarning.Should().BeFalse();
     }
 
     [WpfFact]

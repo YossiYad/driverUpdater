@@ -92,9 +92,9 @@ public class MainViewModelDriverChatTests
 
         await vm.SendDriverChatCommand.ExecuteAsync(null);
 
-        vm.DriverChatMessages.Should().HaveCount(2);
-        vm.DriverChatMessages[1].Text.Should().Be("Do it.");
         vm.DriverChatMessages.Should().OnlyContain(m => !m.HasInstallAction);
+        vm.DriverChatMessages.Should().ContainSingle(m => m.HasScanAction);
+        vm.DriverChatMessages.Should().NotContain(m => m.Text == "Do it.");
     }
 
     [WpfFact]
@@ -131,6 +131,35 @@ public class MainViewModelDriverChatTests
         await vm.SendDriverChatCommand.ExecuteAsync(null);
 
         vm.DriverChatMessages.Should().OnlyContain(message => !message.HasScanAction);
+    }
+
+    [WpfFact]
+    public async Task SendDriverChat_does_not_expose_or_recommend_a_cached_update()
+    {
+        var row = new DriverRowViewModel(NewDriver("Intel Iris Xe Graphics"))
+        {
+            AvailableUpdate = NewCandidate("HW\\Intel Iris Xe Graphics"),
+            IsUpdateFromCache = true,
+            IsScannedThisRun = false,
+            Status = DriverStatus.VerificationInconclusive
+        };
+        var completer = new StubTextCompleter(isConfigured: true,
+            reply: $"Update it.\nRECOMMEND_UPDATE: {row.HardwareId}");
+        var vm = NewVm(completer);
+        vm.Drivers.Add(row);
+        vm.DriverChatInput = "What should I update?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        completer.LastPrompt.Should().Contain("1 total, 0 with an available update");
+        completer.LastPrompt.Should().Contain("Cached result, re-scan required");
+        completer.LastPrompt.Should().NotContain("2.0.0.0 (MicrosoftCatalog)");
+        vm.DriverChatMessages.Should().OnlyContain(message => !message.HasInstallAction);
+        vm.DriverChatMessages.Should().ContainSingle(message => message.HasScanAction);
+        vm.DriverChatMessages.Should().Contain(message =>
+            !message.IsUser && message.Text.Contains("do not currently see available driver updates"));
+        vm.DriverChatMessages.Should().NotContain(message => message.Text == "Update it.");
+        vm.StatusText.Should().Contain("Press Scan now");
     }
 
     [WpfFact]
