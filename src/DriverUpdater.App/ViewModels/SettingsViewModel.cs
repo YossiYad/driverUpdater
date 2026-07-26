@@ -90,7 +90,7 @@ public partial class SettingsViewModel : ObservableObject
             OnPropertyChanged();
         }
     }
-    [ObservableProperty] private string _geminiModel = "gemini-3.5-flash";
+    [ObservableProperty] private string _geminiModel = new AiSettings().GeminiModel;
     [ObservableProperty] private bool _enableAiWebSearch = true;
     [ObservableProperty] private int _geminiDailyRequestLimit;
     [ObservableProperty] private bool _showAiScanUsageWarning = true;
@@ -114,6 +114,8 @@ public partial class SettingsViewModel : ObservableObject
     private CatalogSettings _loadedCatalog = new();
     private UpdaterSettings _loadedUpdater = new();
     private OnboardingSettings _loadedOnboarding = new();
+    private BackupSettings _loadedBackup = new();
+    private HistorySettings _loadedHistory = new();
 
     /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
     public bool CanCheckForUpdates => _appUpdater is not null;
@@ -434,9 +436,15 @@ public partial class SettingsViewModel : ObservableObject
         },
         Backup = new BackupSettings
         {
-            RetentionDays = BackupRetentionDays
+            RetentionDays = BackupRetentionDays,
+            // No UI field: keep the configured folder instead of silently reverting to the
+            // default and orphaning every backup already written there.
+            RootPath = _loadedBackup.RootPath
         },
-        History = new HistorySettings(),
+        History = new HistorySettings
+        {
+            DatabasePath = _loadedHistory.DatabasePath
+        },
         Updater = new UpdaterSettings
         {
             WindowsUpdateEnabled = EnableWindowsUpdate,
@@ -489,6 +497,8 @@ public partial class SettingsViewModel : ObservableObject
         StartMinimized = CanStartMinimized && application.StartMinimized;
         _loadedCatalog = settings.Catalog;
         _loadedUpdater = settings.Updater;
+        _loadedBackup = settings.Backup;
+        _loadedHistory = settings.History ?? new HistorySettings();
         _loadedOnboarding = settings.Onboarding ?? new OnboardingSettings();
         ShowGuideOnStartup = _loadedOnboarding.ShowOnStartup;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
@@ -540,7 +550,7 @@ public partial class SettingsViewModel : ObservableObject
             ResponseLanguage = SelectedAiResponseLanguage,
             GeminiApiKey = keys.FirstOrDefault() ?? string.Empty,
             GeminiApiKeys = keys,
-            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? "gemini-2.5-flash" : GeminiModel.Trim(),
+            GeminiModel = string.IsNullOrWhiteSpace(GeminiModel) ? new AiSettings().GeminiModel : GeminiModel.Trim(),
             EnableWebSearch = EnableAiWebSearch,
             GeminiDailyRequestLimit = Math.Max(0, GeminiDailyRequestLimit),
             ShowAiScanUsageWarning = ShowAiScanUsageWarning,
