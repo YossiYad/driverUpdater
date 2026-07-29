@@ -85,6 +85,14 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         var maxConcurrent = Math.Max(1, settings.MaxConcurrentSearches);
         using var throttle = new SemaphoreSlim(maxConcurrent, maxConcurrent);
 
+        // The producers must be tied to the lifetime of this enumeration. A caller that stops
+        // early - a cancelled scan, or any consumer that breaks out of the await foreach -
+        // disposes the iterator, which would otherwise dispose the throttle out from under
+        // still-running searches and leave them hammering the catalog for a scan nobody is
+        // reading any more.
+        using var producerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var producerToken = producerCancellation.Token;
+
         var producers = Task.Run(async () =>
         {
             try
@@ -95,21 +103,34 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
                         pair.Value,
                         channel.Writer,
                         throttle,
-                        cancellationToken)).ToArray();
+                        producerToken)).ToArray();
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             finally
             {
                 channel.Writer.TryComplete();
             }
-        }, cancellationToken);
+        }, producerToken);
 
-        await foreach (var candidate in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        try
         {
-            yield return candidate;
+            await foreach (var candidate in channel.Reader.ReadAllAsync(producerToken).ConfigureAwait(false))
+            {
+                yield return candidate;
+            }
         }
-
-        await producers.ConfigureAwait(false);
+        finally
+        {
+            producerCancellation.Cancel();
+            try
+            {
+                await producers.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the consumer abandoned the enumeration.
+            }
+        }
     }
 
     internal static bool IsPnPHardwareId(string? hardwareId)

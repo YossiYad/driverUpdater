@@ -957,7 +957,11 @@ public partial class MainViewModel : ObservableObject
                 continue;
             }
 
-            if (pending.IsNewerThan(row.Driver))
+            // The proven-ineffective ledger must win here too. Without this check a candidate
+            // the current scan deliberately suppressed comes straight back as a cached
+            // fallback, gets written to the cache again, and reappears on every later scan -
+            // exactly the loop the ledger exists to break.
+            if (pending.IsNewerThan(row.Driver) && !IsProvenIneffective(row, pending))
             {
                 row.AvailableUpdate = pending;
                 row.IsUpdateFromCache = true;
@@ -2243,6 +2247,14 @@ public partial class MainViewModel : ObservableObject
             installAttemptCount++;
             var finished = await _installPipeline.ExecuteAsync(op, options, new Progress<UpdateOperation>(report =>
             {
+                // Progress<T> marshals through the dispatcher, so a report can still be queued
+                // when this method resumes. Applying a terminal report here would overwrite the
+                // final row state decided below (e.g. turning "Continue on vendor website" back
+                // into "Update available"). The block after the await owns the terminal state.
+                if (report.IsTerminal)
+                {
+                    return;
+                }
                 row.ActiveOperation = report;
                 row.Status = MapOperationStatus(report.Status);
                 StatusText = $"{report.Status}: {displayName}";
