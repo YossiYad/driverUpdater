@@ -621,14 +621,31 @@ public sealed class InstallPipeline : IInstallPipeline
                 {
                     return fallback.Operation;
                 }
-                operation = operation with
+
+                // Last chance before skipping: infer the silent switch from the installer's
+                // packaging engine. The Authenticode and expected-publisher checks below
+                // still decide whether this exe is allowed to run at all.
+                if (Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                    && HasPortableExecutableMagic(installerPath)
+                    && InstallerEngineDetector.TryDetectSilentArguments(installerPath, out var detectedArguments, out var detectedEngine))
                 {
-                    Status = UpdateStatus.Skipped,
-                    ErrorMessage = string.IsNullOrEmpty(fallback.Detail) ? skipReason : $"{skipReason} {fallback.Detail}",
-                    CompletedAt = _clock.GetUtcNow()
-                };
-                progress?.Report(operation);
-                return operation;
+                    _logger.LogInformation(
+                        "Vendor installer for {Device}: detected {Engine} packaging engine in {Installer}, using inferred silent arguments {Arguments}",
+                        DeviceLabel(operation.TargetSnapshot), detectedEngine, Path.GetFileName(installerPath), detectedArguments);
+                    fileName = installerPath;
+                    arguments = detectedArguments;
+                }
+                else
+                {
+                    operation = operation with
+                    {
+                        Status = UpdateStatus.Skipped,
+                        ErrorMessage = string.IsNullOrEmpty(fallback.Detail) ? skipReason : $"{skipReason} {fallback.Detail}",
+                        CompletedAt = _clock.GetUtcNow()
+                    };
+                    progress?.Report(operation);
+                    return operation;
+                }
             }
 
             if (Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
