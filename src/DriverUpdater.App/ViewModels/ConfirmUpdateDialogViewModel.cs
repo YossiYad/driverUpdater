@@ -28,7 +28,7 @@ public partial class ConfirmUpdateDialogViewModel : ObservableObject
         UpdateInstallKind.WindowsUpdate => "Installs through Windows Update",
         UpdateInstallKind.PnPUtilPackage => "Installs through pnputil",
         UpdateInstallKind.VendorInstaller => "Downloads and installs silently (no clicks)",
-        UpdateInstallKind.VendorPage => "Retries resolving an installable package from the vendor page; if none is found the row offers to open that page",
+        UpdateInstallKind.VendorPage => "Resolves a verified vendor package and installs it in the app",
         _ => "Install method unknown"
     };
 

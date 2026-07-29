@@ -41,6 +41,18 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             return VendorPageResolution.NoPackageFound;
         }
 
+        // AI discovery is useful as an advisory, but it does not provide the package
+        // applicability metadata required to bind an installer to a hardware ID. A general
+        // release page may contain source archives, utilities, firmware, and drivers for
+        // unrelated products. Only deterministic vendor sources may enter package resolution.
+        if (candidate.SourceUpdateId.StartsWith("ai-latest:", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Vendor page resolve skipped for {SourceUpdateId}: an AI page lead is not package applicability evidence",
+                candidate.SourceUpdateId);
+            return VendorPageResolution.NoPackageFound;
+        }
+
         if (candidate.DownloadUrl.Scheme is not ("http" or "https"))
         {
             _logger.LogInformation(
@@ -125,6 +137,15 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
                 candidate.DownloadUrl);
         }
 
+        if (!IsPackageCompatibleWithHardware(candidate, packageUrl, installerKind))
+        {
+            _logger.LogWarning(
+                "Vendor page package {Package} was rejected for {HardwareId}: its vendor family does not match the device",
+                packageUrl,
+                candidate.ForHardwareId);
+            return VendorPageResolution.NoPackageFound;
+        }
+
         _logger.LogInformation(
             "Vendor page {Url} resolved to direct installer {Package} (kind {Kind}) for {SourceUpdateId}",
             candidate.DownloadUrl, packageUrl, installerKind, candidate.SourceUpdateId);
@@ -132,6 +153,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         {
             DownloadUrl = packageUrl,
             InstallKind = UpdateInstallKind.VendorInstaller,
+            Confidence = UpdateConfidence.Confirmed,
             SourceUpdateId = $"vendor-installer:{installerKind}:resolved:{candidate.SourceUpdateId}"
         });
     }
@@ -203,7 +225,8 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         {
             var raw = match.Groups["url"].Value;
             if (!Uri.TryCreate(page, raw, out var resolved)
-                || resolved.Scheme is not ("http" or "https"))
+                || resolved.Scheme is not ("http" or "https")
+                || IsSourceArchive(resolved))
             {
                 continue;
             }
@@ -260,6 +283,42 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         installerKind = string.Empty;
         return false;
     }
+
+    public static bool IsPackageCompatibleWithHardware(
+        UpdateCandidate candidate,
+        Uri packageUrl,
+        string installerKind)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(packageUrl);
+
+        var hardwareId = candidate.ForHardwareId;
+        var fileName = Path.GetFileName(packageUrl.LocalPath);
+        if (installerKind.Equals("nvidia", StringComparison.OrdinalIgnoreCase)
+            || packageUrl.Host.Contains("nvidia", StringComparison.OrdinalIgnoreCase))
+        {
+            return hardwareId.Contains("VEN_10DE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (installerKind.Equals("amd-chipset", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith("amd_chipset_software", StringComparison.OrdinalIgnoreCase))
+        {
+            return hardwareId.Contains("VEN_1022", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (fileName.Contains("adrenalin", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("minimalsetup", StringComparison.OrdinalIgnoreCase))
+        {
+            return hardwareId.Contains("VEN_1002", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return true;
+    }
+
+    private static bool IsSourceArchive(Uri url) =>
+        url.Host.Equals("codeload.github.com", StringComparison.OrdinalIgnoreCase)
+        || (url.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            && url.AbsolutePath.Contains("/archive/", StringComparison.OrdinalIgnoreCase));
 
     // Classified exes run silently with their documented unattended flags. Unclassified
     // exes are still resolved (as "exe-extract", lowest priority): the pipeline never

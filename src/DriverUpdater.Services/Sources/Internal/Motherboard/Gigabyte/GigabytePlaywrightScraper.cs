@@ -30,10 +30,10 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
         ArgumentException.ThrowIfNullOrWhiteSpace(motherboardModel);
 
         var normalized = GigabyteApiScraper.NormalizeModel(motherboardModel);
-        // The Support tab is React-gated and only renders the driver list when the URL
-        // includes the #Support-Driver fragment - omitting it leaves the page on the
-        // "Specifications" tab with no a[href*=download.gigabyte.com] anchors.
-        var url = $"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support#Support-Driver";
+        // Gigabyte's current support page renders the driver tables directly when this
+        // fragment is used. Older selectors targeted a retired React tab and left the
+        // scraper waiting on a page that already contained the catalog.
+        var url = $"https://www.gigabyte.com/Motherboard/{Uri.EscapeDataString(normalized)}/support#support-dl-driver";
         _logger.LogInformation("GigabytePlaywright: navigating to {Url}", url);
 
         await using var context = await _browserProvider.NewStealthContextAsync(cancellationToken).ConfigureAwait(false);
@@ -42,41 +42,27 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
         try
         {
             await page.GotoAsync(url, new PageGotoOptions { Timeout = PageLoadTimeoutMs, WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
+            if (TryBuildCanonicalSupportUrl(page.Url, out var canonicalSupportUrl))
+            {
+                _logger.LogInformation(
+                    "GigabytePlaywright: product redirect removed the support path; navigating to canonical support page {Url}",
+                    canonicalSupportUrl);
+                await page.GotoAsync(
+                    canonicalSupportUrl,
+                    new PageGotoOptions { Timeout = PageLoadTimeoutMs, WaitUntil = WaitUntilState.DOMContentLoaded })
+                    .ConfigureAwait(false);
+            }
         }
         catch (PlaywrightException ex)
         {
             throw new ScraperUnavailableException("Playwright navigation failed", ex);
         }
 
-        // The /support URL redirects to /Motherboard/{slug}#Support-Driver but the React
-        // tab controller does not pick up the hash automatically - the page lands on the
-        // Key Features tab with the driver list unmounted. Force the Support tab + Driver
-        // subtab via clicks before we wait for the download anchors.
         try
         {
             await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded,
                 new PageWaitForLoadStateOptions { Timeout = PageLoadTimeoutMs }).ConfigureAwait(false);
-
-            // Dismiss the CookieYes banner that overlays the tab strip and swallows clicks
-            // on the Support tab. The banner only ships an Accept button; with it gone the
-            // Element UI tabs become hit-testable.
-            await ClickFirstMatchAsync(page,
-                ["button.cky-btn-accept", ".cky-btn-accept", "button:has-text(\"Accept\")"],
-                "cookie banner Accept",
-                quick: true);
-
-            // Gigabyte's product page uses custom .men-tab-item links inside
-            // .base-info-tabs for the top-level tabs (Key Features / Specifications /
-            // Support / News & Awards / ...). Diagnostic HTML captured live confirmed
-            // the link text shows up as the trailing text of .men-tab-item-link.
-            // Clicking the Support tab is enough on its own - the #Support-Driver hash
-            // in the URL already preselects the Driver sub-section under Support, so a
-            // second click does nothing but burn the per-selector wait budget.
-            await ClickFirstMatchAsync(page,
-                [".men-tab-item-link:has-text(\"Support\")", ".men-tab-item:has-text(\"Support\")"],
-                "Support tab");
-
-            await page.WaitForSelectorAsync("a[href*='download.gigabyte.com/FileList/Driver']",
+            await page.WaitForSelectorAsync("tr.item-group a[href*='download.gigabyte.com/FileList/Driver']",
                 new PageWaitForSelectorOptions { Timeout = PageLoadTimeoutMs, State = WaitForSelectorState.Attached })
                 .ConfigureAwait(false);
         }
@@ -88,17 +74,23 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
             return Array.Empty<MotherboardDriverEntry>();
         }
 
-        // Gigabyte support pages render every driver download as an <a> whose href points
-        // at download.gigabyte.com/FileList/Driver/<filename>.zip. The filename embeds the
-        // version (mb_driver_612_realtekdch_6.0.9927.1.zip), so we can pull a reliable
-        // version even if the surrounding row layout drifts. The row's innerText still
-        // gives us the human title ("Realtek HD Audio Driver") and the release date.
+        // Read the named cells from the current server-rendered table. Keeping the category
+        // heading is important because MotherboardSource uses it to bind each package to the
+        // correct installed device instead of treating the page as one generic vendor lead.
         var links = await page.EvalOnSelectorAllAsync<DriverScrape[]>(
-            "a[href*='download.gigabyte.com/FileList/Driver']",
+            "tr.item-group a[href*='download.gigabyte.com/FileList/Driver']",
             "elements => elements.map(e => { " +
-            "  const row = e.closest('tr, li, div.support-list, div.driver-item, div[class*=\"item\"], div[class*=\"row\"]') || e.parentElement; " +
-            "  const text = row ? row.innerText : e.innerText; " +
-            "  return { Href: e.href, Title: e.getAttribute('title') || (e.innerText||'').trim(), RowText: text };" +
+            "  const row = e.closest('tr.item-group'); " +
+            "  const table = row ? row.closest('table') : null; " +
+            "  const heading = table ? table.previousElementSibling : null; " +
+            "  return { " +
+            "    Href: e.href, " +
+            "    Title: row?.querySelector('.item-info')?.textContent?.trim() || '', " +
+            "    Version: row?.querySelector('.item-version')?.textContent?.trim() || '', " +
+            "    Date: row?.querySelector('.item-date')?.textContent?.trim() || '', " +
+            "    Size: row?.querySelector('.item-size')?.textContent?.trim() || '', " +
+            "    Category: heading?.tagName === 'H2' ? heading.textContent?.trim() || '' : '' " +
+            "  };" +
             "})"
         ).ConfigureAwait(false);
 
@@ -106,27 +98,18 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var link in links)
         {
-            if (!Uri.TryCreate(link.Href, UriKind.Absolute, out var downloadUrl) || downloadUrl.Scheme is not ("http" or "https"))
+            if (TryBuildEntry(
+                    link.Href,
+                    link.Title,
+                    link.Version,
+                    link.Date,
+                    link.Size,
+                    link.Category,
+                    out var entry)
+                && seenUrls.Add(entry.DownloadUrl.AbsoluteUri))
             {
-                continue;
+                parsed.Add(entry);
             }
-
-            // Strip the `?v=...` cache buster so the SourceUpdateId stays stable across
-            // page reloads.
-            var canonicalUrl = new Uri(downloadUrl.GetLeftPart(UriPartial.Path));
-            if (!seenUrls.Add(canonicalUrl.AbsoluteUri))
-            {
-                continue;
-            }
-
-            var rowText = link.RowText ?? string.Empty;
-            var fileName = Path.GetFileName(canonicalUrl.AbsolutePath);
-            var version = ExtractVersionFromFileName(fileName) ?? ExtractVersion(rowText) ?? "0.0";
-            var releaseDate = ExtractDate(rowText) ?? DateOnly.MinValue;
-            var title = string.IsNullOrWhiteSpace(link.Title) ? GuessTitle(rowText) : link.Title;
-            var category = GuessCategory(title);
-
-            parsed.Add(new MotherboardDriverEntry(title.Trim(), version, releaseDate, canonicalUrl, SizeBytes: null, category));
         }
 
         _logger.LogInformation("GigabytePlaywright: found {Count} driver links on {FinalUrl} (started from {StartUrl})", parsed.Count, page.Url, url);
@@ -137,28 +120,65 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
         return parsed;
     }
 
-    private async Task ClickFirstMatchAsync(IPage page, string[] selectors, string description, bool quick = false)
+    internal static bool TryBuildCanonicalSupportUrl(string currentUrl, out string supportUrl)
     {
-        // `quick` shrinks each selector's wait so optional UI (e.g. the cookie banner)
-        // does not eat 20+ seconds when it is not present.
-        var perSelectorTimeoutMs = quick ? 1_500 : 4_000;
-        foreach (var selector in selectors)
+        supportUrl = string.Empty;
+        if (!Uri.TryCreate(currentUrl, UriKind.Absolute, out var current)
+            || current.Scheme is not ("http" or "https")
+            || !current.Host.EndsWith("gigabyte.com", StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                var locator = page.Locator(selector).First;
-                await locator.WaitForAsync(new LocatorWaitForOptions { Timeout = perSelectorTimeoutMs, State = WaitForSelectorState.Visible }).ConfigureAwait(false);
-                await locator.ClickAsync(new LocatorClickOptions { Timeout = perSelectorTimeoutMs }).ConfigureAwait(false);
-                _logger.LogInformation("GigabytePlaywright: clicked {Description} via selector {Selector}", description, selector);
-                await page.WaitForTimeoutAsync(500).ConfigureAwait(false); // let React rebind
-                return;
-            }
-            catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
-            {
-                _logger.LogDebug("GigabytePlaywright: selector {Selector} for {Description} did not match", selector, description);
-            }
+            return false;
         }
-        _logger.LogInformation("GigabytePlaywright: no clickable element matched for {Description}", description);
+
+        var path = current.AbsolutePath.TrimEnd('/');
+        if (!path.StartsWith("/Motherboard/", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith("/support", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        supportUrl = new UriBuilder(current.Scheme, current.Host)
+        {
+            Path = path + "/support",
+            Fragment = "support-dl-driver"
+        }.Uri.AbsoluteUri;
+        return true;
+    }
+
+    internal static bool TryBuildEntry(
+        string href,
+        string title,
+        string versionText,
+        string dateText,
+        string sizeText,
+        string categoryText,
+        out MotherboardDriverEntry entry)
+    {
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var downloadUrl)
+            || downloadUrl.Scheme is not ("http" or "https"))
+        {
+            entry = null!;
+            return false;
+        }
+
+        var canonicalUrl = new Uri(downloadUrl.GetLeftPart(UriPartial.Path));
+        var fileName = Path.GetFileName(canonicalUrl.AbsolutePath);
+        var version = ExtractVersion(versionText)
+            ?? ExtractVersionFromFileName(fileName)
+            ?? "0.0";
+        var releaseDate = ExtractDate(dateText) ?? DateOnly.MinValue;
+        var normalizedTitle = string.IsNullOrWhiteSpace(title) ? "Gigabyte Driver" : title.Trim();
+        var category = string.IsNullOrWhiteSpace(categoryText)
+            ? GuessCategory(normalizedTitle)
+            : categoryText.Trim();
+        entry = new MotherboardDriverEntry(
+            normalizedTitle,
+            version,
+            releaseDate,
+            canonicalUrl,
+            ParseSizeBytes(sizeText),
+            category);
+        return true;
     }
 
     private static async Task<string> SafeTitleAsync(IPage page)
@@ -256,10 +276,35 @@ public sealed class GigabytePlaywrightScraper : IMotherboardScraper
         return "Utility";
     }
 
+    private static long? ParseSizeBytes(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(?<size>\d+(?:\.\d+)?)\s*(?<unit>KB|MB|GB)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success
+            || !double.TryParse(match.Groups["size"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var size))
+        {
+            return null;
+        }
+
+        var multiplier = match.Groups["unit"].Value.ToUpperInvariant() switch
+        {
+            "KB" => 1024d,
+            "MB" => 1024d * 1024d,
+            "GB" => 1024d * 1024d * 1024d,
+            _ => 1d
+        };
+        return checked((long)(size * multiplier));
+    }
+
     private sealed class DriverScrape
     {
         public string Href { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
-        public string RowText { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public string Date { get; set; } = string.Empty;
+        public string Size { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
     }
 }

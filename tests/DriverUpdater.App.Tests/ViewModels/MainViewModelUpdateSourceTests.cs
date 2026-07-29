@@ -552,7 +552,6 @@ public class MainViewModelUpdateSourceTests
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
         var pipeline = new RecordingInstallPipeline();
-        var links = new RecordingExternalLinkOpener();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
@@ -563,8 +562,7 @@ public class MainViewModelUpdateSourceTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            vendorPageResolver: new StubVendorPageResolver(new Uri("https://vendor.example/driver.exe")),
-            externalLinkOpener: links);
+            vendorPageResolver: new StubVendorPageResolver(new Uri("https://vendor.example/driver.exe")));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
@@ -572,17 +570,17 @@ public class MainViewModelUpdateSourceTests
         row.AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
         row.IsVendorPageOnly.Should().BeFalse();
         row.UpdateActionText.Should().Be("Update");
+        row.AvailableUpdate.Confidence.Should().Be(UpdateConfidence.Confirmed);
         row.Status.Should().Be(DriverStatus.Outdated);
 
         await vm.UpdateSingleCommand.ExecuteAsync(row);
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example/driver.exe"));
-        links.OpenedUris.Should().BeEmpty();
     }
 
     [WpfFact]
-    public async Task Vendor_page_with_no_installer_offers_the_page_instead_of_a_failing_install()
+    public async Task Vendor_page_with_no_installer_is_not_offered_as_an_update()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var page = new Uri("https://vendor.example/support");
@@ -592,7 +590,6 @@ public class MainViewModelUpdateSourceTests
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory) with { DownloadUrl = page };
         var pipeline = new RecordingInstallPipeline();
-        var links = new RecordingExternalLinkOpener();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
@@ -603,22 +600,18 @@ public class MainViewModelUpdateSourceTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            vendorPageResolver: new StubVendorPageResolver(resolvedPackage: null),
-            externalLinkOpener: links);
+            vendorPageResolver: new StubVendorPageResolver(resolvedPackage: null));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
         var row = vm.Drivers[0];
-        row.Status.Should().Be(DriverStatus.ManualActionRequired);
-        row.StatusText.Should().Be("Install from vendor page");
-        row.IsVendorPageOnly.Should().BeTrue();
-        row.UpdateActionText.Should().Be("Open page");
-        row.CanUpdate.Should().BeTrue();
+        row.Status.Should().Be(DriverStatus.NotFound);
+        row.AvailableUpdate.Should().BeNull();
+        row.CanUpdate.Should().BeFalse();
 
         await vm.UpdateSingleCommand.ExecuteAsync(row);
 
-        links.OpenedUris.Should().ContainSingle().Which.Should().Be(page);
-        pipeline.Operations.Should().BeEmpty("the scan already proved the page has nothing installable");
+        pipeline.Operations.Should().BeEmpty("the scan did not find a verified package");
     }
 
     [WpfFact]
@@ -930,6 +923,38 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_drops_cached_advisory_that_no_source_revalidates()
+    {
+        var driver = NewDriver("Realtek Audio", @"PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 7, 29, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, advisory)
+        }));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(Array.Empty<UpdateCandidate>()) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Single().AvailableUpdate.Should().BeNull();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    [WpfFact]
     public async Task Update_carried_over_from_the_last_scan_can_be_installed()
     {
         var driver = NewDriver("Intel Display", @"PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
@@ -1132,10 +1157,8 @@ public class MainViewModelUpdateSourceTests
     [WpfFact]
     public async Task Vendor_page_that_cannot_be_fetched_at_all_is_dropped_not_offered_as_manual()
     {
-        // A page that answers with real content but no package (NoPackageFound) is offered as
-        // "Open page" - a human can still browse it. A page that cannot be reached at all, even
-        // by a browser, usually means the lead itself is bad (the AI invented or moved the URL),
-        // so opening it would just hand the user a dead link. That case is dropped entirely.
+        // A page URL is not an update. Whether it has no package or cannot be reached, it is
+        // dropped unless the resolver produces a verified in-app installer.
         var driver = NewDriver("Volume", "STORAGE\\VOLUME", new Version(10, 0, 26100, 5074));
         var deadLead = NewCandidate(
             "STORAGE\\VOLUME", new Version(10, 0, 26100, 8875),
@@ -1164,17 +1187,6 @@ public class MainViewModelUpdateSourceTests
         row.Status.Should().Be(DriverStatus.NotFound);
         row.HasAvailableUpdate.Should().BeFalse();
         vm.UpdatesFoundCount.Should().Be(0);
-    }
-
-    private sealed class RecordingExternalLinkOpener : IExternalLinkOpener
-    {
-        public List<Uri> OpenedUris { get; } = new();
-
-        public bool Open(Uri uri)
-        {
-            OpenedUris.Add(uri);
-            return true;
-        }
     }
 
     private sealed class StubVendorPageResolver : IVendorPageInstallerResolver

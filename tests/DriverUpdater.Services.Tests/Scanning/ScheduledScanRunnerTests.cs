@@ -39,7 +39,7 @@ public class ScheduledScanRunnerTests
     {
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var caughtUp = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
-        var pending = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0), UpdateInstallKind.VendorPage);
+        var pending = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller);
         var obsolete = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
         {
@@ -199,7 +199,32 @@ public class ScheduledScanRunnerTests
 
         await runner.RunAsync(installUpdates: true);
 
-        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull("vendor-page advisories survive but are never auto-installed");
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
+            "a fresh vendor lead may be resolved by the interactive app but is never auto-installed as a page");
+    }
+
+    [Fact]
+    public async Task RunAsync_does_not_carry_unverified_vendor_leads_from_cache()
+    {
+        var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 7, 29, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, advisory)
+        }));
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.Oem) },
+            new ThrowingInstallPipeline(),
+            cache);
+
+        await runner.RunAsync(installUpdates: false);
+
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().BeNull();
     }
 
     [Fact]

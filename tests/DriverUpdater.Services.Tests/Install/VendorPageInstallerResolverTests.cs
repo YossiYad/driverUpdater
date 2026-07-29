@@ -95,12 +95,50 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
+    public void TryFindInstallerLink_rejects_github_source_archives()
+    {
+        const string html = """
+            <a href="https://github.com/vendor/driver/archive/refs/tags/v1.2.3.zip">source</a>
+            """;
+
+        var ok = VendorPageInstallerResolver.TryFindInstallerLink(
+            new Uri("https://github.com/vendor/driver/releases/tag/v1.2.3"),
+            html,
+            out _,
+            out _);
+
+        ok.Should().BeFalse();
+    }
+
+    [Fact]
     public void TryClassifyExe_rejects_amd_adrenalin_installers()
     {
         var ok = VendorPageInstallerResolver.TryClassifyExe(
             new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win10-win11-may2025.exe"), out _);
 
         ok.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("PCI\\VEN_1002&DEV_747E", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", true)]
+    [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", false)]
+    [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/amd_chipset_software_8.1.exe", "amd-chipset", true)]
+    [InlineData("PCI\\VEN_10DE&DEV_2684", "https://download.nvidia.com/driver.exe", "nvidia", true)]
+    [InlineData("PCI\\VEN_8086&DEV_4682", "https://download.nvidia.com/driver.exe", "nvidia", false)]
+    public void IsPackageCompatibleWithHardware_checks_known_vendor_families(
+        string hardwareId,
+        string package,
+        string installerKind,
+        bool expected)
+    {
+        var candidate = NewVendorPageCandidate() with { ForHardwareId = hardwareId };
+
+        VendorPageInstallerResolver.IsPackageCompatibleWithHardware(
+                candidate,
+                new Uri(package),
+                installerKind)
+            .Should()
+            .Be(expected);
     }
 
     [Fact]
@@ -115,6 +153,7 @@ public class VendorPageInstallerResolverTests
 
         resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
         resolution.Candidate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        resolution.Candidate.Confidence.Should().Be(UpdateConfidence.Confirmed);
         resolution.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
         resolution.Candidate.SourceUpdateId.Should().Be("vendor-installer:msi-wrapper:resolved:vendor-page:Test:PCI\\X");
     }
@@ -152,6 +191,19 @@ public class VendorPageInstallerResolverTests
 
         var resolution = await resolver.TryResolveAsync(
             NewVendorPageCandidate() with { InstallKind = UpdateInstallKind.WindowsUpdate });
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_does_not_treat_an_ai_page_lead_as_package_metadata()
+    {
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<a href='/downloads/unrelated-driver.msi'>download</a>"),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+
+        var resolution = await resolver.TryResolveAsync(
+            NewVendorPageCandidate() with { SourceUpdateId = "ai-latest:PCI\\X" });
 
         resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
     }

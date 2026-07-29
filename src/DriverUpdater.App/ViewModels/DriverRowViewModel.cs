@@ -111,13 +111,12 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
         UpdateInstallKind.VendorInstaller => "Update",
-        UpdateInstallKind.VendorPage => "Open page",
+        UpdateInstallKind.VendorPage => "Check",
         _ => string.Empty
     };
 
-    // The scan resolves every vendor page it can into a direct installer, so a candidate still
-    // marked VendorPage afterwards is one the app cannot install itself. Its button opens the
-    // vendor's download page rather than starting an install that would only fail.
+    // Vendor pages are transient leads. A production scan resolves them to packages or drops
+    // them, but keeping this state explicit lets the install pipeline retry safely.
     public bool IsVendorPageOnly => AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage };
     public string ConfidenceText => IsAwaitingRescan ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
     {
@@ -134,7 +133,7 @@ public partial class DriverRowViewModel : ObservableObject
         DriverStatus.NotFound => "No update found",
         DriverStatus.Error => "Check failed",
         DriverStatus.NotUpdated => "Not updated",
-        DriverStatus.ManualActionRequired => "Install from vendor page",
+        DriverStatus.ManualActionRequired => "No verified in-app package",
         DriverStatus.RestartRequired => "Restart required",
         DriverStatus.VerificationInconclusive => "Could not verify",
         _ => Status.ToString()

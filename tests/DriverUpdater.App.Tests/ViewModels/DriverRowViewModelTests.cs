@@ -90,7 +90,7 @@ public class DriverRowViewModelTests
     [InlineData(UpdateInstallKind.WindowsUpdate, "Install")]
     [InlineData(UpdateInstallKind.PnPUtilPackage, "Install")]
     [InlineData(UpdateInstallKind.VendorInstaller, "Update")]
-    [InlineData(UpdateInstallKind.VendorPage, "Open page")]
+    [InlineData(UpdateInstallKind.VendorPage, "Check")]
     public void Update_action_text_matches_install_kind(UpdateInstallKind kind, string expected)
     {
         var row = new DriverRowViewModel(NewSampleDriver());
@@ -242,7 +242,7 @@ public class DriverRowViewModelTests
         row.CanUpdate.Should().BeTrue();
 
         row.IsVendorPageOnly.Should().BeTrue();
-        row.UpdateActionText.Should().Be("Open page");
+        row.UpdateActionText.Should().Be("Check");
 
         row.ActiveOperation = NewActiveOperation() with { Status = UpdateStatus.Installing };
         row.CanUpdate.Should().BeFalse("the row is already installing");

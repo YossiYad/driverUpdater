@@ -235,7 +235,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         var previous = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in snapshot.Entries)
         {
-            if (entry.AvailableUpdate is { } candidate && !string.IsNullOrWhiteSpace(entry.Driver.DeviceId))
+            if (entry.AvailableUpdate is { } candidate
+                && IsSafeCacheFallback(candidate)
+                && !string.IsNullOrWhiteSpace(entry.Driver.DeviceId))
             {
                 previous[entry.Driver.DeviceId] = candidate;
             }
@@ -316,6 +318,10 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         kind is UpdateInstallKind.WindowsUpdate
             or UpdateInstallKind.PnPUtilPackage
             or UpdateInstallKind.VendorInstaller;
+
+    private static bool IsSafeCacheFallback(UpdateCandidate candidate) =>
+        candidate.Confidence == UpdateConfidence.Confirmed
+        && candidate.InstallKind != UpdateInstallKind.VendorPage;
 
     private sealed class DriverState
     {
