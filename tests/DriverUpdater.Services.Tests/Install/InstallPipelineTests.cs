@@ -794,6 +794,96 @@ public class InstallPipelineTests
         pnputil.Arguments[0].Should().Contain("/add-driver");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_runs_unknown_exe_with_detected_engine_arguments_when_no_inf_found()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var content = new byte[64];
+        content[0] = 0x4D;
+        content[1] = 0x5A;
+        byte[] installer = [.. content, .. System.Text.Encoding.ASCII.GetBytes("Nullsoft Install System")];
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(installer),
+            archiveExtractor: new FakeArchiveExtractor { Files = new Dictionary<string, byte[]>() },
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        pnputil.Arguments.Should().BeEmpty();
+        vendorInstaller.Invocations.Should().ContainSingle();
+        vendorInstaller.Invocations[0].Arguments.Should().Be("/S");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_prefers_inf_payload_over_detected_engine()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var content = new byte[64];
+        content[0] = 0x4D;
+        content[1] = 0x5A;
+        byte[] installer = [.. content, .. System.Text.Encoding.ASCII.GetBytes("Nullsoft Install System")];
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(installer),
+            archiveExtractor: new FakeArchiveExtractor(),
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        vendorInstaller.Invocations.Should().BeEmpty();
+        pnputil.Arguments.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_detected_engine_exe_still_requires_trusted_signature()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var content = new byte[64];
+        content[0] = 0x4D;
+        content[1] = 0x5A;
+        byte[] installer = [.. content, .. System.Text.Encoding.ASCII.GetBytes("Nullsoft Install System")];
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            new FakePnPUtilRunner(),
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(installer),
+            archiveExtractor: new FakeArchiveExtractor { Files = new Dictionary<string, byte[]>() },
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(false, null, null, "untrusted")
+            });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("digital-signature");
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
     private static UpdateOperation NewAdrenalinOperation()
     {
         var op = NewOperation(
