@@ -95,10 +95,21 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
-    public void TryClassifyExe_rejects_amd_adrenalin_installers()
+    public void TryClassifyExe_accepts_full_amd_adrenalin_installer()
     {
         var ok = VendorPageInstallerResolver.TryClassifyExe(
-            new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win10-win11-may2025.exe"), out _);
+            new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win10-win11-may2025.exe"), out var kind);
+
+        ok.Should().BeTrue();
+        kind.Should().Be("amd-adrenalin");
+    }
+
+    [Theory]
+    [InlineData("https://drivers.amd.com/drivers/installer/amd-software-adrenalin-edition-25.5.1-minimalsetup-250515_web.exe")]
+    [InlineData("https://drivers.amd.com/drivers/amd-software-adrenalin-edition-minimalsetup.exe")]
+    public void TryClassifyExe_leaves_adrenalin_web_stubs_unclassified(string url)
+    {
+        var ok = VendorPageInstallerResolver.TryClassifyExe(new Uri(url), out _);
 
         ok.Should().BeFalse();
     }

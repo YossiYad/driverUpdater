@@ -258,6 +258,16 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             installerKind = "amd-chipset";
             return true;
         }
+        // Full Adrenalin packages carry an inner Setup.exe with a documented unattended
+        // CLI (-INSTALL -DRIVERONLY). The "_web"/"minimalsetup" stubs are tiny downloaders
+        // with no embedded payload, so they are left unclassified.
+        if (fileName.Contains("adrenalin", StringComparison.OrdinalIgnoreCase)
+            && !fileName.Contains("_web", StringComparison.OrdinalIgnoreCase)
+            && !fileName.Contains("minimalsetup", StringComparison.OrdinalIgnoreCase))
+        {
+            installerKind = "amd-adrenalin";
+            return true;
+        }
 
         installerKind = string.Empty;
         return false;

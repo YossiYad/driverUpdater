@@ -191,7 +191,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 SizeBytes: release.SizeBytes ?? 0,
                 KbArticle: null,
                 IsSuperseded: false,
-                SourceUpdateId: $"vendor-installer:nullsoft:amd-radeon:{release.Revision}",
+                SourceUpdateId: $"vendor-installer:amd-adrenalin:amd-radeon:{release.Revision}",
                 SupersededIds: Array.Empty<string>(),
                 InstallKind: UpdateInstallKind.VendorInstaller);
         }

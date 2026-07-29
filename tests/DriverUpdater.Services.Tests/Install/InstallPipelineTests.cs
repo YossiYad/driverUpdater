@@ -724,7 +724,7 @@ public class InstallPipelineTests
             pnputil,
             vendorInstallerRunner: new FakeVendorInstallerRunner(),
             httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
-            archiveExtractor: new FakeArchiveExtractor { WriteInf = false });
+            archiveExtractor: new FakeArchiveExtractor { Files = new Dictionary<string, byte[]>() });
 
         var result = await pipeline.ExecuteAsync(
             NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
@@ -792,6 +792,127 @@ public class InstallPipelineTests
         vendorInstaller.Invocations.Should().BeEmpty();
         pnputil.Arguments.Should().ContainSingle();
         pnputil.Arguments[0].Should().Contain("/add-driver");
+    }
+
+    private static UpdateOperation NewAdrenalinOperation()
+    {
+        var op = NewOperation(
+            UpdateSource.Oem,
+            UpdateInstallKind.VendorInstaller,
+            new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win10-win11.exe"));
+        return op with
+        {
+            Candidate = op.Candidate with
+            {
+                SourceUpdateId = "vendor-installer:amd-adrenalin:resolved:vendor-page:amd:PCI\\X"
+            }
+        };
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_runs_adrenalin_inner_setup_with_driveronly()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var extractor = new FakeArchiveExtractor
+        {
+            Files = new Dictionary<string, byte[]> { ["Setup.exe"] = [0x4D, 0x5A, 0x00] }
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: extractor,
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "Advanced Micro Devices, Inc.", "AMD123", null)
+            });
+
+        var result = await pipeline.ExecuteAsync(
+            NewAdrenalinOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        extractor.Invocations.Should().Be(1);
+        pnputil.Arguments.Should().BeEmpty();
+        vendorInstaller.Invocations.Should().ContainSingle();
+        vendorInstaller.Invocations[0].FileName.Should().EndWith("Setup.exe");
+        vendorInstaller.Invocations[0].Arguments.Should().Contain("-INSTALL");
+        vendorInstaller.Invocations[0].Arguments.Should().Contain("-DRIVERONLY");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_adrenalin_without_setup_falls_back_to_inf_install()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var extractor = new FakeArchiveExtractor();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: extractor);
+
+        var result = await pipeline.ExecuteAsync(
+            NewAdrenalinOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        extractor.Invocations.Should().Be(1);
+        vendorInstaller.Invocations.Should().BeEmpty();
+        pnputil.Arguments.Should().ContainSingle();
+        pnputil.Arguments[0].Should().Contain("/add-driver");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_rejects_adrenalin_setup_with_unexpected_publisher()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            new FakePnPUtilRunner(),
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: new FakeArchiveExtractor
+            {
+                Files = new Dictionary<string, byte[]> { ["Setup.exe"] = [0x4D, 0x5A, 0x00] }
+            },
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "CN=Not AMD", "BAD", null)
+            });
+
+        var result = await pipeline.ExecuteAsync(
+            NewAdrenalinOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("unexpected publisher");
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void LocateSetupExe_prefers_shallowest_match()
+    {
+        using var temp = new TempDir();
+        Directory.CreateDirectory(Path.Combine(temp.Path, "nested", "deep"));
+        File.WriteAllText(Path.Combine(temp.Path, "nested", "deep", "Setup.exe"), "stub");
+        File.WriteAllText(Path.Combine(temp.Path, "nested", "Setup.exe"), "stub");
+
+        var located = InstallPipeline.LocateSetupExe(temp.Path);
+
+        located.Should().Be(Path.Combine(temp.Path, "nested", "Setup.exe"));
     }
 
     [Fact]
@@ -1144,7 +1265,8 @@ public class InstallPipelineTests
     {
         public bool Result { get; init; } = true;
         public string Error { get; init; } = string.Empty;
-        public bool WriteInf { get; init; } = true;
+        public IReadOnlyDictionary<string, byte[]> Files { get; init; } =
+            new Dictionary<string, byte[]> { ["driver.inf"] = System.Text.Encoding.ASCII.GetBytes("[Version]") };
         public int Invocations { get; private set; }
 
         public bool TryExtract(string archivePath, string destinationDirectory, out string errorMessage)
@@ -1156,9 +1278,11 @@ public class InstallPipelineTests
                 return false;
             }
             Directory.CreateDirectory(destinationDirectory);
-            if (WriteInf)
+            foreach (var (name, content) in Files)
             {
-                File.WriteAllText(Path.Combine(destinationDirectory, "driver.inf"), "[Version]");
+                var path = Path.Combine(destinationDirectory, name);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, content);
             }
             return true;
         }
