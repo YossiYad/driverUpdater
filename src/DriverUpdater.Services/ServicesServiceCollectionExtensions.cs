@@ -39,6 +39,13 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<Sources.Internal.Hp.IHpSoftpaqRefProvider, Sources.Internal.Hp.HpSoftpaqRefProvider>();
         services.AddSingleton<IUpdateSource, HpSoftpaqSource>();
 
+        ConfigureLenovoCatalogHttpClient(services);
+        services.AddSingleton<IUpdateSource>(sp => new LenovoCatalogSource(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(LenovoCatalogSource.HttpClientName),
+            sp.GetRequiredService<IOemDetectionService>(),
+            sp.GetRequiredService<IWmiQueryRunner>(),
+            sp.GetRequiredService<ILogger<LenovoCatalogSource>>()));
+
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
@@ -171,6 +178,19 @@ public static class ServicesServiceCollectionExtensions
         .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
             retryCount: 2,
             sleepDurationProvider: attempt => TimeSpan.FromSeconds(2 * attempt)));
+    }
+
+    private static void ConfigureLenovoCatalogHttpClient(IServiceCollection services)
+    {
+        services.AddHttpClient(LenovoCatalogSource.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml,text/xml,*/*");
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 2,
+            sleepDurationProvider: attempt => TimeSpan.FromSeconds(attempt)));
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)
