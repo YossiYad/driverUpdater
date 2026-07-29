@@ -86,6 +86,31 @@ public class DriverRowViewModelTests
         row.DriverDetailsTooltip.Should().Contain("Source: MicrosoftCatalog");
     }
 
+    [Theory]
+    [InlineData(UpdateInstallKind.WindowsUpdate, "Install")]
+    [InlineData(UpdateInstallKind.PnPUtilPackage, "Install")]
+    [InlineData(UpdateInstallKind.VendorInstaller, "Update")]
+    [InlineData(UpdateInstallKind.VendorPage, "Resolve in app")]
+    public void Update_action_text_matches_install_kind(UpdateInstallKind kind, string expected)
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+
+        row.AvailableUpdate = new UpdateCandidate(
+            ForHardwareId: row.HardwareId,
+            Source: UpdateSource.Oem,
+            NewVersion: new Version(2, 0, 0, 0),
+            NewDate: new DateOnly(2026, 1, 1),
+            DownloadUrl: new Uri("https://example.com/x.exe"),
+            SizeBytes: 1024,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: "abc",
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: kind);
+
+        row.UpdateActionText.Should().Be(expected);
+    }
+
     [Fact]
     public void Available_update_setter_notifies_computed_update_properties()
     {
