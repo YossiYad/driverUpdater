@@ -108,13 +108,13 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
         UpdateInstallKind.VendorInstaller => "Update",
-        UpdateInstallKind.VendorPage => "Resolve in app",
+        UpdateInstallKind.VendorPage => "Update",
         _ => string.Empty
     };
     public string ConfidenceText => IsUpdateFromCache ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
     {
         UpdateConfidence.Confirmed => "Confirmed",
-        UpdateConfidence.Advisory => "Check vendor",
+        UpdateConfidence.Advisory => "Likely update",
         _ => string.Empty
     };
 

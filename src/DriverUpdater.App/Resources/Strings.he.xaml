@@ -27,7 +27,7 @@
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
-    <sys:String x:Key="Toolbar.OpenVendorChecks">פתור בדיקות יצרן באפליקציה</sys:String>
+    <sys:String x:Key="Toolbar.OpenVendorChecks">בצע עדכונים באפליקציה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
     <sys:String x:Key="Toolbar.Logs">לוגים</sys:String>
     <sys:String x:Key="Toolbar.Settings">הגדרות</sys:String>
@@ -73,7 +73,7 @@
     <sys:String x:Key="Confirm.Impact.StorageSystem">שירותי מערכת או עבודה פעילה עשויים להיפסק. סגור יישומים חשובים ושמור קבצים פתוחים לפני ההמשך.</sys:String>
     <sys:String x:Key="Confirm.Impact.Printer">הדפסה ועבודות הדפסה פעילות עשויות להיעצר זמנית.</sys:String>
     <sys:String x:Key="Confirm.Impact.Generic">ההתקן ויישומים שמשתמשים בו עשויים לא להיות זמינים זמנית בזמן ההתקנה.</sys:String>
-    <sys:String x:Key="Confirm.Impact.VendorInstaller">תוכנית ההתקנה של היצרן עשויה לסגור יישומים קשורים או לבקש אישור נוסף.</sys:String>
+    <sys:String x:Key="Confirm.Impact.VendorInstaller">תוכנית ההתקנה עשויה לסגור יישומים קשורים או לבקש אישור נוסף.</sys:String>
     <sys:String x:Key="Confirm.CancelButton">ביטול</sys:String>
     <sys:String x:Key="Confirm.ProceedButton">המשך</sys:String>
 

@@ -151,7 +151,7 @@ public partial class MainViewModel : ObservableObject
         : ScannedCount > 0
             ? IsShowingCachedDrivers
                 ? $"{ScannedCount} cached drivers (scan to refresh)"
-                : $"{ScannedCount} drivers ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} vendor checks)"
+                : $"{ScannedCount} drivers ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} possible updates)"
             : string.Empty;
 
     public MainViewModel(
@@ -841,7 +841,7 @@ public partial class MainViewModel : ObservableObject
             FinalizeScanStatuses();
             LogScanSummary();
 
-            StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} vendor checks.";
+            StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} possible updates.";
             if (DiscardScanIfCacheWasCleared())
             {
                 return;
@@ -1420,7 +1420,7 @@ public partial class MainViewModel : ObservableObject
             else
             {
                 StatusText = kept
-                    ? $"AI found a newer driver for {row.DeviceName}: {row.AvailableVersionText}. Open the vendor check to continue."
+                    ? $"AI found a newer driver for {row.DeviceName}: {row.AvailableVersionText}. Run the update to continue."
                     : $"AI did not find a newer official driver for {row.DeviceName}.";
             }
         }
@@ -1603,7 +1603,7 @@ public partial class MainViewModel : ObservableObject
         if (!providerUnavailable)
         {
             StatusText =
-                $"AI latest-driver search complete. {alreadyReviewed.Count + processed} of {Drivers.Count} drivers processed, {found} vendor checks found, {noNewer} already current, {withoutVerdict} no result."
+                $"AI latest-driver search complete. {alreadyReviewed.Count + processed} of {Drivers.Count} drivers processed, {found} possible updates found, {noNewer} already current, {withoutVerdict} no result."
                 + (failedBatches > 0 ? $" {failedBatches} batch(es) failed." : string.Empty);
         }
         _logger.LogInformation(
@@ -2131,7 +2131,7 @@ public partial class MainViewModel : ObservableObject
 
         if (pageTargets.Length == 0)
         {
-            StatusText = "No vendor checks to resolve.";
+            StatusText = "No pending updates to resolve.";
             return;
         }
 
@@ -2182,7 +2182,7 @@ public partial class MainViewModel : ObservableObject
         if (installTargets.Length == 0)
         {
             StatusText = dryRun
-                ? $"Dry run completed. {pageTargets.Length} vendor checks require in-app installer resolution."
+                ? $"Dry run completed. {pageTargets.Length} updates require in-app installer resolution."
                 : "No confirmed updates to install.";
             return;
         }
@@ -2299,7 +2299,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
             : unresolvedVendorChecks.Count > 0
-                ? $"Install completed for {installTargets.Length} drivers. {unresolvedVendorChecks.Count} vendor checks had no safe in-app installer."
+                ? $"Install completed for {installTargets.Length} drivers. {unresolvedVendorChecks.Count} updates had no safe in-app installer."
                 : includeVendorPages
                     ? $"Install completed for {installTargets.Length} drivers."
                     : $"Install completed for {installTargets.Length} confirmed drivers.";

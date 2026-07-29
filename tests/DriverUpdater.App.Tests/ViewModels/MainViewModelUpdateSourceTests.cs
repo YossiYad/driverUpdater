@@ -377,7 +377,7 @@ public class MainViewModelUpdateSourceTests
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(candidate.SourceUpdateId);
-        vm.StatusText.Should().Contain("1 vendor checks had no safe in-app installer");
+        vm.StatusText.Should().Contain("1 updates had no safe in-app installer");
         vm.ConfirmedUpdatesCount.Should().Be(0);
         vm.VendorChecksCount.Should().Be(1);
     }
@@ -440,7 +440,7 @@ public class MainViewModelUpdateSourceTests
         pipeline.Operations.Select(o => o.Candidate.SourceUpdateId)
             .Should().BeEquivalentTo(new[] { installCandidate.SourceUpdateId, advisory.SourceUpdateId });
         vm.StatusText.Should().Contain("Install completed for 2 drivers")
-            .And.Contain("1 vendor checks had no safe in-app installer");
+            .And.Contain("1 updates had no safe in-app installer");
     }
 
     [WpfFact]
@@ -568,7 +568,7 @@ public class MainViewModelUpdateSourceTests
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        vm.StatusText.Should().Contain("1 vendor checks had no safe in-app installer");
+        vm.StatusText.Should().Contain("1 updates had no safe in-app installer");
     }
 
     [WpfFact]

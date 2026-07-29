@@ -12,7 +12,7 @@
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
-    <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve vendor checks in app</sys:String>
+    <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve updates in app</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>
     <sys:String x:Key="Toolbar.Logs">Logs</sys:String>
     <sys:String x:Key="Toolbar.Settings">Settings</sys:String>
@@ -72,7 +72,7 @@
     <sys:String x:Key="Confirm.Impact.StorageSystem">System services or active work may be interrupted. Close important apps and save open files first.</sys:String>
     <sys:String x:Key="Confirm.Impact.Printer">Printing and active print jobs may be interrupted temporarily.</sys:String>
     <sys:String x:Key="Confirm.Impact.Generic">The device and apps using it may be unavailable temporarily during installation.</sys:String>
-    <sys:String x:Key="Confirm.Impact.VendorInstaller">The vendor installer may close related apps or ask for additional confirmation.</sys:String>
+    <sys:String x:Key="Confirm.Impact.VendorInstaller">The installer may close related apps or ask for additional confirmation.</sys:String>
     <sys:String x:Key="Confirm.CancelButton">Cancel</sys:String>
     <sys:String x:Key="Confirm.ProceedButton">Proceed</sys:String>
 
