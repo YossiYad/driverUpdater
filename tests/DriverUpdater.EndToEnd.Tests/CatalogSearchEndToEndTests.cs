@@ -111,20 +111,16 @@ public sealed class CatalogSearchEndToEndTests
     }
 
     [Fact]
-    public async Task A_hit_with_no_downloadable_package_is_offered_as_a_catalog_page_only()
+    public async Task A_hit_with_no_downloadable_package_is_discarded()
     {
-        // The download dialog returns nothing, so there is no direct package to install.
+        // The download dialog returns nothing, so there is no direct package to install, and
+        // the app never offers a bare catalog page as a fallback - the hit is dropped.
         var client = new ReplayCatalogHttpClient(SearchResultsHtml, "<html><body></body></html>");
         var source = BuildSource(client);
 
         var candidates = await source.SearchAsync(new[] { InstalledNic }).ToListAsync();
 
-        var newest = candidates.Where(c => c.IsNewerThan(InstalledNic))
-            .OrderByDescending(c => c.NewVersion)
-            .First();
-        newest.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
-        newest.Confidence.Should().Be(UpdateConfidence.Advisory);
-        newest.DownloadUrl.AbsoluteUri.Should().Contain("catalog.update.microsoft.com/ScopedViewInline.aspx");
+        candidates.Where(c => c.IsNewerThan(InstalledNic)).Should().BeEmpty();
     }
 
     [Fact]
