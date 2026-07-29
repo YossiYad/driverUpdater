@@ -31,6 +31,10 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();
 
+        ConfigureDellCatalogHttpClient(services);
+        services.AddSingleton<Sources.Internal.Dell.IDellCatalogProvider, Sources.Internal.Dell.DellCatalogProvider>();
+        services.AddSingleton<IUpdateSource, DellCatalogSource>();
+
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
@@ -137,6 +141,19 @@ public static class ServicesServiceCollectionExtensions
                 },
                 onRetryAsync: (_, _, _, _) => Task.CompletedTask))
         .AddHttpMessageHandler<GeminiUsageTrackingHandler>();
+    }
+
+    private static void ConfigureDellCatalogHttpClient(IServiceCollection services)
+    {
+        services.AddHttpClient(Sources.Internal.Dell.DellCatalogProvider.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("DriverUpdater/0.1 (+local)");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/octet-stream,*/*");
+        })
+        .AddTransientHttpErrorPolicy(b => b.WaitAndRetryAsync(
+            retryCount: 2,
+            sleepDurationProvider: attempt => TimeSpan.FromSeconds(2 * attempt)));
     }
 
     private static void ConfigureVendorScrapingHttpClient(IServiceCollection services, string name, string baseAddress)

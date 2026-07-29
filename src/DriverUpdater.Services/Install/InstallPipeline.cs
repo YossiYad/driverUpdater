@@ -757,8 +757,7 @@ public sealed class InstallPipeline : IInstallPipeline
                     out amdLogDetail,
                     out amdRebootRequired);
             if (!result.IsSuccess
-                && IsOemToolCandidate(operation.Candidate)
-                && TryInterpretOemToolExit(operation.Candidate.SourceUpdateId, result.ExitCode, out var oemStatus, out var oemMessage))
+                && TryInterpretVendorToolExit(operation.Candidate.SourceUpdateId, result.ExitCode, out var oemStatus, out var oemMessage))
             {
                 _logger.LogInformation(
                     "OEM tool run for {Device} finished with exit {Code}: {Message}",
@@ -1230,10 +1229,22 @@ public sealed class InstallPipeline : IInstallPipeline
     // device stays untouched (its update was not in the tool's applicable set) or while
     // only other devices changed. A single-device read-back cannot classify that, so the
     // outcome is left to the batch post-update verifier and the next scan.
-    internal static bool TryInterpretOemToolExit(string sourceUpdateId, int exitCode, out UpdateStatus status, out string? message)
+    internal static bool TryInterpretVendorToolExit(string sourceUpdateId, int exitCode, out UpdateStatus status, out string? message)
     {
         status = UpdateStatus.Failed;
         message = null;
+
+        // Dell Update Package exit 2 = reboot required to complete the update.
+        if (sourceUpdateId.StartsWith("vendor-installer:dell-dup:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode == 2)
+            {
+                status = UpdateStatus.Succeeded;
+                message = "Reboot required to complete installation.";
+                return true;
+            }
+            return false;
+        }
 
         if (sourceUpdateId.Contains(":dell-command-update:", StringComparison.OrdinalIgnoreCase))
         {
@@ -1747,6 +1758,13 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         if (sourceUpdateId.StartsWith("vendor-installer:installshield:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/s";
+            return true;
+        }
+
+        // Dell Update Packages honor /s per Dell's DUP reference guide.
+        if (sourceUpdateId.StartsWith("vendor-installer:dell-dup:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "/s";
             return true;

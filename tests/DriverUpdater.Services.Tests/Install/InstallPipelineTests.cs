@@ -1257,9 +1257,10 @@ public class InstallPipelineTests
     [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 500, UpdateStatus.Skipped)]
     [InlineData("vendor-installer:oem-tool:hp-image-assistant:fallback:x", 3010, UpdateStatus.Succeeded)]
     [InlineData("vendor-installer:oem-tool:hp-image-assistant:fallback:x", 257, UpdateStatus.Skipped)]
-    public void TryInterpretOemToolExit_maps_known_exit_codes(string sourceUpdateId, int exitCode, UpdateStatus expected)
+    [InlineData("vendor-installer:dell-dup:ABC12", 2, UpdateStatus.Succeeded)]
+    public void TryInterpretVendorToolExit_maps_known_exit_codes(string sourceUpdateId, int exitCode, UpdateStatus expected)
     {
-        var ok = InstallPipeline.TryInterpretOemToolExit(sourceUpdateId, exitCode, out var status, out var message);
+        var ok = InstallPipeline.TryInterpretVendorToolExit(sourceUpdateId, exitCode, out var status, out var message);
 
         ok.Should().BeTrue();
         status.Should().Be(expected);
@@ -1269,9 +1270,10 @@ public class InstallPipelineTests
     [Theory]
     [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 2)]
     [InlineData("vendor-installer:oem-tool:lenovo-system-update:fallback:x", 1)]
-    public void TryInterpretOemToolExit_leaves_unknown_exit_codes_to_default_handling(string sourceUpdateId, int exitCode)
+    [InlineData("vendor-installer:dell-dup:ABC12", 1)]
+    public void TryInterpretVendorToolExit_leaves_unknown_exit_codes_to_default_handling(string sourceUpdateId, int exitCode)
     {
-        InstallPipeline.TryInterpretOemToolExit(sourceUpdateId, exitCode, out _, out _).Should().BeFalse();
+        InstallPipeline.TryInterpretVendorToolExit(sourceUpdateId, exitCode, out _, out _).Should().BeFalse();
     }
 
     [Fact]
@@ -1727,6 +1729,7 @@ public class InstallPipelineTests
     [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]
     [InlineData("vendor-installer:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "-INSTALL")]
     [InlineData("vendor-installer:inno:bar", "C:\\Temp\\bar.exe", "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART")]
+    [InlineData("vendor-installer:dell-dup:8TR7T", "C:\\Temp\\dup.exe", "/s")]
     public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
     {
         var candidate = new UpdateCandidate(
