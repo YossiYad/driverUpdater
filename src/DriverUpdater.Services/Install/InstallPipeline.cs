@@ -1246,6 +1246,18 @@ public sealed class InstallPipeline : IInstallPipeline
             return false;
         }
 
+        // HP SP framework: 3010 = installed, reboot required.
+        if (sourceUpdateId.StartsWith("vendor-installer:hp-softpaq:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode == 3010)
+            {
+                status = UpdateStatus.Succeeded;
+                message = "Reboot required to complete installation.";
+                return true;
+            }
+            return false;
+        }
+
         if (sourceUpdateId.Contains(":dell-command-update:", StringComparison.OrdinalIgnoreCase))
         {
             if (exitCode is 1 or 5)
@@ -1765,6 +1777,13 @@ public sealed class InstallPipeline : IInstallPipeline
 
         // Dell Update Packages honor /s per Dell's DUP reference guide.
         if (sourceUpdateId.StartsWith("vendor-installer:dell-dup:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/s";
+            return true;
+        }
+
+        // HP softpaqs share the SP framework, whose documented silent switch is /s.
+        if (sourceUpdateId.StartsWith("vendor-installer:hp-softpaq:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "/s";
             return true;
