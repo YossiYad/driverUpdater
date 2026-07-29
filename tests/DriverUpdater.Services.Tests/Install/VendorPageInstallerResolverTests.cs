@@ -95,12 +95,50 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
+    public void TryFindInstallerLink_rejects_github_source_archives()
+    {
+        const string html = """
+            <a href="https://github.com/vendor/driver/archive/refs/tags/v1.2.3.zip">source</a>
+            """;
+
+        var ok = VendorPageInstallerResolver.TryFindInstallerLink(
+            new Uri("https://github.com/vendor/driver/releases/tag/v1.2.3"),
+            html,
+            out _,
+            out _);
+
+        ok.Should().BeFalse();
+    }
+
+    [Fact]
     public void TryClassifyExe_rejects_amd_adrenalin_installers()
     {
         var ok = VendorPageInstallerResolver.TryClassifyExe(
             new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win10-win11-may2025.exe"), out _);
 
         ok.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("PCI\\VEN_1002&DEV_747E", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", true)]
+    [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", false)]
+    [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/amd_chipset_software_8.1.exe", "amd-chipset", true)]
+    [InlineData("PCI\\VEN_10DE&DEV_2684", "https://download.nvidia.com/driver.exe", "nvidia", true)]
+    [InlineData("PCI\\VEN_8086&DEV_4682", "https://download.nvidia.com/driver.exe", "nvidia", false)]
+    public void IsPackageCompatibleWithHardware_checks_known_vendor_families(
+        string hardwareId,
+        string package,
+        string installerKind,
+        bool expected)
+    {
+        var candidate = NewVendorPageCandidate() with { ForHardwareId = hardwareId };
+
+        VendorPageInstallerResolver.IsPackageCompatibleWithHardware(
+                candidate,
+                new Uri(package),
+                installerKind)
+            .Should()
+            .Be(expected);
     }
 
     [Fact]
@@ -111,36 +149,37 @@ public class VendorPageInstallerResolverTests
             new StubHttpClientFactory(html),
             NullLogger<VendorPageInstallerResolver>.Instance);
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
-        resolved.Should().NotBeNull();
-        resolved!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        resolved.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
-        resolved.SourceUpdateId.Should().Be("vendor-installer:msi-wrapper:resolved:vendor-page:Test:PCI\\X");
+        resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
+        resolution.Candidate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        resolution.Candidate.Confidence.Should().Be(UpdateConfidence.Confirmed);
+        resolution.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+        resolution.Candidate.SourceUpdateId.Should().Be("vendor-installer:msi-wrapper:resolved:vendor-page:Test:PCI\\X");
     }
 
     [Fact]
-    public async Task TryResolveAsync_returns_null_when_page_has_no_installer()
+    public async Task TryResolveAsync_reports_no_package_found_when_page_has_no_installer()
     {
         var resolver = new VendorPageInstallerResolver(
             new StubHttpClientFactory("<html>nothing here</html>"),
             NullLogger<VendorPageInstallerResolver>.Instance);
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
-        resolved.Should().BeNull();
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
     }
 
     [Fact]
-    public async Task TryResolveAsync_returns_null_when_fetch_fails()
+    public async Task TryResolveAsync_reports_page_unreachable_when_fetch_fails()
     {
         var resolver = new VendorPageInstallerResolver(
             new StubHttpClientFactory(null),
             NullLogger<VendorPageInstallerResolver>.Instance);
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
-        resolved.Should().BeNull();
+        resolution.Kind.Should().Be(VendorPageResolutionKind.PageUnreachable);
     }
 
     [Fact]
@@ -150,10 +189,23 @@ public class VendorPageInstallerResolverTests
             new StubHttpClientFactory("<a href='/x.msi'>x</a>"),
             NullLogger<VendorPageInstallerResolver>.Instance);
 
-        var resolved = await resolver.TryResolveAsync(
+        var resolution = await resolver.TryResolveAsync(
             NewVendorPageCandidate() with { InstallKind = UpdateInstallKind.WindowsUpdate });
 
-        resolved.Should().BeNull();
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_does_not_treat_an_ai_page_lead_as_package_metadata()
+    {
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<a href='/downloads/unrelated-driver.msi'>download</a>"),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+
+        var resolution = await resolver.TryResolveAsync(
+            NewVendorPageCandidate() with { SourceUpdateId = "ai-latest:PCI\\X" });
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
     }
 
     [Fact]
@@ -166,12 +218,12 @@ public class VendorPageInstallerResolverTests
             new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
             new StubScraperSettings(enablePlaywrightFallback: true));
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
         browserFetcher.WasCalled.Should().BeTrue();
-        resolved.Should().NotBeNull();
-        resolved!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        resolved.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+        resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
+        resolution.Candidate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        resolution.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
     }
 
     [Fact]
@@ -184,10 +236,10 @@ public class VendorPageInstallerResolverTests
             new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
             new StubScraperSettings(enablePlaywrightFallback: false));
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
         browserFetcher.WasCalled.Should().BeFalse();
-        resolved.Should().BeNull();
+        resolution.Kind.Should().Be(VendorPageResolutionKind.PageUnreachable);
     }
 
     [Fact]
@@ -200,10 +252,60 @@ public class VendorPageInstallerResolverTests
             new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
             new StubScraperSettings(enablePlaywrightFallback: true));
 
-        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
 
         browserFetcher.WasCalled.Should().BeFalse();
-        resolved!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+        resolution.Candidate!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_renders_a_page_that_answers_but_lists_no_packages()
+    {
+        // realtek.com and amd.com both answer 200 with a shell whose download links are built
+        // in the browser. Writing those off without rendering hid every package they offer.
+        var browserFetcher = new StubBrowserFetcher("<a href=\"/downloads/driver.msi\">download</a>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<html><body><div id='app'></div></body></html>"),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeTrue();
+        resolution.Candidate!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+        resolution.Candidate.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_reports_no_package_found_when_neither_fetch_lists_a_package()
+    {
+        var browserFetcher = new StubBrowserFetcher("<html><body>no downloads here</body></html>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<html><body><div id='app'></div></body></html>"),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeTrue();
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_reports_page_unreachable_when_the_site_404s_even_through_a_browser()
+    {
+        var browserFetcher = new StubBrowserFetcher(null);
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(null),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolution = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.PageUnreachable);
     }
 
     private sealed class StubBrowserFetcher : IBrowserHtmlFetcher

@@ -37,6 +37,10 @@ public class AppCompositionTests
             .Should().Contain(service => service is LogCleanupBackgroundService);
         provider.GetRequiredService<IHistoryRepository>().Should().NotBeNull();
         provider.GetRequiredService<IScheduledScanRunner>().Should().NotBeNull();
+        // The scan turns vendor pages into installable packages through this service, and
+        // hands the user the page itself when it cannot. Both are optional constructor
+        // parameters on MainViewModel, so a missing registration would silently disable them.
+        provider.GetRequiredService<IVendorPageInstallerResolver>().Should().NotBeNull();
         provider.GetServices<IUpdateSource>().Should().NotBeEmpty();
     }
 }

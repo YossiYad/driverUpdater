@@ -67,6 +67,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
             await InstallAsync(states, cancellationToken).ConfigureAwait(false);
         }
 
+        await CarryOverUnmatchedCacheEntriesAsync(states, cancellationToken).ConfigureAwait(false);
         await SaveCacheAsync(states, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Scheduled run completed");
     }
@@ -196,6 +197,72 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
     }
 
+    // The scheduled run queries a subset of what an interactive "Scan with AI" does, so saving
+    // only what it found would delete every update the app is still offering the user - they
+    // would disappear from the grid overnight. Carry those forward, but only into the saved
+    // snapshot: this happens after the install pass, so an unattended run never installs a
+    // candidate its own sources did not confirm.
+    private async Task CarryOverUnmatchedCacheEntriesAsync(
+        List<DriverState> states,
+        CancellationToken cancellationToken)
+    {
+        var pendingStates = states.Where(s => s.Candidate is null).ToArray();
+        if (pendingStates.Length == 0)
+        {
+            return;
+        }
+
+        DriverCacheSnapshot? snapshot;
+        try
+        {
+            snapshot = await _driverCacheStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Scheduled run could not read the previous driver cache; nothing is carried over");
+            return;
+        }
+
+        if (snapshot is null || snapshot.Entries.Count == 0)
+        {
+            return;
+        }
+
+        var previous = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in snapshot.Entries)
+        {
+            if (entry.AvailableUpdate is { } candidate
+                && IsSafeCacheFallback(candidate)
+                && !string.IsNullOrWhiteSpace(entry.Driver.DeviceId))
+            {
+                previous[entry.Driver.DeviceId] = candidate;
+            }
+        }
+
+        var carriedOver = 0;
+        foreach (var state in pendingStates)
+        {
+            if (previous.TryGetValue(state.Driver.DeviceId, out var pending)
+                && pending.IsNewerThan(state.Driver))
+            {
+                state.Candidate = pending;
+                state.Status = DriverStatus.Outdated;
+                carriedOver++;
+            }
+        }
+
+        if (carriedOver > 0)
+        {
+            _logger.LogInformation(
+                "Scheduled run carried {Count} update(s) from the previous scan into the saved cache",
+                carriedOver);
+        }
+    }
+
     private async Task SaveCacheAsync(List<DriverState> states, CancellationToken cancellationToken)
     {
         try
@@ -251,6 +318,10 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         kind is UpdateInstallKind.WindowsUpdate
             or UpdateInstallKind.PnPUtilPackage
             or UpdateInstallKind.VendorInstaller;
+
+    private static bool IsSafeCacheFallback(UpdateCandidate candidate) =>
+        candidate.Confidence == UpdateConfidence.Confirmed
+        && candidate.InstallKind != UpdateInstallKind.VendorPage;
 
     private sealed class DriverState
     {

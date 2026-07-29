@@ -35,7 +35,6 @@ public static class ServicesServiceCollectionExtensions
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, NvidiaGraphicsSource.HttpClientName, "https://gfwsl.geforce.com/");
         ConfigureIntelDsaHttpClient(services);
-        ConfigureOfficialVendorPageHttpClient(services);
         ConfigureAsusScrapingHttpClient(services);
 
         services.AddSingleton<IUpdateSource>(sp => new AmdGraphicsSource(
@@ -82,10 +81,6 @@ public static class ServicesServiceCollectionExtensions
                 [OemVendor.ASRock] = sp.GetRequiredService<AsrockMotherboardScraper>(),
             },
             sp.GetRequiredService<ILogger<MotherboardSource>>()));
-
-        services.AddSingleton<IUpdateSource>(sp => new OfficialVendorPageSource(
-            sp.GetRequiredService<ILogger<OfficialVendorPageSource>>(),
-            httpClient: sp.GetRequiredService<IHttpClientFactory>().CreateClient(OfficialVendorPageSource.HttpClientName)));
 
         services.AddSingleton<IOemDetectionService, OemDetectionService>();
         services.AddSingleton<IBackupService, BackupService>();

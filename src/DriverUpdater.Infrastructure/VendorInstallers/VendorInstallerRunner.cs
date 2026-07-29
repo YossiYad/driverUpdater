@@ -12,11 +12,21 @@ namespace DriverUpdater.Infrastructure.VendorInstallers;
 public sealed class VendorInstallerRunner : IVendorInstallerRunner
 {
     private readonly ILogger<VendorInstallerRunner> _logger;
+    private readonly AmdInstallerContinuationWaiter _amdContinuationWaiter;
 
     public VendorInstallerRunner(ILogger<VendorInstallerRunner> logger)
+        : this(logger, new AmdInstallerContinuationWaiter(logger))
+    {
+    }
+
+    internal VendorInstallerRunner(
+        ILogger<VendorInstallerRunner> logger,
+        AmdInstallerContinuationWaiter amdContinuationWaiter)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(amdContinuationWaiter);
         _logger = logger;
+        _amdContinuationWaiter = amdContinuationWaiter;
     }
 
     public async Task<ProcessResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
@@ -37,6 +47,7 @@ public sealed class VendorInstallerRunner : IVendorInstallerRunner
 
         _logger.LogDebug("Running vendor installer {FileName} {Arguments}", fileName, arguments);
 
+        var existingAmdInstallerProcesses = _amdContinuationWaiter.CaptureExistingProcesses(fileName);
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var stdOut = new StringBuilder();
         var stdErr = new StringBuilder();
@@ -54,6 +65,10 @@ public sealed class VendorInstallerRunner : IVendorInstallerRunner
         process.BeginErrorReadLine();
 
         await ProcessCancellation.WaitForExitAsync(process, _logger, cancellationToken).ConfigureAwait(false);
+        await _amdContinuationWaiter.WaitForCompletionAsync(
+            fileName,
+            existingAmdInstallerProcesses,
+            cancellationToken).ConfigureAwait(false);
 
         return new ProcessResult(process.ExitCode, stdOut.ToString(), stdErr.ToString());
     }

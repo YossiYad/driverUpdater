@@ -35,6 +35,38 @@ public class ScheduledScanRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_keeps_updates_from_the_previous_scan_that_its_own_sources_do_not_return()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var caughtUp = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var pending = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller);
+        var obsolete = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, pending),
+            new CachedDriverEntry(caughtUp, DriverStatus.Outdated, obsolete)
+        }));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+
+        var runner = NewRunner(
+            new[] { driver, caughtUp },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate) },
+            pipeline,
+            cache);
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().BeEmpty(
+            "an unattended run only installs what its own sources confirmed this run");
+        var entries = cache.Saved.Should().ContainSingle().Subject.Entries;
+        entries.Should().ContainSingle(e => e.Driver.DeviceName == "Intel Display"
+            && e.AvailableUpdate!.SourceUpdateId == pending.SourceUpdateId
+            && e.Status == DriverStatus.Outdated);
+        entries.Should().ContainSingle(e => e.Driver.DeviceName == "Realtek Audio"
+            && e.AvailableUpdate == null);
+    }
+
+    [Fact]
     public async Task RunAsync_ignores_candidate_that_is_not_newer()
     {
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(3, 0, 0, 0));
@@ -167,7 +199,32 @@ public class ScheduledScanRunnerTests
 
         await runner.RunAsync(installUpdates: true);
 
-        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull("vendor-page advisories survive but are never auto-installed");
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
+            "a fresh vendor lead may be resolved by the interactive app but is never auto-installed as a page");
+    }
+
+    [Fact]
+    public async Task RunAsync_does_not_carry_unverified_vendor_leads_from_cache()
+    {
+        var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 7, 29, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, advisory)
+        }));
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.Oem) },
+            new ThrowingInstallPipeline(),
+            cache);
+
+        await runner.RunAsync(installUpdates: false);
+
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().BeNull();
     }
 
     [Fact]
@@ -320,12 +377,16 @@ public class ScheduledScanRunnerTests
 
     private sealed class StubDriverCacheStore : IDriverCacheStore
     {
+        private readonly DriverCacheSnapshot? _existing;
+
+        public StubDriverCacheStore(DriverCacheSnapshot? existing = null) => _existing = existing;
+
         public event EventHandler? Cleared;
 
         public List<DriverCacheSnapshot> Saved { get; } = new();
 
         public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<DriverCacheSnapshot?>(null);
+            Task.FromResult(_existing);
 
         public Task SaveAsync(DriverCacheSnapshot snapshot, CancellationToken cancellationToken = default)
         {

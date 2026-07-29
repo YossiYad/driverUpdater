@@ -543,7 +543,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_with_vendor_page_tries_pipeline_without_opening_url()
+    public async Task Vendor_page_that_holds_an_installer_is_resolved_during_the_scan_and_installed()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -561,14 +561,57 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance);
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(new Uri("https://vendor.example/driver.exe")));
 
         await vm.ScanCommand.ExecuteAsync(null);
-        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+
+        var row = vm.Drivers[0];
+        row.AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        row.IsVendorPageOnly.Should().BeFalse();
+        row.UpdateActionText.Should().Be("Update");
+        row.AvailableUpdate.Confidence.Should().Be(UpdateConfidence.Confirmed);
+        row.Status.Should().Be(DriverStatus.Outdated);
+
+        await vm.UpdateSingleCommand.ExecuteAsync(row);
 
         pipeline.Operations.Should().ContainSingle()
-            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        vm.StatusText.Should().Contain("1 updates had no safe in-app installer");
+            .Which.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example/driver.exe"));
+    }
+
+    [WpfFact]
+    public async Task Vendor_page_with_no_installer_is_not_offered_as_an_update()
+    {
+        var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var page = new Uri("https://vendor.example/support");
+        var advisory = NewCandidate(
+            "PCI\\VEN_10DE&DEV_0001",
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(resolvedPackage: null));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers[0];
+        row.Status.Should().Be(DriverStatus.NotFound);
+        row.AvailableUpdate.Should().BeNull();
+        row.CanUpdate.Should().BeFalse();
+
+        await vm.UpdateSingleCommand.ExecuteAsync(row);
+
+        pipeline.Operations.Should().BeEmpty("the scan did not find a verified package");
     }
 
     [WpfFact]
@@ -873,9 +916,72 @@ public class MainViewModelUpdateSourceTests
         row.AvailableUpdate.Should().NotBeNull();
         row.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
         row.IsUpdateFromCache.Should().BeTrue();
-        row.Status.Should().Be(DriverStatus.VerificationInconclusive);
-        row.CanUpdate.Should().BeFalse();
+        row.Status.Should().Be(DriverStatus.Outdated);
+        row.CanUpdate.Should().BeTrue(
+            "the scan re-checked the candidate against the installed version, so it is still offered");
+        vm.UpdatesFoundCount.Should().Be(1);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_drops_cached_advisory_that_no_source_revalidates()
+    {
+        var driver = NewDriver("Realtek Audio", @"PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
+        var advisory = NewCandidate(
+            driver.HardwareId,
+            new Version(2026, 7, 29, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory);
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, advisory)
+        }));
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(Array.Empty<UpdateCandidate>()) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Single().AvailableUpdate.Should().BeNull();
         vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    [WpfFact]
+    public async Task Update_carried_over_from_the_last_scan_can_be_installed()
+    {
+        var driver = NewDriver("Intel Display", @"PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var pending = NewCandidate(@"PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, pending)
+        }));
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(Array.Empty<UpdateCandidate>()) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers.Single());
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(pending.SourceUpdateId);
     }
 
     [WpfFact]
@@ -1013,34 +1119,110 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_on_vendor_check_row_shows_manual_action_without_opening_page()
+    public async Task Vendor_page_rows_are_resolved_once_per_page_and_shared_across_devices()
     {
-        var driver = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
-        var advisory = NewCandidate(
-            "PCI\\VEN_1022&DEV_0001",
-            new Version(2026, 5, 18, 0),
-            UpdateInstallKind.VendorPage,
-            UpdateConfidence.Advisory);
-        var pipeline = new RecordingInstallPipeline();
+        var first = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
+        var second = NewDriver("AMD SMBUS", "PCI\\VEN_1022&DEV_0002", new Version(1, 0, 0, 0));
+        var page = new Uri("https://vendor.example/support");
+        var advisoryA = NewCandidate(
+            "PCI\\VEN_1022&DEV_0001", new Version(2026, 5, 18, 0),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var advisoryB = NewCandidate(
+            "PCI\\VEN_1022&DEV_0002", new Version(8, 5, 4, 516),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var resolver = new StubVendorPageResolver(new Uri("https://vendor.example/chipset.exe"));
         var vm = new MainViewModel(
-            new FakeScanService(new[] { driver }),
-            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new FakeScanService(new[] { first, second }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisoryA, advisoryB }) },
             new NullOemDetectionService(),
-            pipeline,
+            new RecordingInstallPipeline(),
             new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance);
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: resolver);
 
         await vm.ScanCommand.ExecuteAsync(null);
-        vm.Drivers[0].Status = DriverStatus.UpToDate;
 
-        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+        resolver.Calls.Should().Be(1, "one page serves both rows");
+        vm.Drivers.Should().OnlyContain(r =>
+            r.AvailableUpdate!.InstallKind == UpdateInstallKind.VendorInstaller
+            && r.AvailableUpdate.DownloadUrl == new Uri("https://vendor.example/chipset.exe"));
+        vm.Drivers[0].AvailableUpdate!.NewVersion.Should().Be(new Version(2026, 5, 18, 0));
+        vm.Drivers[1].AvailableUpdate!.NewVersion.Should().Be(new Version(8, 5, 4, 516),
+            "each row keeps the version found for its own device");
+    }
 
-        pipeline.Operations.Should().ContainSingle()
-            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        vm.Drivers[0].Status.Should().Be(DriverStatus.ManualActionRequired);
+    [WpfFact]
+    public async Task Vendor_page_that_cannot_be_fetched_at_all_is_dropped_not_offered_as_manual()
+    {
+        // A page URL is not an update. Whether it has no package or cannot be reached, it is
+        // dropped unless the resolver produces a verified in-app installer.
+        var driver = NewDriver("Volume", "STORAGE\\VOLUME", new Version(10, 0, 26100, 5074));
+        var deadLead = NewCandidate(
+            "STORAGE\\VOLUME", new Version(10, 0, 26100, 8875),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with
+        {
+            DownloadUrl = new Uri("https://support.microsoft.com/help/KB0000000")
+        };
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { deadLead }) },
+            new NullOemDetectionService(),
+            new RecordingInstallPipeline(),
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(
+                resolvedPackage: null,
+                unresolvedKind: VendorPageResolutionKind.PageUnreachable));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers.Single();
+        row.AvailableUpdate.Should().BeNull();
+        row.Status.Should().Be(DriverStatus.NotFound);
+        row.HasAvailableUpdate.Should().BeFalse();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
+    private sealed class StubVendorPageResolver : IVendorPageInstallerResolver
+    {
+        private readonly Uri? _resolvedPackage;
+        private readonly VendorPageResolutionKind _unresolvedKind;
+
+        public StubVendorPageResolver(
+            Uri? resolvedPackage,
+            VendorPageResolutionKind unresolvedKind = VendorPageResolutionKind.NoPackageFound)
+        {
+            _resolvedPackage = resolvedPackage;
+            _unresolvedKind = unresolvedKind;
+        }
+
+        public int Calls { get; private set; }
+
+        public Task<VendorPageResolution> TryResolveAsync(
+            UpdateCandidate candidate,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            if (_resolvedPackage is null)
+            {
+                return Task.FromResult(_unresolvedKind == VendorPageResolutionKind.PageUnreachable
+                    ? VendorPageResolution.PageUnreachable
+                    : VendorPageResolution.NoPackageFound);
+            }
+
+            return Task.FromResult(VendorPageResolution.Installer(candidate with
+            {
+                DownloadUrl = _resolvedPackage,
+                InstallKind = UpdateInstallKind.VendorInstaller,
+                SourceUpdateId = "vendor-installer:zip-inf:resolved:" + candidate.SourceUpdateId
+            }));
+        }
     }
 
     private sealed class StubDriverCacheStore : IDriverCacheStore

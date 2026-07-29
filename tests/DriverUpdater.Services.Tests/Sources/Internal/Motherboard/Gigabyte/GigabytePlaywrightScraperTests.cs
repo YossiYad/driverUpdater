@@ -24,4 +24,49 @@ public class GigabytePlaywrightScraperTests
     {
         GigabytePlaywrightScraper.ExtractVersionFromFileName(fileName).Should().BeNull();
     }
+
+    [Fact]
+    public void TryBuildEntry_maps_the_current_support_table_for_any_board_model()
+    {
+        var ok = GigabytePlaywrightScraper.TryBuildEntry(
+            "https://download.gigabyte.com/FileList/Driver/mb_driver_612_realtekdch_6.0.9927.1.zip?v=cache",
+            "Realtek HD Audio Driver",
+            "6.0.9927.1",
+            "Jul 22, 2026",
+            "35.5 MB",
+            "Audio",
+            out var entry);
+
+        ok.Should().BeTrue();
+        entry.Title.Should().Be("Realtek HD Audio Driver");
+        entry.Version.Should().Be("6.0.9927.1");
+        entry.ReleaseDate.Should().Be(new DateOnly(2026, 7, 22));
+        entry.DownloadUrl.Should().Be(
+            new Uri("https://download.gigabyte.com/FileList/Driver/mb_driver_612_realtekdch_6.0.9927.1.zip"));
+        entry.SizeBytes.Should().Be(37_224_448);
+        entry.Category.Should().Be("Audio");
+    }
+
+    [Fact]
+    public void TryBuildCanonicalSupportUrl_repairs_the_product_redirect()
+    {
+        var ok = GigabytePlaywrightScraper.TryBuildCanonicalSupportUrl(
+            "https://www.gigabyte.com/Motherboard/B850M-GAMING-X-WIFI6E-rev-10#support-dl-driver",
+            out var supportUrl);
+
+        ok.Should().BeTrue();
+        supportUrl.Should().Be(
+            "https://www.gigabyte.com/Motherboard/B850M-GAMING-X-WIFI6E-rev-10/support#support-dl-driver");
+    }
+
+    [Fact]
+    public void TryBuildCanonicalSupportUrl_does_not_loop_on_an_existing_support_page()
+    {
+        var ok = GigabytePlaywrightScraper.TryBuildCanonicalSupportUrl(
+            "https://www.gigabyte.com/Motherboard/B850M-GAMING-X-WIFI6E-rev-10/support#support-dl-driver",
+            out _);
+
+        ok.Should().BeFalse();
+    }
+
 }

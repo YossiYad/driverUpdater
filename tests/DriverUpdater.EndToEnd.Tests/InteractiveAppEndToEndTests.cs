@@ -305,6 +305,39 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
     }
 
     [WpfFact]
+    public async Task An_update_no_source_re_emits_survives_the_next_scan_and_still_installs()
+    {
+        var app = BuildApp(
+            OneOutdatedAudioCard(),
+            new ScriptedInstalledDriverProbe(),
+            confirmationAnswer: null,
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerAudioDriver()));
+        await app.ViewModel.ScanCommand.ExecuteAsync(null);
+
+        // The next session scans with the source silent - the AI discovery stage did not run,
+        // a scraper failed, or the source was switched off in settings.
+        var nextSession = BuildApp(
+            OneOutdatedAudioCard(),
+            new ScriptedInstalledDriverProbe(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false, DryRun: false),
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog"));
+        await nextSession.ViewModel.InitializeAsync();
+        await nextSession.ViewModel.ScanCommand.ExecuteAsync(null);
+
+        var audioRow = nextSession.ViewModel.Drivers.Single(r => r.Driver.DeviceId == AudioDeviceId);
+        audioRow.IsUpdateFromCache.Should().BeTrue();
+        audioRow.HasAvailableUpdate.Should().BeTrue();
+        audioRow.CanUpdate.Should().BeTrue();
+        audioRow.UpdateActionText.Should().Be("Install");
+        nextSession.ViewModel.UpdatesFoundCount.Should().Be(1);
+
+        await nextSession.ViewModel.UpdateSingleCommand.ExecuteAsync(audioRow);
+
+        nextSession.PnPUtil.Invocations.Should().Contain(a => a.Contains("/add-driver"));
+        audioRow.LastOperation!.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [WpfFact]
     public async Task Filters_narrow_the_grid_without_losing_rows()
     {
         var app = BuildApp(

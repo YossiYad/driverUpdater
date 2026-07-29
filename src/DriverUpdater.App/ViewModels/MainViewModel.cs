@@ -12,6 +12,7 @@ using DriverUpdater.App.Services;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
+using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
 using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IAiScanConfirmation? _aiScanConfirmation;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
+    private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly Dispatcher _dispatcher;
     private CancellationTokenSource? _aiSearchCancellation;
     private CancellationTokenSource? _scanCancellation;
@@ -151,7 +153,8 @@ public partial class MainViewModel : ObservableObject
         : ScannedCount > 0
             ? IsShowingCachedDrivers
                 ? $"{ScannedCount} cached drivers (scan to refresh)"
-                : $"{ScannedCount} drivers ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} possible updates)"
+                : $"{ScannedCount} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available"
+                  + (UpdatesFoundCount > 0 ? $" ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely)" : string.Empty)
             : string.Empty;
 
     public MainViewModel(
@@ -176,7 +179,8 @@ public partial class MainViewModel : ObservableObject
         IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null,
         ISupportWindowOpener? supportWindowOpener = null,
         IOptionsMonitor<AiSettings>? aiSettings = null,
-        IAiScanConfirmation? aiScanConfirmation = null)
+        IAiScanConfirmation? aiScanConfirmation = null,
+        IVendorPageInstallerResolver? vendorPageResolver = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -208,6 +212,7 @@ public partial class MainViewModel : ObservableObject
         _aiScanConfirmation = aiScanConfirmation;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
+        _vendorPageResolver = vendorPageResolver;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -838,10 +843,19 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
+
             FinalizeScanStatuses();
             LogScanSummary();
 
-            StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} possible updates.";
+            StatusText = UpdatesFoundCount == 0
+                ? $"Done. {Drivers.Count} drivers, no updates available."
+                : $"Done. {Drivers.Count} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available "
+                  + $"({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely).";
             if (DiscardScanIfCacheWasCleared())
             {
                 return;
@@ -958,11 +972,20 @@ public partial class MainViewModel : ObservableObject
             // the current scan deliberately suppressed comes straight back as a cached
             // fallback, gets written to the cache again, and reappears on every later scan -
             // exactly the loop the ledger exists to break.
-            if (pending.IsNewerThan(row.Driver) && !IsProvenIneffective(row, pending))
+            var safeCacheFallback = IsSafeCacheFallback(pending);
+            if (safeCacheFallback
+                && pending.IsNewerThan(row.Driver)
+                && !IsProvenIneffective(row, pending))
             {
+                // The candidate has just been re-compared against the version this scan read
+                // from the machine, so it is a real pending update; only its provenance is
+                // older than this run. Keep it offered - sources drop in and out between scans
+                // (a scraper that failed, a source disabled in settings, an AI-discovered lead
+                // that a plain scan never re-derives), and marking those rows unverifiable left
+                // them permanently stuck: the next scan restored them from cache again.
                 row.AvailableUpdate = pending;
                 row.IsUpdateFromCache = true;
-                row.Status = DriverStatus.VerificationInconclusive;
+                row.Status = DriverStatus.Outdated;
                 restored++;
                 _logger.LogDebug(
                     "Cache reconciliation restored fallback for {Device}: {SourceUpdateId} {Version}",
@@ -973,12 +996,24 @@ public partial class MainViewModel : ObservableObject
             else
             {
                 dropped++;
-                _logger.LogInformation(
-                    "Cache reconciliation dropped obsolete update for {Device}: cached={SourceUpdateId} {Version}, installed={InstalledVersion}; the old result will be removed from cache",
-                    row.DeviceName,
-                    pending.SourceUpdateId,
-                    pending.NewVersion,
-                    row.Driver.CurrentVersion);
+                if (!safeCacheFallback)
+                {
+                    _logger.LogInformation(
+                        "Cache reconciliation dropped unverified vendor fallback for {Device}: cached={SourceUpdateId}, confidence={Confidence}, kind={InstallKind}; the source must validate it again",
+                        row.DeviceName,
+                        pending.SourceUpdateId,
+                        pending.Confidence,
+                        pending.InstallKind);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Cache reconciliation dropped obsolete update for {Device}: cached={SourceUpdateId} {Version}, installed={InstalledVersion}; the old result will be removed from cache",
+                        row.DeviceName,
+                        pending.SourceUpdateId,
+                        pending.NewVersion,
+                        row.Driver.CurrentVersion);
+                }
             }
         }
 
@@ -991,6 +1026,10 @@ public partial class MainViewModel : ObservableObject
             restored,
             dropped);
     }
+
+    private static bool IsSafeCacheFallback(UpdateCandidate candidate) =>
+        candidate.Confidence == UpdateConfidence.Confirmed
+        && candidate.InstallKind != UpdateInstallKind.VendorPage;
 
     private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
     {
@@ -2036,11 +2075,134 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshUpdateCounts()
     {
-        UpdatesFoundCount = Drivers.Count(d => d.HasAvailableUpdate && d.Status == DriverStatus.Outdated);
+        UpdatesFoundCount = Drivers.Count(d => d.HasAvailableUpdate);
         ConfirmedUpdatesCount = Drivers.Count(d =>
             d.HasAvailableUpdate && d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
         VendorChecksCount = Drivers.Count(d =>
             d.HasAvailableUpdate && d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
+    }
+
+    // Every source that points at a vendor page produces a lead, not an installer. Turning
+    // those into a real package
+    // here, while the scan is running, is what makes the offer honest: a row that survives
+    // this pass can be installed from inside the app, and a row that does not is removed.
+    private async Task ResolveVendorPageCandidatesAsync(CancellationToken cancellationToken)
+    {
+        if (_vendorPageResolver is null)
+        {
+            return;
+        }
+
+        var pending = Drivers
+            .Where(row => row.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .GroupBy(row => row.AvailableUpdate!.DownloadUrl)
+            .ToArray();
+        if (pending.Length == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Resolving {PageCount} vendor page(s) into installable packages for {RowCount} row(s)",
+            pending.Length,
+            pending.Sum(group => group.Count()));
+
+        var resolvedPages = 0;
+        var droppedPages = 0;
+        var index = 0;
+        foreach (var group in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            index++;
+            StatusText = $"Checking vendor downloads... {index} of {pending.Length}";
+
+            var resolution = VendorPageResolution.NoPackageFound;
+            try
+            {
+                resolution = await _vendorPageResolver
+                    .TryResolveAsync(group.First().AvailableUpdate!, cancellationToken)
+                    .ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Vendor page resolve threw for {Url}", group.Key);
+            }
+
+            foreach (var row in group)
+            {
+                switch (resolution.Kind)
+                {
+                    case VendorPageResolutionKind.Installer:
+                        var original = row.AvailableUpdate!;
+                        var resolved = resolution.Candidate!;
+                        var installerKind = resolved.SourceUpdateId
+                            .Split(':', StringSplitOptions.RemoveEmptyEntries)
+                            .Skip(1)
+                            .FirstOrDefault() ?? string.Empty;
+                        if (!VendorPageInstallerResolver.IsPackageCompatibleWithHardware(
+                                original,
+                                resolved.DownloadUrl,
+                                installerKind))
+                        {
+                            _logger.LogWarning(
+                                "Vendor package {Package} resolved from {Page} was rejected for {Device} ({HardwareId}): installer family {InstallerKind} does not match the device",
+                                resolved.DownloadUrl,
+                                group.Key,
+                                row.DeviceName,
+                                row.HardwareId,
+                                installerKind);
+                            row.AvailableUpdate = null;
+                            row.Status = DriverStatus.NotFound;
+                            break;
+                        }
+
+                        // One page may serve multiple rows. Keep each row's device binding and
+                        // version, but only after the resolved package family matches that row.
+                        row.AvailableUpdate = original with
+                        {
+                            DownloadUrl = resolved.DownloadUrl,
+                            InstallKind = resolved.InstallKind,
+                            Confidence = UpdateConfidence.Confirmed,
+                            SourceUpdateId = resolved.SourceUpdateId
+                        };
+                        row.Status = DriverStatus.Outdated;
+                        _logger.LogInformation(
+                            "Vendor update confirmed for {Device} ({HardwareId}): package={Package}, kind={InstallerKind}, target={Version}",
+                            row.DeviceName,
+                            row.HardwareId,
+                            resolved.DownloadUrl,
+                            installerKind,
+                            row.AvailableUpdate.NewVersion);
+                        break;
+                    case VendorPageResolutionKind.NoPackageFound:
+                    case VendorPageResolutionKind.PageUnreachable:
+                        // A page URL is not an update package. If the app cannot resolve and
+                        // validate a downloadable package, do not advertise the lead as an
+                        // update and do not send the user to a browser.
+                        row.AvailableUpdate = null;
+                        row.Status = DriverStatus.NotFound;
+                        break;
+                }
+            }
+
+            switch (resolution.Kind)
+            {
+                case VendorPageResolutionKind.Installer: resolvedPages++; break;
+                case VendorPageResolutionKind.NoPackageFound:
+                case VendorPageResolutionKind.PageUnreachable: droppedPages++; break;
+            }
+        }
+
+        RefreshUpdateCounts();
+        _logger.LogInformation(
+            "Vendor page resolution complete: {Resolved} page(s) resolved to an in-app installer, " +
+            "{Dropped} page(s) had no validated installable package and were dropped",
+            resolvedPages,
+            droppedPages);
     }
 
     private void FinalizeScanStatuses()
@@ -2160,13 +2322,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Selection is by install kind only. Every row here already passed CanUpdate, so
+        // re-filtering on DriverStatus would only drop rows whose button the user just
+        // clicked - the retry after a failed install, the result carried over from the last
+        // scan - and turn that click into a silent no-op.
         var installTargets = targets
-            .Where(r => r.Status == DriverStatus.Outdated
-                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
             .ToArray();
-        // No Status filter here: vendor check rows are advisory and usually sit at
-        // UpToDate (AI discovery sets them so), yet their row button is enabled via
-        // CanUpdate. Filtering by Outdated made that button a silent no-op.
         var pageTargets = targets
             .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
@@ -2245,8 +2407,8 @@ public partial class MainViewModel : ObservableObject
             {
                 // Progress<T> marshals through the dispatcher, so a report can still be queued
                 // when this method resumes. Applying a terminal report here would overwrite the
-                // final row state decided below (e.g. turning "Continue on vendor website" back
-                // into "Update available"). The block after the await owns the terminal state.
+                // final row state decided below. The block after the await owns the terminal
+                // state.
                 if (report.IsTerminal)
                 {
                     return;
@@ -2473,13 +2635,14 @@ public partial class MainViewModel : ObservableObject
     private void LogScanSummary()
     {
         var withUpdates = Drivers.Where(d => d.HasAvailableUpdate).ToArray();
-        var cachedPending = Drivers.Where(d => d.AvailableUpdate != null && d.IsUpdateFromCache).ToArray();
-        var noUpdateCount = Drivers.Count - withUpdates.Length - cachedPending.Length;
+        var carriedOver = withUpdates.Count(d => d.IsUpdateFromCache);
+        var noUpdateCount = Drivers.Count - withUpdates.Length;
 
         var sb = new System.Text.StringBuilder();
         sb.Append("Scan result summary: ").Append(Drivers.Count).Append(" total drivers, ")
-            .Append(withUpdates.Length).Append(" with fresh available updates, ")
-            .Append(cachedPending.Length).Append(" cached results awaiting verification, ")
+            .Append(withUpdates.Length).Append(" with an available update (")
+            .Append(withUpdates.Length - carriedOver).Append(" found by a source this run, ")
+            .Append(carriedOver).Append(" carried over from the last scan), ")
             .Append(noUpdateCount).AppendLine(" up-to-date / no update found");
 
         if (withUpdates.Length > 0)

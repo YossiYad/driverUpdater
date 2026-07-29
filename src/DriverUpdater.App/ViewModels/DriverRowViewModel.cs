@@ -30,6 +30,7 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(IsVendorPageOnly))]
     [NotifyPropertyChangedFor(nameof(CanAskAi))]
     private UpdateCandidate? _availableUpdate;
 
@@ -45,6 +46,7 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
     [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
+    [NotifyPropertyChangedFor(nameof(IsAwaitingRescan))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(AiRiskText))]
     [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
@@ -58,6 +60,7 @@ public partial class DriverRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
     [NotifyPropertyChangedFor(nameof(IsPreparing))]
     [NotifyPropertyChangedFor(nameof(IsDownloading))]
     [NotifyPropertyChangedFor(nameof(IsInstalling))]
@@ -103,22 +106,26 @@ public partial class DriverRowViewModel : ObservableObject
         : IsUpdateFromCache
             ? $"{AvailableUpdate.Source} (cached)"
             : AvailableUpdate.Source.ToString();
-    public string UpdateActionText => IsUpdateFromCache ? string.Empty : AvailableUpdate?.InstallKind switch
+    public string UpdateActionText => IsAwaitingRescan ? string.Empty : AvailableUpdate?.InstallKind switch
     {
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
         UpdateInstallKind.VendorInstaller => "Update",
-        UpdateInstallKind.VendorPage => "Update",
+        UpdateInstallKind.VendorPage => "Check",
         _ => string.Empty
     };
-    public string ConfidenceText => IsUpdateFromCache ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
+
+    // Vendor pages are transient leads. A production scan resolves them to packages or drops
+    // them, but keeping this state explicit lets the install pipeline retry safely.
+    public bool IsVendorPageOnly => AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage };
+    public string ConfidenceText => IsAwaitingRescan ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
     {
         UpdateConfidence.Confirmed => "Confirmed",
         UpdateConfidence.Advisory => "Likely update",
         _ => string.Empty
     };
 
-    public string StatusText => IsUpdateFromCache ? "Cached result, re-scan required" : Status switch
+    public string StatusText => IsAwaitingRescan ? "Cached result, re-scan required" : Status switch
     {
         DriverStatus.Unknown => "Checking...",
         DriverStatus.UpToDate => "Up to date",
@@ -126,7 +133,7 @@ public partial class DriverRowViewModel : ObservableObject
         DriverStatus.NotFound => "No update found",
         DriverStatus.Error => "Check failed",
         DriverStatus.NotUpdated => "Not updated",
-        DriverStatus.ManualActionRequired => "No safe in-app installer",
+        DriverStatus.ManualActionRequired => "No verified in-app package",
         DriverStatus.RestartRequired => "Restart required",
         DriverStatus.VerificationInconclusive => "Could not verify",
         _ => Status.ToString()
@@ -160,9 +167,9 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool HasAiVerdict => HasAvailableUpdate && AvailableUpdate?.AiVerification is not null;
+    public bool HasAiVerdict => !IsUpdateFromCache && AvailableUpdate?.AiVerification is not null;
 
-    public string AiRiskText => !HasAvailableUpdate ? string.Empty : AvailableUpdate?.AiVerification?.Risk switch
+    public string AiRiskText => !HasAiVerdict ? string.Empty : AvailableUpdate?.AiVerification?.Risk switch
     {
         AiRiskLevel.Safe => "Safe",
         AiRiskLevel.Caution => "Caution",
@@ -174,7 +181,7 @@ public partial class DriverRowViewModel : ObservableObject
     {
         get
         {
-            if (!HasAvailableUpdate)
+            if (!HasAiVerdict)
             {
                 return null;
             }
@@ -221,7 +228,7 @@ public partial class DriverRowViewModel : ObservableObject
     {
         get
         {
-            if (!HasAvailableUpdate)
+            if (!HasAiVerdict)
             {
                 return string.Empty;
             }
@@ -245,11 +252,22 @@ public partial class DriverRowViewModel : ObservableObject
         }
     }
 
-    public bool HasAvailableUpdate => !IsUpdateFromCache && AvailableUpdate is not null;
+    // A cached candidate shown before the user scanned in this session is the only kind that
+    // is not offered for install: the whole row (installed version included) comes from the
+    // last session's snapshot, so nothing about it has been checked against this machine yet.
+    // Once a scan has run, the candidate has been re-compared against the freshly read
+    // installed version, which is what decides whether an update is genuinely available -
+    // whether a source happened to re-emit it this run does not change that.
+    public bool IsAwaitingRescan => IsUpdateFromCache && !IsScannedThisRun;
 
-    public bool CanUpdate => HasAvailableUpdate
-        && AvailableUpdate is { } update
-        && (Status == DriverStatus.Outdated || update.InstallKind == UpdateInstallKind.VendorPage);
+    public bool HasAvailableUpdate => AvailableUpdate is not null && !IsAwaitingRescan;
+
+    // Any row holding an offered update can be updated, whatever DriverStatus it currently
+    // carries. Gating this on Outdated stranded every row whose status moved on for another
+    // reason - a failed install that deliberately keeps its candidate for a retry, a result
+    // restored from the last scan, an inconclusive post-update verification - leaving the
+    // grid showing "1.0 to 2.0" next to a dead button.
+    public bool CanUpdate => HasAvailableUpdate && !IsBusy;
 
     public bool CanAskAi => !IsAiChecking && IsScannedThisRun;
 

@@ -330,15 +330,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var deviceName = DeviceLabel(operation.TargetSnapshot);
 
-        // AMD chipset packages update several independent device drivers in one run. The
-        // representative row may already have the package's component version while another
-        // component changed, so a single-device read-back cannot classify the package result.
-        // Keep the successful package outcome and let the post-update verifier inspect every
-        // affected row separately.
-        if (IsAmdChipsetCandidate(operation.Candidate))
+        // AMD chipset and graphics packages update several independent device drivers in one
+        // run. The representative row may remain unchanged while another component updates,
+        // so a single-device read-back cannot classify the package result. Keep the successful
+        // package outcome and let the post-update verifier inspect every affected row separately.
+        if (IsSharedAmdPackageCandidate(operation.Candidate))
         {
             _logger.LogInformation(
-                "AMD chipset package completed for {Device}; component verification is deferred to the batch summary",
+                "Shared AMD package completed for {Device}; every covered component will be verified separately in the batch summary",
                 deviceName);
             return operation;
         }
@@ -421,11 +420,12 @@ public sealed class InstallPipeline : IInstallPipeline
         IProgress<UpdateOperation>? progress,
         CancellationToken cancellationToken)
     {
-        var resolved = _vendorPageResolver is null
-            ? null
+        var resolution = _vendorPageResolver is null
+            ? VendorPageResolution.NoPackageFound
             : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
-        if (resolved is not null)
+        if (resolution.Kind == VendorPageResolutionKind.Installer)
         {
+            var resolved = resolution.Candidate!;
             _logger.LogInformation(
                 "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
                 operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
@@ -435,7 +435,9 @@ public sealed class InstallPipeline : IInstallPipeline
         _logger.LogInformation(
             "Vendor page update for {Device} cannot be installed in-app ({Reason}); no external page will be opened for {Url}",
             operation.TargetSnapshot.DeviceName,
-            _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
+            _vendorPageResolver is null ? "no vendor page resolver configured"
+                : resolution.Kind == VendorPageResolutionKind.PageUnreachable ? "the page could not be fetched at all"
+                : "no direct installer found on the page",
             operation.Candidate.DownloadUrl);
         operation = operation with
         {
@@ -1070,6 +1072,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
     internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsAmdGraphicsCandidate(UpdateCandidate candidate) =>
+        candidate.SourceUpdateId.StartsWith(
+            "vendor-installer:nullsoft:amd-radeon:",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSharedAmdPackageCandidate(UpdateCandidate candidate) =>
+        IsAmdChipsetCandidate(candidate) || IsAmdGraphicsCandidate(candidate);
 
     private static bool TryConfirmAmdChipsetSuccess(
         DateTimeOffset installStart,
