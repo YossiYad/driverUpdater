@@ -33,6 +33,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IHistoryRepository? _historyRepository;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
+    private readonly IArchiveExtractor? _archiveExtractor;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -49,7 +50,8 @@ public sealed class InstallPipeline : IInstallPipeline
         TimeProvider? clock = null,
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IInstalledDriverProbe? installedDriverProbe = null,
-        IFileSignatureVerifier? fileSignatureVerifier = null)
+        IFileSignatureVerifier? fileSignatureVerifier = null,
+        IArchiveExtractor? archiveExtractor = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -66,6 +68,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _historyRepository = historyRepository;
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
+        _archiveExtractor = archiveExtractor;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -545,11 +548,21 @@ public sealed class InstallPipeline : IInstallPipeline
                     progress?.Report(operation);
                 },
                 cancellationToken).ConfigureAwait(false);
+            string? extractedPayloadRoot = null;
             if (Path.GetExtension(installerPath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out var extractionError);
+                var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out extractedPayloadRoot, out var extractionError);
                 if (locatedInstaller is null)
                 {
+                    if (extractedPayloadRoot is not null)
+                    {
+                        var infInstall = await TryInstallInfPayloadAsync(operation, progress, extractedPayloadRoot, cancellationToken).ConfigureAwait(false);
+                        if (infInstall is not null)
+                        {
+                            return infInstall;
+                        }
+                        extractionError += " The archive also contained no driver INF files to install directly.";
+                    }
                     operation = operation with
                     {
                         Status = UpdateStatus.Skipped,
@@ -564,10 +577,15 @@ public sealed class InstallPipeline : IInstallPipeline
 
             if (!TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out var fileName, out var arguments, out var skipReason))
             {
+                var fallback = await TryInstallByExtractingInfAsync(operation, progress, installerPath, extractedPayloadRoot, workDir, cancellationToken).ConfigureAwait(false);
+                if (fallback.Operation is not null)
+                {
+                    return fallback.Operation;
+                }
                 operation = operation with
                 {
                     Status = UpdateStatus.Skipped,
-                    ErrorMessage = skipReason,
+                    ErrorMessage = string.IsNullOrEmpty(fallback.Detail) ? skipReason : $"{skipReason} {fallback.Detail}",
                     CompletedAt = _clock.GetUtcNow()
                 };
                 progress?.Report(operation);
@@ -763,52 +781,149 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
-            var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
-            var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
-
-            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
-            // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
-            // (notably Intel SST/HDA components) when a prior pending reboot must be
-            // completed before the INF is fully applied. The pnputil output explicitly
-            // says "System reboot is needed to complete install operations!" in this case.
-            if (result.ExitCode is 3010 or 259)
-            {
-                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit {Code})", result.ExitCode);
-                operation = operation with
-                {
-                    Status = UpdateStatus.Succeeded,
-                    ErrorMessage = "Reboot required to complete driver installation.",
-                    CompletedAt = _clock.GetUtcNow()
-                };
-                progress?.Report(operation);
-                return operation;
-            }
-
-            if (!result.IsSuccess)
-            {
-                _logger.LogError("pnputil catalog install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
-                operation = operation with
-                {
-                    Status = UpdateStatus.Failed,
-                    ErrorMessage = $"pnputil install exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
-                    CompletedAt = _clock.GetUtcNow()
-                };
-                progress?.Report(operation);
-                return operation;
-            }
-
-            operation = operation with
-            {
-                Status = UpdateStatus.Succeeded,
-                CompletedAt = _clock.GetUtcNow()
-            };
-            progress?.Report(operation);
-            return operation;
+            return await RunPnPUtilAddDriverAsync(operation, progress, installRoot, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             TryDeleteWorkDirectory(workDir);
         }
+    }
+
+    private async Task<UpdateOperation> RunPnPUtilAddDriverAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string installRoot,
+        CancellationToken cancellationToken)
+    {
+        var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
+        var result = await _pnputil!.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
+
+        // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
+        // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
+        // (notably Intel SST/HDA components) when a prior pending reboot must be
+        // completed before the INF is fully applied. The pnputil output explicitly
+        // says "System reboot is needed to complete install operations!" in this case.
+        if (result.ExitCode is 3010 or 259)
+        {
+            _logger.LogInformation("pnputil install succeeded with reboot required (exit {Code})", result.ExitCode);
+            operation = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                ErrorMessage = "Reboot required to complete driver installation.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError("pnputil install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = $"pnputil install exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Succeeded,
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
+    }
+
+    // Generic INF fallback: nearly every vendor "installer" (GPU, audio, chipset) is a
+    // self-extracting archive. When no documented silent switch exists, unpacking it and
+    // feeding the INFs to pnputil installs the driver without ever running the vendor exe.
+    // Authenticode on the outer exe is deliberately not required on this path: the exe is
+    // never executed, and pnputil itself enforces the driver package's catalog signature.
+    private async Task<(UpdateOperation? Operation, string Detail)> TryInstallByExtractingInfAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string installerPath,
+        string? alreadyExtractedRoot,
+        string workDir,
+        CancellationToken cancellationToken)
+    {
+        if (alreadyExtractedRoot is not null)
+        {
+            var fromZip = await TryInstallInfPayloadAsync(operation, progress, alreadyExtractedRoot, cancellationToken).ConfigureAwait(false);
+            if (fromZip is not null)
+            {
+                return (fromZip, string.Empty);
+            }
+        }
+
+        if (_archiveExtractor is null || _pnputil is null)
+        {
+            return (null, string.Empty);
+        }
+
+        if (!Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            || !HasPortableExecutableMagic(installerPath))
+        {
+            return (null, string.Empty);
+        }
+
+        var payloadDir = Path.Combine(workDir, "payload");
+        if (!_archiveExtractor.TryExtract(installerPath, payloadDir, out var extractError))
+        {
+            _logger.LogInformation(
+                "INF fallback for {Device}: {Installer} could not be unpacked ({Error})",
+                DeviceLabel(operation.TargetSnapshot), Path.GetFileName(installerPath), extractError);
+            return (null, $"Unpacking it for a direct INF install also failed: {extractError}");
+        }
+
+        var infInstall = await TryInstallInfPayloadAsync(operation, progress, payloadDir, cancellationToken).ConfigureAwait(false);
+        if (infInstall is not null)
+        {
+            return (infInstall, string.Empty);
+        }
+
+        return (null, "It was unpacked for a direct INF install, but contained no driver INF files.");
+    }
+
+    private async Task<UpdateOperation?> TryInstallInfPayloadAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string payloadRoot,
+        CancellationToken cancellationToken)
+    {
+        if (_pnputil is null)
+        {
+            return null;
+        }
+
+        bool hasInf;
+        try
+        {
+            hasInf = Directory.EnumerateFiles(payloadRoot, "*.inf", SearchOption.AllDirectories).Any();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "INF fallback: could not enumerate {Root}", payloadRoot);
+            return null;
+        }
+
+        if (!hasInf)
+        {
+            return null;
+        }
+
+        _logger.LogInformation(
+            "INF driver package fallback for {Device}: installing extracted INFs from {Root} via pnputil",
+            DeviceLabel(operation.TargetSnapshot), payloadRoot);
+
+        operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
+        progress?.Report(operation);
+
+        return await RunPnPUtilAddDriverAsync(operation, progress, payloadRoot, cancellationToken).ConfigureAwait(false);
     }
 
     private void TryDeleteWorkDirectory(string workDir)
@@ -1251,8 +1366,9 @@ public sealed class InstallPipeline : IInstallPipeline
     private static string QuotePowerShellLiteral(string value) =>
         $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 
-    internal string? ExtractZipAndLocateInstaller(string zipPath, string workDir, out string errorMessage)
+    internal string? ExtractZipAndLocateInstaller(string zipPath, string workDir, out string? extractedRoot, out string errorMessage)
     {
+        extractedRoot = null;
         errorMessage = string.Empty;
         var extractDir = Path.Combine(workDir, "extracted");
 
@@ -1292,6 +1408,7 @@ public sealed class InstallPipeline : IInstallPipeline
             return null;
         }
 
+        extractedRoot = extractDir;
         var located = LocateInstallerInTree(extractDir);
         if (located is null)
         {

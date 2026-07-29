@@ -21,6 +21,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="TaskScheduler" />
+    <PackageReference Include="SharpCompress" />
   </ItemGroup>
 
 </Project>

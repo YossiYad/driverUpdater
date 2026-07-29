@@ -662,6 +662,139 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_installs_unknown_exe_by_extracting_inf_payload()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var extractor = new FakeArchiveExtractor();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: extractor);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        extractor.Invocations.Should().Be(1);
+        vendorInstaller.Invocations.Should().BeEmpty();
+        pnputil.Arguments.Should().ContainSingle();
+        pnputil.Arguments[0].Should().Contain("/add-driver");
+        pnputil.Arguments[0].Should().Contain("*.inf");
+        pnputil.Arguments[0].Should().Contain("/install");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_inf_fallback_reports_reboot_on_3010()
+    {
+        var pnputil = new FakePnPUtilRunner { ExitCode = 3010 };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: new FakeArchiveExtractor());
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("Reboot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_unknown_exe_when_extraction_yields_no_inf()
+    {
+        var pnputil = new FakePnPUtilRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: new FakeArchiveExtractor { WriteInf = false });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("not approved");
+        result.ErrorMessage.Should().Contain("no driver INF files");
+        pnputil.Arguments.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_skips_unknown_exe_when_it_is_not_an_archive()
+    {
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            new FakePnPUtilRunner(),
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 0x4D, 0x5A, 0x00 }),
+            archiveExtractor: new FakeArchiveExtractor { Result = false, Error = "not an archive" });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/setup.exe")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("not approved");
+        result.ErrorMessage.Should().Contain("not an archive");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_installs_zip_with_only_inf_payload_via_pnputil()
+    {
+        byte[] zipBytes;
+        using (var buffer = new MemoryStream())
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(buffer, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            {
+                var entry = zip.CreateEntry("x64/driver.inf");
+                using var stream = entry.Open();
+                stream.Write(System.Text.Encoding.ASCII.GetBytes("[Version]"));
+            }
+            zipBytes = buffer.ToArray();
+        }
+
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pnputil = new FakePnPUtilRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            pnputil,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(zipBytes));
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("https://download.example.com/driver.zip")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        vendorInstaller.Invocations.Should().BeEmpty();
+        pnputil.Arguments.Should().ContainSingle();
+        pnputil.Arguments[0].Should().Contain("/add-driver");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_installs_vendor_page_when_resolver_finds_direct_installer()
     {
         var vendorInstaller = new FakeVendorInstallerRunner();
@@ -1007,6 +1140,30 @@ public class InstallPipelineTests
         }
     }
 
+    private sealed class FakeArchiveExtractor : IArchiveExtractor
+    {
+        public bool Result { get; init; } = true;
+        public string Error { get; init; } = string.Empty;
+        public bool WriteInf { get; init; } = true;
+        public int Invocations { get; private set; }
+
+        public bool TryExtract(string archivePath, string destinationDirectory, out string errorMessage)
+        {
+            Invocations++;
+            errorMessage = Error;
+            if (!Result)
+            {
+                return false;
+            }
+            Directory.CreateDirectory(destinationDirectory);
+            if (WriteInf)
+            {
+                File.WriteAllText(Path.Combine(destinationDirectory, "driver.inf"), "[Version]");
+            }
+            return true;
+        }
+    }
+
     private sealed class FakeFileSignatureVerifier : IFileSignatureVerifier
     {
         public FileSignatureVerification Verification { get; init; } =
@@ -1115,7 +1272,7 @@ public class InstallPipelineTests
         }
 
         var pipeline = NewPipelineForZip();
-        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out _, out var error);
 
         located.Should().NotBeNull();
         located!.Should().EndWith("Setup.exe");
@@ -1135,7 +1292,7 @@ public class InstallPipelineTests
         }
 
         var pipeline = NewPipelineForZip();
-        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out _, out var error);
 
         located.Should().BeNull();
         error.Should().Contain("escape");
@@ -1154,7 +1311,7 @@ public class InstallPipelineTests
         }
 
         var pipeline = NewPipelineForZip();
-        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out var error);
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, temp.Path, out _, out var error);
 
         located.Should().BeNull();
         error.Should().Contain("did not contain");
