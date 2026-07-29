@@ -107,7 +107,7 @@ public partial class DriverRowViewModel : ObservableObject
     {
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
-        UpdateInstallKind.VendorInstaller => "Install (silent)",
+        UpdateInstallKind.VendorInstaller => "Update",
         UpdateInstallKind.VendorPage => "Resolve in app",
         _ => string.Empty
     };
