@@ -46,6 +46,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IAiScanConfirmation? _aiScanConfirmation;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
+    private readonly IVendorPageInstallerResolver? _vendorPageResolver;
+    private readonly IExternalLinkOpener? _externalLinkOpener;
     private readonly Dispatcher _dispatcher;
     private CancellationTokenSource? _aiSearchCancellation;
     private CancellationTokenSource? _scanCancellation;
@@ -177,7 +179,9 @@ public partial class MainViewModel : ObservableObject
         IPostUpdateSummaryCoordinator? postUpdateSummaryCoordinator = null,
         ISupportWindowOpener? supportWindowOpener = null,
         IOptionsMonitor<AiSettings>? aiSettings = null,
-        IAiScanConfirmation? aiScanConfirmation = null)
+        IAiScanConfirmation? aiScanConfirmation = null,
+        IVendorPageInstallerResolver? vendorPageResolver = null,
+        IExternalLinkOpener? externalLinkOpener = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -209,6 +213,8 @@ public partial class MainViewModel : ObservableObject
         _aiScanConfirmation = aiScanConfirmation;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
+        _vendorPageResolver = vendorPageResolver;
+        _externalLinkOpener = externalLinkOpener;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -834,6 +840,12 @@ public partial class MainViewModel : ObservableObject
                 }
             }
 
+            if (DiscardScanIfCacheWasCleared())
+            {
+                return;
+            }
+
+            await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
             if (DiscardScanIfCacheWasCleared())
             {
                 return;
@@ -2053,6 +2065,96 @@ public partial class MainViewModel : ObservableObject
             d.HasAvailableUpdate && d.AvailableUpdate?.Confidence == UpdateConfidence.Advisory);
     }
 
+    // Every source that points at a vendor page - AI discovery, the AMD sources, the OEM
+    // support source - produces a lead, not an installer. Turning those into a real package
+    // here, while the scan is running, is what makes the offer honest: a row that survives
+    // this pass can be installed from inside the app, and a row that does not is marked as
+    // needing the vendor's own page instead of failing at the moment the user clicks Update.
+    private async Task ResolveVendorPageCandidatesAsync(CancellationToken cancellationToken)
+    {
+        if (_vendorPageResolver is null)
+        {
+            return;
+        }
+
+        var pending = Drivers
+            .Where(row => row.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
+            .GroupBy(row => row.AvailableUpdate!.DownloadUrl)
+            .ToArray();
+        if (pending.Length == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Resolving {PageCount} vendor page(s) into installable packages for {RowCount} row(s)",
+            pending.Length,
+            pending.Sum(group => group.Count()));
+
+        var resolvedPages = 0;
+        var manualPages = 0;
+        var index = 0;
+        foreach (var group in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            index++;
+            StatusText = $"Checking vendor downloads... {index} of {pending.Length}";
+
+            UpdateCandidate? resolved = null;
+            try
+            {
+                resolved = await _vendorPageResolver
+                    .TryResolveAsync(group.First().AvailableUpdate!, cancellationToken)
+                    .ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Vendor page resolve threw for {Url}", group.Key);
+            }
+
+            foreach (var row in group)
+            {
+                if (resolved is null)
+                {
+                    // The lead stays on the row: a newer version does exist, the app just has
+                    // no package it can install itself, so the row offers the vendor page.
+                    row.Status = DriverStatus.ManualActionRequired;
+                    continue;
+                }
+
+                // One page serves many rows, so keep each row's own device binding and version
+                // and take only the installer the page resolved to.
+                row.AvailableUpdate = row.AvailableUpdate! with
+                {
+                    DownloadUrl = resolved.DownloadUrl,
+                    InstallKind = resolved.InstallKind,
+                    SourceUpdateId = resolved.SourceUpdateId
+                };
+                row.Status = DriverStatus.Outdated;
+            }
+
+            if (resolved is null)
+            {
+                manualPages++;
+            }
+            else
+            {
+                resolvedPages++;
+            }
+        }
+
+        RefreshUpdateCounts();
+        _logger.LogInformation(
+            "Vendor page resolution complete: {Resolved} page(s) resolved to an in-app installer, " +
+            "{Manual} page(s) offer no installable package and are marked for the vendor site",
+            resolvedPages,
+            manualPages);
+    }
+
     private void FinalizeScanStatuses()
     {
         foreach (var row in Drivers.Where(d => d.IsScannedThisRun && d.AvailableUpdate is null))
@@ -2128,7 +2230,36 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        if (row.IsVendorPageOnly)
+        {
+            OpenVendorPageForRow(row);
+            return;
+        }
+
         await RunUpdatesAsync(new[] { row }, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
+    }
+
+    // The scan already established that this page holds no package the app can install, so the
+    // button hands the user straight to the vendor's own download page. Nothing is opened
+    // without the user pressing it.
+    private void OpenVendorPageForRow(DriverRowViewModel row)
+    {
+        var url = row.AvailableUpdate?.DownloadUrl;
+        if (url is null)
+        {
+            return;
+        }
+
+        if (_externalLinkOpener is null)
+        {
+            StatusText = $"No installer is available in the app for {DriverDisplayName(row)}. Vendor page: {url}";
+            return;
+        }
+
+        _logger.LogInformation(
+            "Opening the vendor download page for {Device}: {Url}", DriverDisplayName(row), url);
+        _externalLinkOpener.Open(url);
+        StatusText = $"Opened the vendor download page for {DriverDisplayName(row)}.";
     }
 
     [RelayCommand(CanExecute = nameof(CanOpenVendorChecks))]

@@ -85,8 +85,10 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         // Anti-bot walls (e.g. Akamai on gigabyte.com) reject HttpClient no matter which
         // headers it sends, because they fingerprint the TLS/HTTP2 layer. A real browser
         // session passes, so when one is enabled we retry the fetch through it.
+        var browserAlreadyTried = false;
         if (html is null)
         {
+            browserAlreadyTried = true;
             html = await TryFetchViaBrowserAsync(candidate, cancellationToken).ConfigureAwait(false);
         }
 
@@ -99,10 +101,27 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             return null;
         }
 
-        if (!TryFindInstallerLink(candidate.DownloadUrl, html, out var packageUrl, out var installerKind))
+        Uri packageUrl;
+        string installerKind;
+        if (!TryFindInstallerLink(candidate.DownloadUrl, html, out packageUrl, out installerKind))
         {
-            LogInstallerCandidateDiagnostics(candidate, html);
-            return null;
+            // A page that answers 200 with no package links is usually a download list that
+            // builds its links in the browser (realtek.com and amd.com both do this). The
+            // browser retry used to run only when the plain fetch failed outright, so those
+            // pages were written off as having nothing to install without ever being rendered.
+            var rendered = browserAlreadyTried
+                ? null
+                : await TryFetchViaBrowserAsync(candidate, cancellationToken).ConfigureAwait(false);
+            if (rendered is null
+                || !TryFindInstallerLink(candidate.DownloadUrl, rendered, out packageUrl, out installerKind))
+            {
+                LogInstallerCandidateDiagnostics(candidate, rendered ?? html);
+                return null;
+            }
+
+            _logger.LogInformation(
+                "Vendor page {Url} only exposed its packages after rendering in a browser",
+                candidate.DownloadUrl);
         }
 
         _logger.LogInformation(

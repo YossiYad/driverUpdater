@@ -543,7 +543,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_with_vendor_page_tries_pipeline_without_opening_url()
+    public async Task Vendor_page_that_holds_an_installer_is_resolved_during_the_scan_and_installed()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -552,6 +552,7 @@ public class MainViewModelUpdateSourceTests
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
         var pipeline = new RecordingInstallPipeline();
+        var links = new RecordingExternalLinkOpener();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
@@ -561,14 +562,63 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance);
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(new Uri("https://vendor.example/driver.exe")),
+            externalLinkOpener: links);
 
         await vm.ScanCommand.ExecuteAsync(null);
-        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+
+        var row = vm.Drivers[0];
+        row.AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        row.IsVendorPageOnly.Should().BeFalse();
+        row.UpdateActionText.Should().Be("Update");
+        row.Status.Should().Be(DriverStatus.Outdated);
+
+        await vm.UpdateSingleCommand.ExecuteAsync(row);
 
         pipeline.Operations.Should().ContainSingle()
-            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        vm.StatusText.Should().Contain("1 updates had no safe in-app installer");
+            .Which.Candidate.DownloadUrl.Should().Be(new Uri("https://vendor.example/driver.exe"));
+        links.OpenedUris.Should().BeEmpty();
+    }
+
+    [WpfFact]
+    public async Task Vendor_page_with_no_installer_offers_the_page_instead_of_a_failing_install()
+    {
+        var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
+        var page = new Uri("https://vendor.example/support");
+        var advisory = NewCandidate(
+            "PCI\\VEN_10DE&DEV_0001",
+            new Version(2026, 5, 28, 0),
+            UpdateInstallKind.VendorPage,
+            UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var pipeline = new RecordingInstallPipeline();
+        var links = new RecordingExternalLinkOpener();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(resolvedPackage: null),
+            externalLinkOpener: links);
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers[0];
+        row.Status.Should().Be(DriverStatus.ManualActionRequired);
+        row.StatusText.Should().Be("Install from vendor page");
+        row.IsVendorPageOnly.Should().BeTrue();
+        row.UpdateActionText.Should().Be("Open page");
+        row.CanUpdate.Should().BeTrue();
+
+        await vm.UpdateSingleCommand.ExecuteAsync(row);
+
+        links.OpenedUris.Should().ContainSingle().Which.Should().Be(page);
+        pipeline.Operations.Should().BeEmpty("the scan already proved the page has nothing installable");
     }
 
     [WpfFact]
@@ -1044,34 +1094,74 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_on_vendor_check_row_shows_manual_action_without_opening_page()
+    public async Task Vendor_page_rows_are_resolved_once_per_page_and_shared_across_devices()
     {
-        var driver = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
-        var advisory = NewCandidate(
-            "PCI\\VEN_1022&DEV_0001",
-            new Version(2026, 5, 18, 0),
-            UpdateInstallKind.VendorPage,
-            UpdateConfidence.Advisory);
-        var pipeline = new RecordingInstallPipeline();
+        var first = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
+        var second = NewDriver("AMD SMBUS", "PCI\\VEN_1022&DEV_0002", new Version(1, 0, 0, 0));
+        var page = new Uri("https://vendor.example/support");
+        var advisoryA = NewCandidate(
+            "PCI\\VEN_1022&DEV_0001", new Version(2026, 5, 18, 0),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var advisoryB = NewCandidate(
+            "PCI\\VEN_1022&DEV_0002", new Version(8, 5, 4, 516),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with { DownloadUrl = page };
+        var resolver = new StubVendorPageResolver(new Uri("https://vendor.example/chipset.exe"));
         var vm = new MainViewModel(
-            new FakeScanService(new[] { driver }),
-            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisory }) },
+            new FakeScanService(new[] { first, second }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { advisoryA, advisoryB }) },
             new NullOemDetectionService(),
-            pipeline,
+            new RecordingInstallPipeline(),
             new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance);
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: resolver);
 
         await vm.ScanCommand.ExecuteAsync(null);
-        vm.Drivers[0].Status = DriverStatus.UpToDate;
 
-        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
+        resolver.Calls.Should().Be(1, "one page serves both rows");
+        vm.Drivers.Should().OnlyContain(r =>
+            r.AvailableUpdate!.InstallKind == UpdateInstallKind.VendorInstaller
+            && r.AvailableUpdate.DownloadUrl == new Uri("https://vendor.example/chipset.exe"));
+        vm.Drivers[0].AvailableUpdate!.NewVersion.Should().Be(new Version(2026, 5, 18, 0));
+        vm.Drivers[1].AvailableUpdate!.NewVersion.Should().Be(new Version(8, 5, 4, 516),
+            "each row keeps the version found for its own device");
+    }
 
-        pipeline.Operations.Should().ContainSingle()
-            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        vm.Drivers[0].Status.Should().Be(DriverStatus.ManualActionRequired);
+    private sealed class RecordingExternalLinkOpener : IExternalLinkOpener
+    {
+        public List<Uri> OpenedUris { get; } = new();
+
+        public bool Open(Uri uri)
+        {
+            OpenedUris.Add(uri);
+            return true;
+        }
+    }
+
+    private sealed class StubVendorPageResolver : IVendorPageInstallerResolver
+    {
+        private readonly Uri? _resolvedPackage;
+
+        public StubVendorPageResolver(Uri? resolvedPackage) => _resolvedPackage = resolvedPackage;
+
+        public int Calls { get; private set; }
+
+        public Task<UpdateCandidate?> TryResolveAsync(
+            UpdateCandidate candidate,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(_resolvedPackage is null
+                ? null
+                : candidate with
+                {
+                    DownloadUrl = _resolvedPackage,
+                    InstallKind = UpdateInstallKind.VendorInstaller,
+                    SourceUpdateId = "vendor-installer:zip-inf:resolved:" + candidate.SourceUpdateId
+                });
+        }
     }
 
     private sealed class StubDriverCacheStore : IDriverCacheStore

@@ -206,6 +206,41 @@ public class VendorPageInstallerResolverTests
         resolved!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
     }
 
+    [Fact]
+    public async Task TryResolveAsync_renders_a_page_that_answers_but_lists_no_packages()
+    {
+        // realtek.com and amd.com both answer 200 with a shell whose download links are built
+        // in the browser. Writing those off without rendering hid every package they offer.
+        var browserFetcher = new StubBrowserFetcher("<a href=\"/downloads/driver.msi\">download</a>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<html><body><div id='app'></div></body></html>"),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeTrue();
+        resolved!.DownloadUrl.Should().Be(new Uri("https://vendor.example.com/downloads/driver.msi"));
+        resolved.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_returns_null_when_neither_fetch_lists_a_package()
+    {
+        var browserFetcher = new StubBrowserFetcher("<html><body>no downloads here</body></html>");
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory("<html><body><div id='app'></div></body></html>"),
+            NullLogger<VendorPageInstallerResolver>.Instance,
+            new Lazy<IBrowserHtmlFetcher>(() => browserFetcher),
+            new StubScraperSettings(enablePlaywrightFallback: true));
+
+        var resolved = await resolver.TryResolveAsync(NewVendorPageCandidate());
+
+        browserFetcher.WasCalled.Should().BeTrue();
+        resolved.Should().BeNull();
+    }
+
     private sealed class StubBrowserFetcher : IBrowserHtmlFetcher
     {
         private readonly string? _html;
