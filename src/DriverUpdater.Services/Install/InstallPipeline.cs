@@ -330,15 +330,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var deviceName = DeviceLabel(operation.TargetSnapshot);
 
-        // AMD chipset packages update several independent device drivers in one run. The
-        // representative row may already have the package's component version while another
-        // component changed, so a single-device read-back cannot classify the package result.
-        // Keep the successful package outcome and let the post-update verifier inspect every
-        // affected row separately.
-        if (IsAmdChipsetCandidate(operation.Candidate))
+        // AMD chipset and graphics packages update several independent device drivers in one
+        // run. The representative row may remain unchanged while another component updates,
+        // so a single-device read-back cannot classify the package result. Keep the successful
+        // package outcome and let the post-update verifier inspect every affected row separately.
+        if (IsSharedAmdPackageCandidate(operation.Candidate))
         {
             _logger.LogInformation(
-                "AMD chipset package completed for {Device}; component verification is deferred to the batch summary",
+                "Shared AMD package completed for {Device}; every covered component will be verified separately in the batch summary",
                 deviceName);
             return operation;
         }
@@ -1073,6 +1072,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
     internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsAmdGraphicsCandidate(UpdateCandidate candidate) =>
+        candidate.SourceUpdateId.StartsWith(
+            "vendor-installer:nullsoft:amd-radeon:",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSharedAmdPackageCandidate(UpdateCandidate candidate) =>
+        IsAmdChipsetCandidate(candidate) || IsAmdGraphicsCandidate(candidate);
 
     private static bool TryConfirmAmdChipsetSuccess(
         DateTimeOffset installStart,

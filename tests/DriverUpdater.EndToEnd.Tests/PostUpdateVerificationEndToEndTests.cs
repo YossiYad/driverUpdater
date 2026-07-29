@@ -105,6 +105,76 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task Shared_amd_graphics_package_verifies_each_display_adapter_independently()
+    {
+        var integrated = Gpu with
+        {
+            DeviceId = @"PCI\VEN_1002&DEV_13C0\4&1",
+            HardwareId = @"PCI\VEN_1002&DEV_13C0",
+            DeviceName = "AMD Radeon(TM) Graphics",
+            Provider = "Advanced Micro Devices, Inc.",
+            Manufacturer = "Advanced Micro Devices, Inc.",
+            CurrentVersion = new Version(32, 0, 21043, 1005),
+            CurrentDate = new DateOnly(2026, 2, 18)
+        };
+        var discrete = integrated with
+        {
+            DeviceId = @"PCI\VEN_1002&DEV_747E\6&2",
+            HardwareId = @"PCI\VEN_1002&DEV_747E",
+            DeviceName = "AMD Radeon RX 7700 XT",
+            CurrentVersion = new Version(32, 0, 31021, 5001),
+            CurrentDate = new DateOnly(2026, 5, 13)
+        };
+        var sharedCandidate = GpuCandidate with
+        {
+            Source = UpdateSource.Oem,
+            DownloadUrl = new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.7.1-win11-b.exe"),
+            SourceUpdateId = "vendor-installer:nullsoft:amd-radeon:26.7.1",
+            InstallKind = UpdateInstallKind.VendorInstaller,
+            NewVersion = new Version(2026, 7, 28, 0),
+            NewDate = new DateOnly(2026, 7, 28)
+        };
+        var operations = new[]
+        {
+            UpdateOperation.NewPending(
+                sharedCandidate with { ForHardwareId = integrated.HardwareId },
+                integrated) with
+            {
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = DateTimeOffset.UtcNow
+            },
+            UpdateOperation.NewPending(
+                sharedCandidate with { ForHardwareId = discrete.HardwareId },
+                discrete) with
+            {
+                Status = UpdateStatus.Succeeded,
+                CompletedAt = DateTimeOffset.UtcNow
+            }
+        };
+        var probe = new ScriptedInstalledDriverProbe()
+            .Always(
+                integrated.DeviceId,
+                new InstalledDriverState(integrated.CurrentVersion, integrated.CurrentDate))
+            .Always(
+                discrete.DeviceId,
+                new InstalledDriverState(
+                    new Version(32, 0, 31035, 1003),
+                    new DateOnly(2026, 7, 24)));
+        var (coordinator, windows, _, _, _) =
+            BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
+
+        var report = await coordinator.CompleteRunAsync(operations);
+
+        report.Should().NotBeNull();
+        report!.Items.Should().HaveCount(2);
+        report.Items.Single(item => item.DeviceName == integrated.DeviceName).Status
+            .Should().Be(UpdateVerificationStatus.NotUpdated);
+        report.Items.Single(item => item.DeviceName == discrete.DeviceName).Status
+            .Should().Be(UpdateVerificationStatus.VerifiedUpdated);
+        windows.Reports.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task An_update_needing_a_restart_is_saved_and_verified_after_the_machine_reboots()
     {
         var installedAt = DateTimeOffset.UtcNow;

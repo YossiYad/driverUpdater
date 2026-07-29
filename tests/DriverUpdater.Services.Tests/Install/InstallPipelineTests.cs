@@ -595,6 +595,44 @@ public class InstallPipelineTests
         probe.Invocations.Should().Be(0);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_keeps_amd_graphics_bundle_success_for_per_component_verification()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([0x4D, 0x5A, 0x00, 0x00]),
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
+        var operation = NewOperation(
+            UpdateSource.Oem,
+            UpdateInstallKind.VendorInstaller,
+            new Uri("https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.7.1.exe"));
+        operation = operation with
+        {
+            Candidate = operation.Candidate with
+            {
+                SourceUpdateId = "vendor-installer:nullsoft:amd-radeon:26.7.1"
+            }
+        };
+
+        var result = await pipeline.ExecuteAsync(
+            operation,
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        vendorInstaller.Invocations.Should().ContainSingle();
+        probe.Invocations.Should().Be(0);
+    }
+
     [Theory]
     [InlineData("Configuration completed successfully. Reconfiguration success or error status: 0.", true)]
     [InlineData("Configuration completed successfully. MainEngineThread is returning 0", true)]
