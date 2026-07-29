@@ -960,9 +960,15 @@ public partial class MainViewModel : ObservableObject
             // exactly the loop the ledger exists to break.
             if (pending.IsNewerThan(row.Driver) && !IsProvenIneffective(row, pending))
             {
+                // The candidate has just been re-compared against the version this scan read
+                // from the machine, so it is a real pending update; only its provenance is
+                // older than this run. Keep it offered - sources drop in and out between scans
+                // (a scraper that failed, a source disabled in settings, an AI-discovered lead
+                // that a plain scan never re-derives), and marking those rows unverifiable left
+                // them permanently stuck: the next scan restored them from cache again.
                 row.AvailableUpdate = pending;
                 row.IsUpdateFromCache = true;
-                row.Status = DriverStatus.VerificationInconclusive;
+                row.Status = DriverStatus.Outdated;
                 restored++;
                 _logger.LogDebug(
                     "Cache reconciliation restored fallback for {Device}: {SourceUpdateId} {Version}",
@@ -2036,7 +2042,7 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshUpdateCounts()
     {
-        UpdatesFoundCount = Drivers.Count(d => d.HasAvailableUpdate && d.Status == DriverStatus.Outdated);
+        UpdatesFoundCount = Drivers.Count(d => d.HasAvailableUpdate);
         ConfirmedUpdatesCount = Drivers.Count(d =>
             d.HasAvailableUpdate && d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
         VendorChecksCount = Drivers.Count(d =>
@@ -2160,13 +2166,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Selection is by install kind only. Every row here already passed CanUpdate, so
+        // re-filtering on DriverStatus would only drop rows whose button the user just
+        // clicked - the retry after a failed install, the result carried over from the last
+        // scan - and turn that click into a silent no-op.
         var installTargets = targets
-            .Where(r => r.Status == DriverStatus.Outdated
-                && r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
+            .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.WindowsUpdate or UpdateInstallKind.PnPUtilPackage or UpdateInstallKind.VendorInstaller })
             .ToArray();
-        // No Status filter here: vendor check rows are advisory and usually sit at
-        // UpToDate (AI discovery sets them so), yet their row button is enabled via
-        // CanUpdate. Filtering by Outdated made that button a silent no-op.
         var pageTargets = targets
             .Where(r => r.AvailableUpdate is { InstallKind: UpdateInstallKind.VendorPage })
             .ToArray();
@@ -2473,13 +2479,14 @@ public partial class MainViewModel : ObservableObject
     private void LogScanSummary()
     {
         var withUpdates = Drivers.Where(d => d.HasAvailableUpdate).ToArray();
-        var cachedPending = Drivers.Where(d => d.AvailableUpdate != null && d.IsUpdateFromCache).ToArray();
-        var noUpdateCount = Drivers.Count - withUpdates.Length - cachedPending.Length;
+        var carriedOver = withUpdates.Count(d => d.IsUpdateFromCache);
+        var noUpdateCount = Drivers.Count - withUpdates.Length;
 
         var sb = new System.Text.StringBuilder();
         sb.Append("Scan result summary: ").Append(Drivers.Count).Append(" total drivers, ")
-            .Append(withUpdates.Length).Append(" with fresh available updates, ")
-            .Append(cachedPending.Length).Append(" cached results awaiting verification, ")
+            .Append(withUpdates.Length).Append(" with an available update (")
+            .Append(withUpdates.Length - carriedOver).Append(" found by a source this run, ")
+            .Append(carriedOver).Append(" carried over from the last scan), ")
             .Append(noUpdateCount).AppendLine(" up-to-date / no update found");
 
         if (withUpdates.Length > 0)

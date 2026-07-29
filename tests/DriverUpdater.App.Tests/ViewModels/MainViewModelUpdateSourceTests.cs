@@ -873,9 +873,40 @@ public class MainViewModelUpdateSourceTests
         row.AvailableUpdate.Should().NotBeNull();
         row.AvailableUpdate!.SourceUpdateId.Should().Be(pending.SourceUpdateId);
         row.IsUpdateFromCache.Should().BeTrue();
-        row.Status.Should().Be(DriverStatus.VerificationInconclusive);
-        row.CanUpdate.Should().BeFalse();
-        vm.UpdatesFoundCount.Should().Be(0);
+        row.Status.Should().Be(DriverStatus.Outdated);
+        row.CanUpdate.Should().BeTrue(
+            "the scan re-checked the candidate against the installed version, so it is still offered");
+        vm.UpdatesFoundCount.Should().Be(1);
+    }
+
+    [WpfFact]
+    public async Task Update_carried_over_from_the_last_scan_can_be_installed()
+    {
+        var driver = NewDriver("Intel Display", @"PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var pending = NewCandidate(@"PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
+        {
+            new CachedDriverEntry(driver, DriverStatus.Outdated, pending)
+        }));
+        var pipeline = new RecordingInstallPipeline();
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(Array.Empty<UpdateCandidate>()) },
+            new NullOemDetectionService(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cache);
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers.Single());
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(pending.SourceUpdateId);
     }
 
     [WpfFact]

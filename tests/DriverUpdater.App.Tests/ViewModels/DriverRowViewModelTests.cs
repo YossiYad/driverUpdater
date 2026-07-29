@@ -210,7 +210,7 @@ public class DriverRowViewModelTests
     }
 
     [Fact]
-    public void CanUpdate_is_true_for_outdated_updates_and_vendor_page_checks()
+    public void CanUpdate_is_true_for_every_row_that_holds_an_offered_update()
     {
         var row = new DriverRowViewModel(NewSampleDriver());
         row.CanUpdate.Should().BeFalse();
@@ -226,10 +226,13 @@ public class DriverRowViewModelTests
             IsSuperseded: false,
             SourceUpdateId: "abc",
             SupersededIds: Array.Empty<string>());
-        row.CanUpdate.Should().BeFalse();
+        row.CanUpdate.Should().BeTrue("a candidate is offered before the scan settles the status");
 
         row.Status = DriverStatus.Outdated;
         row.CanUpdate.Should().BeTrue();
+
+        row.Status = DriverStatus.Error;
+        row.CanUpdate.Should().BeTrue("a failed install keeps its candidate so the user can retry it");
 
         row.AvailableUpdate = null;
         row.CanUpdate.Should().BeFalse();
@@ -238,10 +241,32 @@ public class DriverRowViewModelTests
         row.AvailableUpdate = NewCandidate() with { InstallKind = UpdateInstallKind.VendorPage };
         row.CanUpdate.Should().BeTrue();
 
+        row.ActiveOperation = NewActiveOperation() with { Status = UpdateStatus.Installing };
+        row.CanUpdate.Should().BeFalse("the row is already installing");
+        row.ActiveOperation = null;
+
         row.IsUpdateFromCache = true;
+        row.HasAvailableUpdate.Should().BeTrue(
+            "the current scan re-checked this candidate against the installed version");
+        row.CanUpdate.Should().BeTrue();
+        row.UpdateActionText.Should().Be("Update");
+        row.SourceText.Should().EndWith("(cached)");
+    }
+
+    [Fact]
+    public void Cached_row_shown_before_a_scan_is_not_offered_for_install()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate(),
+            IsUpdateFromCache = true,
+            IsScannedThisRun = false
+        };
+
+        row.IsAwaitingRescan.Should().BeTrue();
         row.HasAvailableUpdate.Should().BeFalse();
         row.CanUpdate.Should().BeFalse();
-        row.CanAskAi.Should().BeTrue("the row still belongs to the current scan in this unit test");
+        row.UpdateActionText.Should().BeEmpty();
         row.StatusText.Should().Be("Cached result, re-scan required");
         row.ConfidenceText.Should().Be("Cached, not reverified");
     }
