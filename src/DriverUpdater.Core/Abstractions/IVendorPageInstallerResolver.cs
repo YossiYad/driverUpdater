@@ -4,5 +4,5 @@ namespace DriverUpdater.Core.Abstractions;
 
 public interface IVendorPageInstallerResolver
 {
-    Task<UpdateCandidate?> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default);
+    Task<VendorPageResolution> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default);
 }

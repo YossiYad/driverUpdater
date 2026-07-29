@@ -2093,6 +2093,7 @@ public partial class MainViewModel : ObservableObject
 
         var resolvedPages = 0;
         var manualPages = 0;
+        var droppedPages = 0;
         var index = 0;
         foreach (var group in pending)
         {
@@ -2100,10 +2101,10 @@ public partial class MainViewModel : ObservableObject
             index++;
             StatusText = $"Checking vendor downloads... {index} of {pending.Length}";
 
-            UpdateCandidate? resolved = null;
+            var resolution = VendorPageResolution.NoPackageFound;
             try
             {
-                resolved = await _vendorPageResolver
+                resolution = await _vendorPageResolver
                     .TryResolveAsync(group.First().AvailableUpdate!, cancellationToken)
                     .ConfigureAwait(true);
             }
@@ -2118,41 +2119,53 @@ public partial class MainViewModel : ObservableObject
 
             foreach (var row in group)
             {
-                if (resolved is null)
+                switch (resolution.Kind)
                 {
-                    // The lead stays on the row: a newer version does exist, the app just has
-                    // no package it can install itself, so the row offers the vendor page.
-                    row.Status = DriverStatus.ManualActionRequired;
-                    continue;
+                    case VendorPageResolutionKind.Installer:
+                        // One page serves many rows, so keep each row's own device binding and
+                        // version and take only the installer the page resolved to.
+                        row.AvailableUpdate = row.AvailableUpdate! with
+                        {
+                            DownloadUrl = resolution.Candidate!.DownloadUrl,
+                            InstallKind = resolution.Candidate.InstallKind,
+                            SourceUpdateId = resolution.Candidate.SourceUpdateId
+                        };
+                        row.Status = DriverStatus.Outdated;
+                        break;
+                    case VendorPageResolutionKind.NoPackageFound:
+                        // The lead stays on the row: the page is real and a newer version does
+                        // exist there, the app just has no package it can install itself, so
+                        // the row offers to open the vendor page instead.
+                        row.Status = DriverStatus.ManualActionRequired;
+                        break;
+                    case VendorPageResolutionKind.PageUnreachable:
+                        // The page itself could not be fetched at all, even by a browser. That
+                        // usually means the lead is bad - an invented or moved URL - not that a
+                        // real update needs a manual visit, so offering to open it would just
+                        // hand the user a dead link. Drop it like any other update that turned
+                        // out not to exist.
+                        row.AvailableUpdate = null;
+                        row.Status = DriverStatus.NotFound;
+                        break;
                 }
-
-                // One page serves many rows, so keep each row's own device binding and version
-                // and take only the installer the page resolved to.
-                row.AvailableUpdate = row.AvailableUpdate! with
-                {
-                    DownloadUrl = resolved.DownloadUrl,
-                    InstallKind = resolved.InstallKind,
-                    SourceUpdateId = resolved.SourceUpdateId
-                };
-                row.Status = DriverStatus.Outdated;
             }
 
-            if (resolved is null)
+            switch (resolution.Kind)
             {
-                manualPages++;
-            }
-            else
-            {
-                resolvedPages++;
+                case VendorPageResolutionKind.Installer: resolvedPages++; break;
+                case VendorPageResolutionKind.NoPackageFound: manualPages++; break;
+                case VendorPageResolutionKind.PageUnreachable: droppedPages++; break;
             }
         }
 
         RefreshUpdateCounts();
         _logger.LogInformation(
             "Vendor page resolution complete: {Resolved} page(s) resolved to an in-app installer, " +
-            "{Manual} page(s) offer no installable package and are marked for the vendor site",
+            "{Manual} page(s) offer no installable package and are marked for the vendor site, " +
+            "{Dropped} page(s) could not be reached at all and were dropped",
             resolvedPages,
-            manualPages);
+            manualPages,
+            droppedPages);
     }
 
     private void FinalizeScanStatuses()

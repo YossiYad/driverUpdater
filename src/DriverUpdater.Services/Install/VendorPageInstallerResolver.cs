@@ -32,13 +32,13 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         _scraperSettings = scraperSettings;
     }
 
-    public async Task<UpdateCandidate?> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default)
+    public async Task<VendorPageResolution> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(candidate);
 
         if (candidate.InstallKind != UpdateInstallKind.VendorPage)
         {
-            return null;
+            return VendorPageResolution.NoPackageFound;
         }
 
         if (candidate.DownloadUrl.Scheme is not ("http" or "https"))
@@ -46,7 +46,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             _logger.LogInformation(
                 "Vendor page resolve skipped for {SourceUpdateId}: {Url} is not an http(s) page",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
-            return null;
+            return VendorPageResolution.NoPackageFound;
         }
 
         _logger.LogInformation(
@@ -95,10 +95,11 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         if (html is null)
         {
             _logger.LogWarning(
-                "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}. " +
-                "The row will remain unresolved in the application.",
+                "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url} at all, even through a " +
+                "browser session. This usually means the lead itself is bad (a moved or invented URL) rather than " +
+                "a page the app just can't parse, so the update will not be offered.",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
-            return null;
+            return VendorPageResolution.PageUnreachable;
         }
 
         Uri packageUrl;
@@ -116,7 +117,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
                 || !TryFindInstallerLink(candidate.DownloadUrl, rendered, out packageUrl, out installerKind))
             {
                 LogInstallerCandidateDiagnostics(candidate, rendered ?? html);
-                return null;
+                return VendorPageResolution.NoPackageFound;
             }
 
             _logger.LogInformation(
@@ -127,12 +128,12 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         _logger.LogInformation(
             "Vendor page {Url} resolved to direct installer {Package} (kind {Kind}) for {SourceUpdateId}",
             candidate.DownloadUrl, packageUrl, installerKind, candidate.SourceUpdateId);
-        return candidate with
+        return VendorPageResolution.Installer(candidate with
         {
             DownloadUrl = packageUrl,
             InstallKind = UpdateInstallKind.VendorInstaller,
             SourceUpdateId = $"vendor-installer:{installerKind}:resolved:{candidate.SourceUpdateId}"
-        };
+        });
     }
 
     private async Task<string?> TryFetchViaBrowserAsync(UpdateCandidate candidate, CancellationToken cancellationToken)

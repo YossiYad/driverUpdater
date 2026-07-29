@@ -1129,6 +1129,43 @@ public class MainViewModelUpdateSourceTests
             "each row keeps the version found for its own device");
     }
 
+    [WpfFact]
+    public async Task Vendor_page_that_cannot_be_fetched_at_all_is_dropped_not_offered_as_manual()
+    {
+        // A page that answers with real content but no package (NoPackageFound) is offered as
+        // "Open page" - a human can still browse it. A page that cannot be reached at all, even
+        // by a browser, usually means the lead itself is bad (the AI invented or moved the URL),
+        // so opening it would just hand the user a dead link. That case is dropped entirely.
+        var driver = NewDriver("Volume", "STORAGE\\VOLUME", new Version(10, 0, 26100, 5074));
+        var deadLead = NewCandidate(
+            "STORAGE\\VOLUME", new Version(10, 0, 26100, 8875),
+            UpdateInstallKind.VendorPage, UpdateConfidence.Advisory) with
+        {
+            DownloadUrl = new Uri("https://support.microsoft.com/help/KB0000000")
+        };
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { deadLead }) },
+            new NullOemDetectionService(),
+            new RecordingInstallPipeline(),
+            new ConfirmingInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            vendorPageResolver: new StubVendorPageResolver(
+                resolvedPackage: null,
+                unresolvedKind: VendorPageResolutionKind.PageUnreachable));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers.Single();
+        row.AvailableUpdate.Should().BeNull();
+        row.Status.Should().Be(DriverStatus.NotFound);
+        row.HasAvailableUpdate.Should().BeFalse();
+        vm.UpdatesFoundCount.Should().Be(0);
+    }
+
     private sealed class RecordingExternalLinkOpener : IExternalLinkOpener
     {
         public List<Uri> OpenedUris { get; } = new();
@@ -1143,24 +1180,36 @@ public class MainViewModelUpdateSourceTests
     private sealed class StubVendorPageResolver : IVendorPageInstallerResolver
     {
         private readonly Uri? _resolvedPackage;
+        private readonly VendorPageResolutionKind _unresolvedKind;
 
-        public StubVendorPageResolver(Uri? resolvedPackage) => _resolvedPackage = resolvedPackage;
+        public StubVendorPageResolver(
+            Uri? resolvedPackage,
+            VendorPageResolutionKind unresolvedKind = VendorPageResolutionKind.NoPackageFound)
+        {
+            _resolvedPackage = resolvedPackage;
+            _unresolvedKind = unresolvedKind;
+        }
 
         public int Calls { get; private set; }
 
-        public Task<UpdateCandidate?> TryResolveAsync(
+        public Task<VendorPageResolution> TryResolveAsync(
             UpdateCandidate candidate,
             CancellationToken cancellationToken = default)
         {
             Calls++;
-            return Task.FromResult(_resolvedPackage is null
-                ? null
-                : candidate with
-                {
-                    DownloadUrl = _resolvedPackage,
-                    InstallKind = UpdateInstallKind.VendorInstaller,
-                    SourceUpdateId = "vendor-installer:zip-inf:resolved:" + candidate.SourceUpdateId
-                });
+            if (_resolvedPackage is null)
+            {
+                return Task.FromResult(_unresolvedKind == VendorPageResolutionKind.PageUnreachable
+                    ? VendorPageResolution.PageUnreachable
+                    : VendorPageResolution.NoPackageFound);
+            }
+
+            return Task.FromResult(VendorPageResolution.Installer(candidate with
+            {
+                DownloadUrl = _resolvedPackage,
+                InstallKind = UpdateInstallKind.VendorInstaller,
+                SourceUpdateId = "vendor-installer:zip-inf:resolved:" + candidate.SourceUpdateId
+            }));
         }
     }
 

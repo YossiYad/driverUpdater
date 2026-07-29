@@ -1125,8 +1125,10 @@ public class InstallPipelineTests
             _resolve = resolve;
         }
 
-        public Task<UpdateCandidate?> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_resolve(candidate));
+        public Task<VendorPageResolution> TryResolveAsync(UpdateCandidate candidate, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_resolve(candidate) is { } resolved
+                ? VendorPageResolution.Installer(resolved)
+                : VendorPageResolution.NoPackageFound);
     }
 
     private sealed class FakeVendorInstallerRunner : IVendorInstallerRunner

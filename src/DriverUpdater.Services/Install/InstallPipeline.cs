@@ -421,11 +421,12 @@ public sealed class InstallPipeline : IInstallPipeline
         IProgress<UpdateOperation>? progress,
         CancellationToken cancellationToken)
     {
-        var resolved = _vendorPageResolver is null
-            ? null
+        var resolution = _vendorPageResolver is null
+            ? VendorPageResolution.NoPackageFound
             : await _vendorPageResolver.TryResolveAsync(operation.Candidate, cancellationToken).ConfigureAwait(false);
-        if (resolved is not null)
+        if (resolution.Kind == VendorPageResolutionKind.Installer)
         {
+            var resolved = resolution.Candidate!;
             _logger.LogInformation(
                 "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
                 operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
@@ -435,7 +436,9 @@ public sealed class InstallPipeline : IInstallPipeline
         _logger.LogInformation(
             "Vendor page update for {Device} cannot be installed in-app ({Reason}); no external page will be opened for {Url}",
             operation.TargetSnapshot.DeviceName,
-            _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
+            _vendorPageResolver is null ? "no vendor page resolver configured"
+                : resolution.Kind == VendorPageResolutionKind.PageUnreachable ? "the page could not be fetched at all"
+                : "no direct installer found on the page",
             operation.Candidate.DownloadUrl);
         operation = operation with
         {
