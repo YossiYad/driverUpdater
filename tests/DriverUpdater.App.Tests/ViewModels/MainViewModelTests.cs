@@ -21,7 +21,7 @@ public class MainViewModelTests
         vm.Drivers.Select(d => d.DeviceName).Should().BeEquivalentTo(["A", "B"]);
         vm.IsScanning.Should().BeFalse();
         vm.StatusText.Should().StartWith("Done.");
-        vm.ProgressText.Should().Be("2 drivers (0 confirmed, 0 possible updates)");
+        vm.ProgressText.Should().Be("2 drivers, 0 updates available");
     }
 
     [WpfFact]

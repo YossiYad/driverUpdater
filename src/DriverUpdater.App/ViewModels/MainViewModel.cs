@@ -151,7 +151,8 @@ public partial class MainViewModel : ObservableObject
         : ScannedCount > 0
             ? IsShowingCachedDrivers
                 ? $"{ScannedCount} cached drivers (scan to refresh)"
-                : $"{ScannedCount} drivers ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} possible updates)"
+                : $"{ScannedCount} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available"
+                  + (UpdatesFoundCount > 0 ? $" ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely)" : string.Empty)
             : string.Empty;
 
     public MainViewModel(
@@ -841,7 +842,10 @@ public partial class MainViewModel : ObservableObject
             FinalizeScanStatuses();
             LogScanSummary();
 
-            StatusText = $"Done. {Drivers.Count} drivers, {ConfirmedUpdatesCount} confirmed updates, {VendorChecksCount} possible updates.";
+            StatusText = UpdatesFoundCount == 0
+                ? $"Done. {Drivers.Count} drivers, no updates available."
+                : $"Done. {Drivers.Count} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available "
+                  + $"({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely).";
             if (DiscardScanIfCacheWasCleared())
             {
                 return;
