@@ -575,7 +575,46 @@ public sealed class InstallPipeline : IInstallPipeline
                 installerPath = locatedInstaller;
             }
 
-            if (!TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out var fileName, out var arguments, out var skipReason))
+            var fileName = string.Empty;
+            var arguments = string.Empty;
+            var commandResolved = false;
+            if (IsAmdAdrenalinCandidate(operation.Candidate)
+                && _archiveExtractor is not null
+                && Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                && HasPortableExecutableMagic(installerPath))
+            {
+                // The Adrenalin package's outer exe has no reliable silent switch, but its
+                // embedded Setup.exe documents one (AMD "Radeon Software Command Line
+                // Installation User Guide"): -INSTALL runs unattended, -DRIVERONLY skips
+                // the Adrenalin app. Unpack the bundle and drive the inner installer.
+                var adrenalinDir = Path.Combine(workDir, "adrenalin");
+                if (_archiveExtractor.TryExtract(installerPath, adrenalinDir, out var adrenalinError))
+                {
+                    extractedPayloadRoot = adrenalinDir;
+                    var setup = LocateSetupExe(adrenalinDir);
+                    if (setup is not null)
+                    {
+                        installerPath = setup;
+                        fileName = setup;
+                        arguments = $"-INSTALL -DRIVERONLY -LOG \"{Path.Combine(workDir, "adrenalin-install.log")}\"";
+                        commandResolved = true;
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "AMD Adrenalin package for {Device} contained no Setup.exe; falling back to direct INF install",
+                            DeviceLabel(operation.TargetSnapshot));
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "AMD Adrenalin package for {Device} could not be unpacked ({Error}); trying the standard install paths",
+                        DeviceLabel(operation.TargetSnapshot), adrenalinError);
+                }
+            }
+
+            if (!commandResolved && !TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out fileName, out arguments, out var skipReason))
             {
                 var fallback = await TryInstallByExtractingInfAsync(operation, progress, installerPath, extractedPayloadRoot, workDir, cancellationToken).ConfigureAwait(false);
                 if (fallback.Operation is not null)
@@ -1070,6 +1109,20 @@ public sealed class InstallPipeline : IInstallPipeline
 
     internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsAmdAdrenalinCandidate(UpdateCandidate candidate) =>
+        candidate.SourceUpdateId.StartsWith("vendor-installer:amd-adrenalin:", StringComparison.OrdinalIgnoreCase);
+
+    internal static string? LocateSetupExe(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+        return Directory.EnumerateFiles(root, "Setup.exe", SearchOption.AllDirectories)
+            .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
+            .FirstOrDefault();
+    }
 
     private static bool TryConfirmAmdChipsetSuccess(
         DateTimeOffset installStart,
