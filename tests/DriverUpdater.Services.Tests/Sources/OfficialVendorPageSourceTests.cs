@@ -22,7 +22,7 @@ public class OfficialVendorPageSourceTests
     }
 
     [Fact]
-    public async Task SearchAsync_yields_vendor_page_only_for_old_vendor_driver()
+    public async Task SearchAsync_does_not_offer_page_only_vendor_checks()
     {
         var source = new OfficialVendorPageSource(
             NullLogger<OfficialVendorPageSource>.Instance,
@@ -34,9 +34,7 @@ public class OfficialVendorPageSourceTests
             NewDriver("Realtek Audio (HD)", "Realtek", DriverCategory.Audio, new DateOnly(2026, 5, 1))
         }).ToListAsync();
 
-        results.Should().ContainSingle();
-        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorPage);
-        results[0].DownloadUrl.Host.Should().Contain("realtek.com");
+        results.Should().BeEmpty();
     }
 
     [Fact]
@@ -90,7 +88,7 @@ public class OfficialVendorPageSourceTests
     }
 
     [Fact]
-    public async Task SearchAsync_offers_display_drivers_after_short_period()
+    public async Task SearchAsync_does_not_offer_page_only_display_checks()
     {
         var source = new OfficialVendorPageSource(
             NullLogger<OfficialVendorPageSource>.Instance,
@@ -102,9 +100,7 @@ public class OfficialVendorPageSourceTests
             NewDriver("AMD Radeon RX 6700 XT", "Advanced Micro Devices, Inc.", DriverCategory.Display, new DateOnly(2026, 5, 10))
         }).ToListAsync();
 
-        results.Should().HaveCount(2);
-        results.Should().Contain(r => r.DownloadUrl.Host.Contains("nvidia.com"));
-        results.Should().Contain(r => r.DownloadUrl.Host.Contains("amd.com"));
+        results.Should().BeEmpty();
     }
 
     [Fact]
@@ -152,12 +148,11 @@ public class OfficialVendorPageSourceTests
             NewDriver("Realtek PCIe 2.5GbE Family Controller", "Realtek", DriverCategory.Network, new DateOnly(2024, 1, 1))
         }).ToListAsync();
 
-        results.Should().ContainSingle();
-        results[0].DownloadUrl.Host.Should().Contain("realtek.com");
+        results.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task SearchAsync_offers_logitech_page_when_g_hub_not_installed()
+    public async Task SearchAsync_does_not_offer_logitech_page_when_no_installer_is_found()
     {
         var source = new OfficialVendorPageSource(
             NullLogger<OfficialVendorPageSource>.Instance,
@@ -169,8 +164,7 @@ public class OfficialVendorPageSourceTests
             NewDriver("LIGHTSPEED Receiver", "Logitech", DriverCategory.Usb, new DateOnly(2024, 1, 1))
         }).ToListAsync();
 
-        results.Should().ContainSingle();
-        results[0].DownloadUrl.Host.Should().Contain("logi.com");
+        results.Should().BeEmpty();
     }
 
     private static DriverInfo NewDriver(string deviceName, string provider, DriverCategory category, DateOnly currentDate) => new(

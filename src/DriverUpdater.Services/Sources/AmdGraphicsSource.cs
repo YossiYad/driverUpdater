@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
 {
     public const string HttpClientName = "AmdGraphics";
     internal const string AmdSupportUrl = "https://www.amd.com/en/support/download/drivers.html";
+    internal const string AmdVersionTableUrl = "https://raw.githubusercontent.com/GPUOpen-Drivers/amd-vulkan-versions/master/amdversions.xml";
     private const string AmdSoftwareDisplayName = "AMD Software";
 
     private readonly HttpClient _httpClient;
@@ -62,6 +64,20 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 installedAmdSoftwareVersion);
         }
 
+        string? versionTable = null;
+        try
+        {
+            versionTable = await _httpClient.GetStringAsync(AmdVersionTableUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AMD machine-readable version table request failed; falling back to support pages");
+        }
+
         // Phase 1: collect (driver, supportUri, parsedRelease?) per display, sorted so devices with
         // a model-specific page (the discrete RX cards) are fetched first. Their parse result becomes
         // the cached fallback for any device whose page is just a navigation hub (the iGPU "AMD
@@ -86,6 +102,17 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 var html = await _httpClient.GetStringAsync(supportUri, cancellationToken).ConfigureAwait(false);
                 htmlLength = html.Length;
                 parsedRelease = TryParseLatestWindowsRelease(html, out var parsed) ? parsed : null;
+                if (parsedRelease is { } pageRelease
+                    && !string.IsNullOrWhiteSpace(versionTable)
+                    && TryParseVersionTable(versionTable, ClassifyArchitecture(driver), out var feedRelease)
+                    && string.Equals(pageRelease.Revision, feedRelease.Revision, StringComparison.OrdinalIgnoreCase))
+                {
+                    parsedRelease = pageRelease with
+                    {
+                        DriverVersion = feedRelease.DriverVersion,
+                        ReleaseNotesUrl = feedRelease.ReleaseNotesUrl
+                    };
+                }
             }
             catch (Exception ex)
             {
@@ -158,7 +185,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             return new UpdateCandidate(
                 ForHardwareId: driver.HardwareId,
                 Source: UpdateSource.Oem,
-                NewVersion: DateToVersion(release.ReleaseDate),
+                NewVersion: release.DriverVersion ?? DateToVersion(release.ReleaseDate),
                 NewDate: release.ReleaseDate,
                 DownloadUrl: installerUrl,
                 SizeBytes: release.SizeBytes ?? 0,
@@ -172,7 +199,7 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         return new UpdateCandidate(
             ForHardwareId: driver.HardwareId,
             Source: UpdateSource.Oem,
-            NewVersion: DateToVersion(release.ReleaseDate),
+            NewVersion: release.DriverVersion ?? DateToVersion(release.ReleaseDate),
             NewDate: release.ReleaseDate,
             DownloadUrl: supportUri,
             SizeBytes: release.SizeBytes ?? 0,
@@ -184,9 +211,8 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
     }
 
     // The Adrenalin "minimal setup" / "_web" stub is a tiny downloader that always opens
-    // its own GUI - /S does not actually run silent. Demote it to VendorPage so the user
-    // opens AMD's support page and runs the installer themselves rather than waiting on
-    // a silent install that never finishes (we previously saw exit 2 from Setup.exe).
+    // its own GUI. /S does not actually run silent. Demote it to VendorPage so the in-app
+    // resolver can look for a full package without launching the web stub.
     internal static bool IsWebStub(Uri installerUrl)
     {
         var fileName = Path.GetFileName(installerUrl.LocalPath);
@@ -202,6 +228,129 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         driver.Category == DriverCategory.Display
         && (Contains(driver.Provider, "Advanced Micro Devices") || Contains(driver.Manufacturer, "Advanced Micro Devices") || Contains(driver.DeviceName, "AMD Radeon"))
         && Contains(driver.DeviceName, "Radeon");
+
+    internal static AmdGraphicsArchitecture ClassifyArchitecture(DriverInfo driver)
+    {
+        if (TryExtractAmdDeviceId(driver, out var deviceId))
+        {
+            if (Rdna12DeviceIds.Contains(deviceId))
+            {
+                return AmdGraphicsArchitecture.Rdna12;
+            }
+            if (PolarisVegaDeviceIds.Contains(deviceId))
+            {
+                return AmdGraphicsArchitecture.PolarisVega;
+            }
+        }
+
+        var model = driver.DeviceName;
+        if (ContainsAny(model, "RX 5500", "RX 5600", "RX 5700", "RX 6400", "RX 6500", "RX 6600", "RX 6700", "RX 6800", "RX 6900"))
+        {
+            return AmdGraphicsArchitecture.Rdna12;
+        }
+        if (ContainsAny(model, "Vega", "RX 460", "RX 470", "RX 480", "RX 550", "RX 560", "RX 570", "RX 580", "RX 590"))
+        {
+            return AmdGraphicsArchitecture.PolarisVega;
+        }
+        return AmdGraphicsArchitecture.Mainstream;
+    }
+
+    internal static bool TryParseVersionTable(
+        string xml,
+        AmdGraphicsArchitecture architecture,
+        out AmdReleaseInfo release)
+    {
+        ArgumentNullException.ThrowIfNull(xml);
+        release = default;
+
+        try
+        {
+            var document = XDocument.Parse(xml, LoadOptions.None);
+            foreach (var driver in document.Descendants("driver"))
+            {
+                if (!string.Equals(driver.Attribute("operating-system")?.Value, "Windows", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var versionAttribute = driver.Attribute("version")?.Value;
+                if (string.IsNullOrWhiteSpace(versionAttribute)
+                    || ClassifyVersionBranch(versionAttribute) != architecture)
+                {
+                    continue;
+                }
+
+                var publicVersion = versionAttribute.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                var driverVersionRaw = driver.Element("windows-version")?.Value;
+                var releaseDateRaw = driver.Element("release-date")?.Value;
+                if (string.IsNullOrWhiteSpace(publicVersion)
+                    || !Version.TryParse(driverVersionRaw, out var driverVersion)
+                    || !DateOnly.TryParseExact(releaseDateRaw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var releaseDate))
+                {
+                    continue;
+                }
+
+                var releaseNotes = TryCreateAmdUri(driver.Element("download-url")?.Value);
+                release = new AmdReleaseInfo(
+                    publicVersion,
+                    releaseDate,
+                    SizeBytes: null,
+                    DirectInstallerUrl: null,
+                    DriverVersion: driverVersion,
+                    ReleaseNotesUrl: releaseNotes);
+                return true;
+            }
+
+            return false;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    private static AmdGraphicsArchitecture ClassifyVersionBranch(string versionAttribute)
+    {
+        if (versionAttribute.Contains("Polaris and Vega", StringComparison.OrdinalIgnoreCase))
+        {
+            return AmdGraphicsArchitecture.PolarisVega;
+        }
+        if (versionAttribute.Contains("RDNA1 and RDNA2", StringComparison.OrdinalIgnoreCase))
+        {
+            return AmdGraphicsArchitecture.Rdna12;
+        }
+        return AmdGraphicsArchitecture.Mainstream;
+    }
+
+    private static Uri? TryCreateAmdUri(string? raw)
+    {
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !(uri.Host.Equals("amd.com", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith(".amd.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+        return uri;
+    }
+
+    private static bool TryExtractAmdDeviceId(DriverInfo driver, out ushort deviceId)
+    {
+        foreach (var hardwareId in driver.HardwareIds.Append(driver.HardwareId).Append(driver.DeviceId))
+        {
+            var match = AmdDeviceIdPattern().Match(hardwareId ?? string.Empty);
+            if (match.Success
+                && ushort.TryParse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out deviceId))
+            {
+                return true;
+            }
+        }
+        deviceId = 0;
+        return false;
+    }
+
+    private static bool ContainsAny(string value, params string[] needles) =>
+        needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
 
     internal static bool TryResolveSupportPage(DriverInfo driver, out Uri supportUri)
     {
@@ -304,5 +453,37 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
     [GeneratedRegex(@"(?<url>https://drivers\.amd\.com/drivers/[^""'\s<>]+\.exe)", RegexOptions.IgnoreCase)]
     private static partial Regex DirectInstallerUrlPattern();
 
-    internal readonly record struct AmdReleaseInfo(string Revision, DateOnly ReleaseDate, long? SizeBytes, Uri? DirectInstallerUrl = null);
+    [GeneratedRegex(@"VEN_1002&DEV_([0-9A-F]{4})", RegexOptions.IgnoreCase)]
+    private static partial Regex AmdDeviceIdPattern();
+
+    private static readonly HashSet<ushort> Rdna12DeviceIds =
+    [
+        0x7310, 0x7312, 0x7318, 0x7319, 0x731A, 0x731B, 0x731E, 0x731F, 0x7340, 0x7341, 0x7347, 0x734F,
+        0x7360, 0x7362, 0x73A0, 0x73A1, 0x73A2, 0x73A3, 0x73A5, 0x73AB, 0x73AE, 0x73AF, 0x73BF, 0x73D0,
+        0x73DF, 0x73E0, 0x73E1, 0x73E3, 0x73E8, 0x73E9, 0x73EF, 0x73FF, 0x7420, 0x7421, 0x7422, 0x7423,
+        0x743F
+    ];
+
+    private static readonly HashSet<ushort> PolarisVegaDeviceIds =
+    [
+        0x67C0, 0x67C2, 0x67C4, 0x67C7, 0x67CA, 0x67CC, 0x67CF, 0x67D0, 0x67D4, 0x67D7, 0x67DF, 0x6FDF,
+        0x67E0, 0x67E1, 0x67E3, 0x67E8, 0x67EB, 0x67EF, 0x67FF, 0x6980, 0x6981, 0x6985, 0x6986, 0x6987,
+        0x698F, 0x699F, 0x6860, 0x6861, 0x6862, 0x6863, 0x6864, 0x6867, 0x6868, 0x686C, 0x687F, 0x69A0,
+        0x69A1, 0x69A2, 0x69A3, 0x69AF, 0x66A0, 0x66A1, 0x66A2, 0x66A3, 0x66A7, 0x66AF
+    ];
+
+    internal enum AmdGraphicsArchitecture
+    {
+        Mainstream,
+        Rdna12,
+        PolarisVega
+    }
+
+    internal readonly record struct AmdReleaseInfo(
+        string Revision,
+        DateOnly ReleaseDate,
+        long? SizeBytes,
+        Uri? DirectInstallerUrl = null,
+        Version? DriverVersion = null,
+        Uri? ReleaseNotesUrl = null);
 }

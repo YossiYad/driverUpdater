@@ -74,27 +74,12 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
                 continue;
             }
 
-            _logger.LogInformation("Offering official vendor check page for {Device}", driver.DeviceName);
+            _logger.LogInformation("Checking the official vendor page for an in-app installer for {Device}", driver.DeviceName);
             var advisoryDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
             if (await TryBuildInstallerCandidateAsync(driver, vendorName, page, advisoryDate, cancellationToken).ConfigureAwait(false) is { } installer)
             {
                 yield return installer;
-                continue;
             }
-
-            yield return new UpdateCandidate(
-                ForHardwareId: driver.HardwareId,
-                Source: UpdateSource.Oem,
-                NewVersion: new Version(advisoryDate.Year, advisoryDate.Month, advisoryDate.Day, 0),
-                NewDate: advisoryDate,
-                DownloadUrl: page,
-                SizeBytes: 0,
-                KbArticle: null,
-                IsSuperseded: false,
-                SourceUpdateId: $"vendor-page:{vendorName}:{driver.HardwareId}",
-                SupersededIds: Array.Empty<string>(),
-                InstallKind: UpdateInstallKind.VendorPage,
-                Confidence: UpdateConfidence.Advisory);
         }
     }
 
@@ -116,7 +101,7 @@ public sealed partial class OfficialVendorPageSource : IUpdateSource
             if (!TryFindAppInstallablePackage(page, html, out var packageUrl, out var installerKind))
             {
                 _logger.LogInformation(
-                    "No direct .msi/.zip installer found on {Page} for {Device} ({Length} bytes scanned); offering the page itself",
+                    "No direct .msi/.zip installer found on {Page} for {Device} ({Length} bytes scanned); no update will be offered",
                     page, driver.DeviceName, html.Length);
                 return null;
             }

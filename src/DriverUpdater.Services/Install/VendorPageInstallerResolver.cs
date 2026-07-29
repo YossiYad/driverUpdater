@@ -94,7 +94,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         {
             _logger.LogWarning(
                 "Vendor page resolve failed for {SourceUpdateId}: could not fetch {Url}. " +
-                "The row will fall back to opening the page in a browser.",
+                "The row will remain unresolved in the application.",
                 candidate.SourceUpdateId, candidate.DownloadUrl);
             return null;
         }
@@ -136,14 +136,12 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         return await _browserFetcher.Value.TryFetchHtmlAsync(candidate.DownloadUrl, cancellationToken).ConfigureAwait(false);
     }
 
-    // Explains, in the logs, why a vendor page could not be turned into a silent install so it
-    // fell back to opening a browser. Lists every downloadable link found on the page and how
-    // it was classified - most often the page only offers .exe installers whose unattended
-    // flags are not yet known (TryClassifyExe rejects them), which is the signal for what to add.
+    // Explains, in the logs, why a vendor page could not be turned into a silent install.
+    // With the exe-extract fallback this only happens when the page offers no .msi/.zip/.exe
+    // links at all, so the listing shows what the page did contain.
     private void LogInstallerCandidateDiagnostics(UpdateCandidate candidate, string html)
     {
         var links = new List<string>();
-        var rejectedExes = new List<string>();
         foreach (Match match in HrefPattern().Matches(html))
         {
             var raw = match.Groups["url"].Value;
@@ -160,27 +158,14 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             }
 
             links.Add($"{Path.GetFileName(resolved.LocalPath)} ({extension})");
-            if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !TryClassifyExe(resolved, out _))
-            {
-                rejectedExes.Add(resolved.AbsoluteUri);
-            }
         }
 
         _logger.LogWarning(
             "Vendor page resolve for {SourceUpdateId} ({Device}) found no installable package on {Url} " +
-            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row falls back to opening the page. " +
-            "To install this in-app, the page needs a recognised .msi/.zip, or one of its .exe links must be added " +
-            "to the known unattended-installer list with the correct silent flags.",
+            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row remains unresolved in the application. " +
+            "To install this in-app, the page needs a downloadable .msi/.zip/.exe driver package link.",
             candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl, html.Length,
             links.Count, links.Count == 0 ? "none" : string.Join(", ", links));
-
-        if (rejectedExes.Count > 0)
-        {
-            _logger.LogInformation(
-                "Vendor page resolve for {SourceUpdateId}: {Count} .exe link(s) were rejected as unrecognised installers " +
-                "(no known silent flags): {Exes}. Add matching entries to TryClassifyExe/TryBuildVendorInstallerCommand to auto-install these.",
-                candidate.SourceUpdateId, rejectedExes.Count, string.Join(", ", rejectedExes));
-        }
     }
 
     internal static bool TryFindInstallerLink(Uri page, string html, out Uri packageUrl, out string installerKind)
@@ -191,6 +176,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         Uri? msi = null;
         Uri? zip = null;
         Uri? exe = null;
+        Uri? unknownExe = null;
         var exeKind = string.Empty;
 
         foreach (Match match in HrefPattern().Matches(html))
@@ -211,12 +197,17 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             {
                 zip = resolved;
             }
-            else if (exe is null
-                && extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                && TryClassifyExe(resolved, out var kind))
+            else if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
             {
-                exe = resolved;
-                exeKind = kind;
+                if (exe is null && TryClassifyExe(resolved, out var kind))
+                {
+                    exe = resolved;
+                    exeKind = kind;
+                }
+                else if (unknownExe is null)
+                {
+                    unknownExe = resolved;
+                }
             }
         }
 
@@ -238,16 +229,22 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             installerKind = "zip-inf";
             return true;
         }
+        if (unknownExe is not null)
+        {
+            packageUrl = unknownExe;
+            installerKind = "exe-extract";
+            return true;
+        }
 
         packageUrl = null!;
         installerKind = string.Empty;
         return false;
     }
 
-    // Only .exe installers with documented unattended flags are auto-resolved; an
-    // unrecognised exe would download and then be rejected by the pipeline as
-    // "not approved for unattended install" anyway. AMD Adrenalin exes are
-    // deliberately excluded - their web stubs always open a GUI.
+    // Classified exes run silently with their documented unattended flags. Unclassified
+    // exes are still resolved (as "exe-extract", lowest priority): the pipeline never
+    // executes them, it unpacks the self-extracting archive and installs any INFs via
+    // pnputil, so a GUI-only installer degrades to a skip instead of a hung setup window.
     internal static bool TryClassifyExe(Uri url, out string installerKind)
     {
         var fileName = Path.GetFileName(url.LocalPath);

@@ -108,7 +108,7 @@ public partial class DriverRowViewModel : ObservableObject
         UpdateInstallKind.WindowsUpdate => "Install",
         UpdateInstallKind.PnPUtilPackage => "Install",
         UpdateInstallKind.VendorInstaller => "Install (silent)",
-        UpdateInstallKind.VendorPage => "Install / vendor page",
+        UpdateInstallKind.VendorPage => "Resolve in app",
         _ => string.Empty
     };
     public string ConfidenceText => IsUpdateFromCache ? "Cached, not reverified" : AvailableUpdate?.Confidence switch
@@ -126,7 +126,7 @@ public partial class DriverRowViewModel : ObservableObject
         DriverStatus.NotFound => "No update found",
         DriverStatus.Error => "Check failed",
         DriverStatus.NotUpdated => "Not updated",
-        DriverStatus.ManualActionRequired => "Continue on vendor website",
+        DriverStatus.ManualActionRequired => "No safe in-app installer",
         DriverStatus.RestartRequired => "Restart required",
         DriverStatus.VerificationInconclusive => "Could not verify",
         _ => Status.ToString()

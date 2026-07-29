@@ -7,8 +7,7 @@ namespace DriverUpdater.Services.Sources.Internal.Motherboard.Gigabyte;
 
 // Routes scrape requests: API first (cheap), then Playwright if the API blows up and
 // the user has opted into the heavy browser fallback. Any failure beyond that point
-// degrades to an empty result so OfficialVendorPageSource can keep producing the
-// advisory it always has.
+// degrades to an empty result so the app does not offer a page-only update.
 public sealed class HybridGigabyteScraper : IMotherboardScraper
 {
     private readonly IMotherboardScraper _api;

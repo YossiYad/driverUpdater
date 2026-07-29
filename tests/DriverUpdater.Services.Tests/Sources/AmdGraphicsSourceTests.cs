@@ -229,9 +229,111 @@ public class AmdGraphicsSourceTests
         uri.AbsoluteUri.Should().Be(AmdGraphicsSource.AmdSupportUrl);
     }
 
-    private static AmdGraphicsSource NewSource(string html, string? installedAmdSoftwareVersion = null)
+    [Fact]
+    public void TryParseVersionTable_selects_exact_rdna12_branch_without_inventing_an_installer_url()
     {
-        var client = new HttpClient(new StaticHtmlHandler(html))
+        var parsed = AmdGraphicsSource.TryParseVersionTable(
+            VersionTableXml,
+            AmdGraphicsSource.AmdGraphicsArchitecture.Rdna12,
+            out var release);
+
+        parsed.Should().BeTrue();
+        release.Revision.Should().Be("26.6.2");
+        release.DriverVersion.Should().Be(new Version(32, 0, 21043, 19003));
+        release.ReleaseDate.Should().Be(new DateOnly(2026, 6, 10));
+        release.DirectInstallerUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParseVersionTable_keeps_polaris_vega_on_release_page_when_direct_url_is_not_deterministic()
+    {
+        var parsed = AmdGraphicsSource.TryParseVersionTable(
+            VersionTableXml,
+            AmdGraphicsSource.AmdGraphicsArchitecture.PolarisVega,
+            out var release);
+
+        parsed.Should().BeTrue();
+        release.DriverVersion.Should().Be(new Version(31, 0, 21925, 1001));
+        release.DirectInstallerUrl.Should().BeNull();
+        release.ReleaseNotesUrl!.Host.Should().Be("www.amd.com");
+    }
+
+    [Theory]
+    [InlineData("PCI\\VEN_1002&DEV_73BF", "AMD Radeon RX 6800 XT", "Rdna12")]
+    [InlineData("PCI\\VEN_1002&DEV_67DF", "AMD Radeon RX 580", "PolarisVega")]
+    [InlineData("PCI\\VEN_1002&DEV_744C", "AMD Radeon RX 7900 XTX", "Mainstream")]
+    public void ClassifyArchitecture_uses_pci_device_id_before_model_name(
+        string hardwareId,
+        string model,
+        string expected)
+    {
+        var driver = NewAmdDriver(new DateOnly(2025, 1, 1)) with
+        {
+            DeviceId = hardwareId,
+            HardwareId = hardwareId,
+            DeviceName = model,
+            HardwareIds = [hardwareId]
+        };
+
+        AmdGraphicsSource.ClassifyArchitecture(driver).ToString().Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task SearchAsync_uses_machine_readable_driver_version_and_direct_url()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.6.4 (WHQL Recommended)</p>
+            <p>File Size</p><p>1630 MB</p>
+            <p>Release Date</p><p>2026-06-29</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.6.4-win11-c.exe">Download</a>
+            """, versionTable: VersionTableXml);
+        var driver = NewAmdDriver(new DateOnly(2025, 1, 1)) with
+        {
+            DeviceId = "PCI\\VEN_1002&DEV_744C",
+            HardwareId = "PCI\\VEN_1002&DEV_744C",
+            DeviceName = "AMD Radeon RX 7900 XTX",
+            HardwareIds = ["PCI\\VEN_1002&DEV_744C"]
+        };
+
+        var results = await source.SearchAsync([driver]).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].NewVersion.Should().Be(new Version(32, 0, 31021, 5001));
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        results[0].DownloadUrl.AbsoluteUri.Should().Be(
+            "https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.6.4-win11-c.exe");
+    }
+
+    private const string VersionTableXml = """
+        <?xml version="1.0"?>
+        <amd_drivers>
+          <driver version="26.6.4" operating-system="Windows">
+            <whql>WHQL</whql>
+            <download-url>https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-6-4.html</download-url>
+            <windows-version>32.0.31021.5001</windows-version>
+            <release-date>2026-06-29</release-date>
+          </driver>
+          <driver version="26.6.2 for RDNA1 and RDNA2" operating-system="Windows">
+            <whql>WHQL</whql>
+            <download-url>https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-6-2-RDNA.html</download-url>
+            <windows-version>32.0.21043.19003</windows-version>
+            <release-date>2026-06-10</release-date>
+          </driver>
+          <driver version="26.5.2 for Polaris and Vega" operating-system="Windows">
+            <whql>WHQL</whql>
+            <download-url>https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-5-2-POLARIS-VEGA.html</download-url>
+            <windows-version>31.0.21925.1001</windows-version>
+            <release-date>2026-05-14</release-date>
+          </driver>
+        </amd_drivers>
+        """;
+
+    private static AmdGraphicsSource NewSource(
+        string html,
+        string? installedAmdSoftwareVersion = null,
+        string? versionTable = null)
+    {
+        var client = new HttpClient(new StaticHtmlHandler(html, versionTable))
         {
             BaseAddress = new Uri("https://www.amd.com/")
         };
@@ -258,17 +360,24 @@ public class AmdGraphicsSourceTests
     private sealed class StaticHtmlHandler : HttpMessageHandler
     {
         private readonly string _html;
+        private readonly string? _versionTable;
 
-        public StaticHtmlHandler(string html)
+        public StaticHtmlHandler(string html, string? versionTable)
         {
             _html = html;
+            _versionTable = versionTable;
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var content = request.RequestUri?.AbsoluteUri == AmdGraphicsSource.AmdVersionTableUrl
+                ? _versionTable ?? _html
+                : _html;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(_html)
+                Content = new StringContent(content)
             });
+        }
     }
 
     private sealed class StubInstalledSoftwareVersionProvider(string? version) : IInstalledSoftwareVersionProvider

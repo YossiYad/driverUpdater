@@ -66,14 +66,32 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
-    public void TryFindInstallerLink_rejects_unknown_exe()
+    public void TryFindInstallerLink_accepts_unknown_exe_for_inf_extraction()
     {
         const string html = "<a href=\"https://vendor.example.com/setup.exe\">setup</a>";
 
         var ok = VendorPageInstallerResolver.TryFindInstallerLink(
-            new Uri("https://vendor.example.com/support.html"), html, out _, out _);
+            new Uri("https://vendor.example.com/support.html"), html, out var url, out var kind);
 
-        ok.Should().BeFalse();
+        ok.Should().BeTrue();
+        url.Should().Be(new Uri("https://vendor.example.com/setup.exe"));
+        kind.Should().Be("exe-extract");
+    }
+
+    [Fact]
+    public void TryFindInstallerLink_prefers_zip_over_unknown_exe()
+    {
+        const string html = """
+            <a href="https://vendor.example.com/setup.exe">setup</a>
+            <a href="https://vendor.example.com/driver.zip">zip</a>
+            """;
+
+        var ok = VendorPageInstallerResolver.TryFindInstallerLink(
+            new Uri("https://vendor.example.com/support.html"), html, out var url, out var kind);
+
+        ok.Should().BeTrue();
+        url.Should().Be(new Uri("https://vendor.example.com/driver.zip"));
+        kind.Should().Be("zip-inf");
     }
 
     [Fact]

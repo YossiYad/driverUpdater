@@ -6,10 +6,11 @@ namespace DriverUpdater.Services.Web;
 
 /// <summary>
 /// Owns the single Playwright browser instance shared by every component that needs a real
-/// browser (Gigabyte scraping, vendor-page fetching). Boots the user's installed Chrome or
-/// Edge first so the TLS/HTTP2 fingerprint matches a real browser - Akamai-style bot managers
+/// browser (Gigabyte scraping, vendor-page fetching). This hidden engine is independent of the
+/// user's default browser. It boots Edge or Chrome when available so the TLS/HTTP2 fingerprint
+/// matches a real browser - Akamai-style bot managers
 /// fingerprint far below the JS layer, so bundled headless Chromium gets caught even with
-/// stealth shims. Chromium is downloaded only if neither Chrome nor Edge is available.
+/// stealth shims. App-owned Chromium is downloaded only if neither Edge nor Chrome is available.
 /// </summary>
 public sealed class PlaywrightBrowserProvider : IAsyncDisposable
 {
@@ -108,7 +109,7 @@ public sealed class PlaywrightBrowserProvider : IAsyncDisposable
                 Args = ["--disable-blink-features=AutomationControlled"]
             };
 
-            foreach (var channel in new[] { "chrome", "msedge" })
+            foreach (var channel in new[] { "msedge", "chrome" })
             {
                 try
                 {

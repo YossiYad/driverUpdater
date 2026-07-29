@@ -30,7 +30,6 @@ public partial class MainViewModel : ObservableObject
     private readonly IOemDetectionService _oemDetectionService;
     private readonly IInstallPipeline _installPipeline;
     private readonly IInstallConfirmation _installConfirmation;
-    private readonly IUpdatePageOpener? _updatePageOpener;
     private readonly IHistoryWindowOpener _historyWindowOpener;
     private readonly ISettingsWindowOpener _settingsWindowOpener;
     private readonly ILogsWindowOpener _logsWindowOpener;
@@ -165,7 +164,6 @@ public partial class MainViewModel : ObservableObject
         ISettingsWindowOpener settingsWindowOpener,
         ILogsWindowOpener logsWindowOpener,
         ILogger<MainViewModel> logger,
-        IUpdatePageOpener? updatePageOpener = null,
         IDriverCacheStore? driverCacheStore = null,
         IAiVerifier? aiVerifier = null,
         IOptionsMonitor<UpdaterSettings>? updaterSettings = null,
@@ -194,7 +192,6 @@ public partial class MainViewModel : ObservableObject
         _oemDetectionService = oemDetectionService;
         _installPipeline = installPipeline;
         _installConfirmation = installConfirmation;
-        _updatePageOpener = updatePageOpener;
         _historyWindowOpener = historyWindowOpener;
         _settingsWindowOpener = settingsWindowOpener;
         _logsWindowOpener = logsWindowOpener;
@@ -2134,17 +2131,16 @@ public partial class MainViewModel : ObservableObject
 
         if (pageTargets.Length == 0)
         {
-            StatusText = "No vendor checks to open.";
+            StatusText = "No vendor checks to resolve.";
             return;
         }
 
-        await OpenVendorPagesAsync(pageTargets, cancellationToken).ConfigureAwait(true);
-        StatusText = $"Opened {pageTargets.Length} vendor update pages.";
+        await RunUpdatesAsync(pageTargets, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
     }
 
     private bool CanUpdateAll() => Drivers.Any(r => r.CanUpdate);
 
-    private bool CanOpenVendorChecks() => VendorChecksCount > 0 && _updatePageOpener is not null;
+    private bool CanOpenVendorChecks() => VendorChecksCount > 0;
 
     public event EventHandler<DriverRowViewModel>? ScrollToRowRequested;
 
@@ -2176,8 +2172,8 @@ public partial class MainViewModel : ObservableObject
             .ToArray();
 
         // Vendor page rows go through the pipeline too: it tries to resolve a direct
-        // installer from the page and install silently. Only when that fails does the
-        // pipeline report Skipped and the row falls back to opening the page below.
+        // installer from the page and install silently. If that fails, the row remains
+        // unresolved in the application and no external browser is launched.
         if (!dryRun && includeVendorPages && pageTargets.Length > 0)
         {
             installTargets = installTargets.Concat(pageTargets).ToArray();
@@ -2186,7 +2182,7 @@ public partial class MainViewModel : ObservableObject
         if (installTargets.Length == 0)
         {
             StatusText = dryRun
-                ? $"Dry run completed. {pageTargets.Length} vendor pages would be opened."
+                ? $"Dry run completed. {pageTargets.Length} vendor checks require in-app installer resolution."
                 : "No confirmed updates to install.";
             return;
         }
@@ -2210,7 +2206,7 @@ public partial class MainViewModel : ObservableObject
         var processedUpdateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outcomes = new List<(DriverRowViewModel Row, UpdateOperation Operation)>();
         var skipped = new List<(DriverRowViewModel Row, string Reason)>();
-        var vendorPageFallbacks = new List<DriverRowViewModel>();
+        var unresolvedVendorChecks = new List<DriverRowViewModel>();
         var installAttemptCount = 0;
         foreach (var row in installTargets)
         {
@@ -2289,26 +2285,21 @@ public partial class MainViewModel : ObservableObject
                 {
                     _logger.LogInformation(
                         "Update run: {Device} could not be updated in-app from its vendor page ({Url}); " +
-                        "falling back to opening the page in a browser. Reason: {Reason}. See the 'Vendor page resolve' " +
-                        "log lines above for the links found on the page and why none were directly installable.",
+                        "no browser will be opened. Reason: {Reason}. See the 'Vendor page resolve' log lines above " +
+                        "for the links found on the page and why none were directly installable.",
                         displayName, finished.Candidate.DownloadUrl,
                         string.IsNullOrWhiteSpace(finished.ErrorMessage) ? "no direct installer found on the page" : finished.ErrorMessage);
-                    vendorPageFallbacks.Add(row);
+                    unresolvedVendorChecks.Add(row);
                 }
             }
         }
 
-        if (vendorPageFallbacks.Count > 0)
-        {
-            await OpenVendorPagesAsync(vendorPageFallbacks, cancellationToken).ConfigureAwait(true);
-        }
-
-        LogRunSummary(runStartedAt, dryRun, vendorPageFallbacks, installTargets, installAttemptCount, outcomes, skipped);
+        LogRunSummary(runStartedAt, dryRun, unresolvedVendorChecks, installTargets, installAttemptCount, outcomes, skipped);
 
         StatusText = dryRun
             ? $"Dry run completed for {installTargets.Length} drivers."
-            : vendorPageFallbacks.Count > 0
-                ? $"Install completed for {installTargets.Length} drivers. Opened {vendorPageFallbacks.Count} vendor pages."
+            : unresolvedVendorChecks.Count > 0
+                ? $"Install completed for {installTargets.Length} drivers. {unresolvedVendorChecks.Count} vendor checks had no safe in-app installer."
                 : includeVendorPages
                     ? $"Install completed for {installTargets.Length} drivers."
                     : $"Install completed for {installTargets.Length} confirmed drivers.";
@@ -2407,7 +2398,7 @@ public partial class MainViewModel : ObservableObject
     private void LogRunSummary(
         DateTimeOffset runStartedAt,
         bool dryRun,
-        IReadOnlyList<DriverRowViewModel> vendorPageFallbacks,
+        IReadOnlyList<DriverRowViewModel> unresolvedVendorChecks,
         IReadOnlyList<DriverRowViewModel> installTargets,
         int installAttemptCount,
         IReadOnlyList<(DriverRowViewModel Row, UpdateOperation Operation)> outcomes,
@@ -2424,7 +2415,7 @@ public partial class MainViewModel : ObservableObject
             .Append(", selected rows ").Append(installTargets.Count)
             .Append(", installer attempts ").Append(installAttemptCount)
             .Append(", component outcomes ").Append(outcomes.Count)
-            .Append(", vendor pages opened ").Append(vendorPageFallbacks.Count)
+            .Append(", unresolved vendor checks ").Append(unresolvedVendorChecks.Count)
             .Append(", succeeded ").Append(succeeded.Length)
             .Append(", failed ").Append(failed.Length)
             .Append(", manual or skipped outcomes ").Append(pipelineSkipped.Length)
@@ -2571,40 +2562,6 @@ public partial class MainViewModel : ObservableObject
         return sharedOutcomes;
     }
 
-    private async Task OpenVendorPagesAsync(IEnumerable<DriverRowViewModel> targets, CancellationToken cancellationToken)
-    {
-        var opener = _updatePageOpener;
-        if (opener is null)
-        {
-            return;
-        }
-
-        var candidates = targets
-            .Select(t => t.AvailableUpdate)
-            .OfType<UpdateCandidate>()
-            .DistinctBy(c => c.DownloadUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        for (var i = 0; i < candidates.Length; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                opener.Open(candidates[i]);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to open vendor update page {Url}", candidates[i].DownloadUrl);
-            }
-
-            // Stagger tab openings so the browser doesn't get flooded all at once.
-            if (i < candidates.Length - 1)
-            {
-                await Task.Delay(150, cancellationToken).ConfigureAwait(true);
-            }
-        }
-    }
-
     private static DriverStatus MapOperationStatus(UpdateStatus status) => status switch
     {
         UpdateStatus.Succeeded => DriverStatus.UpToDate,
@@ -2637,13 +2594,11 @@ public partial class MainViewModel : ObservableObject
             }
             else
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = oem.FallbackUrl.AbsoluteUri,
-                    UseShellExecute = true
-                };
-                Process.Start(psi);
-                _logger.LogInformation("Opened OEM URL {Url}", oem.FallbackUrl);
+                StatusText = $"{oem.ToolName} is not installed. DriverUpdater will not open an external download page.";
+                _logger.LogInformation(
+                    "OEM tool {Tool} is not installed; external support page {Url} was not opened",
+                    oem.ToolName,
+                    oem.FallbackUrl);
             }
         }
         catch (Exception ex)
@@ -2653,7 +2608,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool CanOpenOemTool() => DetectedOem is not null;
+    private bool CanOpenOemTool() => DetectedOem is { ToolInstalled: true, ToolPath: not null };
 
     private bool FilterDriver(object? item)
     {

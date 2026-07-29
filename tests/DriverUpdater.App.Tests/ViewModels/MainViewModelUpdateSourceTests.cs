@@ -352,7 +352,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateAllAsync_runs_vendor_pages_through_pipeline_and_opens_page_on_skip()
+    public async Task UpdateAllAsync_runs_vendor_pages_through_pipeline_without_opening_page_on_skip()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var candidate = NewCandidate(
@@ -360,7 +360,6 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
         var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
@@ -371,16 +370,14 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateAllCommand.ExecuteAsync(null);
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(candidate.SourceUpdateId);
-        opener.Opened.Should().ContainSingle().Which.Should().Be(candidate.DownloadUrl);
-        vm.StatusText.Should().Contain("Opened 1 vendor pages");
+        vm.StatusText.Should().Contain("1 vendor checks had no safe in-app installer");
         vm.ConfirmedUpdatesCount.Should().Be(0);
         vm.VendorChecksCount.Should().Be(1);
     }
@@ -394,7 +391,6 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
@@ -404,20 +400,18 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateAllCommand.ExecuteAsync(null);
 
-        opener.Opened.Should().BeEmpty();
         vm.Drivers[0].AvailableUpdate.Should().BeNull();
         vm.Drivers[0].Status.Should().Be(DriverStatus.UpToDate);
         vm.StatusText.Should().Be("Install completed for 1 drivers.");
     }
 
     [WpfFact]
-    public async Task UpdateAllAsync_installs_silent_and_opens_vendor_pages()
+    public async Task UpdateAllAsync_installs_silent_and_keeps_unresolved_vendor_checks_in_app()
     {
         var installDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
@@ -427,7 +421,6 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
         var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { installDriver, vendorDriver }),
@@ -438,8 +431,7 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateAllCommand.ExecuteAsync(null);
@@ -447,9 +439,8 @@ public class MainViewModelUpdateSourceTests
         pipeline.Operations.Should().HaveCount(2);
         pipeline.Operations.Select(o => o.Candidate.SourceUpdateId)
             .Should().BeEquivalentTo(new[] { installCandidate.SourceUpdateId, advisory.SourceUpdateId });
-        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
         vm.StatusText.Should().Contain("Install completed for 2 drivers")
-            .And.Contain("Opened 1 vendor pages");
+            .And.Contain("1 vendor checks had no safe in-app installer");
     }
 
     [WpfFact]
@@ -552,7 +543,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_with_vendor_page_tries_pipeline_then_opens_url()
+    public async Task UpdateSingleAsync_with_vendor_page_tries_pipeline_without_opening_url()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -560,7 +551,6 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
         var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
@@ -571,21 +561,18 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateSingleCommand.ExecuteAsync(vm.Drivers[0]);
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        opener.Opened.Should().ContainSingle()
-            .Which.Should().Be(advisory.DownloadUrl);
-        vm.StatusText.Should().Contain("Opened 1 vendor pages");
+        vm.StatusText.Should().Contain("1 vendor checks had no safe in-app installer");
     }
 
     [WpfFact]
-    public async Task OpenVendorChecksCommand_opens_vendor_pages()
+    public async Task OpenVendorChecksCommand_resolves_vendor_pages_through_pipeline()
     {
         var confirmedDriver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var vendorDriver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
@@ -595,24 +582,23 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
+        var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { confirmedDriver, vendorDriver }),
             new[] { (IUpdateSource)new FakeUpdateSource(new[] { confirmed, advisory }) },
             new NullOemDetectionService(),
-            new ThrowingInstallPipeline(),
-            new ThrowingInstallConfirmation(),
+            pipeline,
+            new ConfirmingInstallConfirmation(),
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
-        vm.OpenVendorChecksCommand.Execute(null);
+        await vm.OpenVendorChecksCommand.ExecuteAsync(null);
 
-        opener.Opened.Should().ContainSingle()
-            .Which.Should().Be(advisory.DownloadUrl);
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
         vm.ConfirmedUpdatesCount.Should().Be(1);
         vm.VendorChecksCount.Should().Be(1);
         vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
@@ -638,8 +624,7 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            new RecordingUpdatePageOpener());
+            NullLogger<MainViewModel>.Instance);
 
         vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
         vm.OpenVendorChecksCommand.CanExecute(null).Should().BeFalse();
@@ -651,7 +636,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task OpenVendorChecksCommand_is_disabled_without_page_opener()
+    public async Task OpenVendorChecksCommand_is_enabled_for_vendor_check()
     {
         var driver = NewDriver("NVIDIA Display", "PCI\\VEN_10DE&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -664,7 +649,7 @@ public class MainViewModelUpdateSourceTests
         await vm.ScanCommand.ExecuteAsync(null);
 
         vm.VendorChecksCount.Should().Be(1);
-        vm.OpenVendorChecksCommand.CanExecute(null).Should().BeFalse();
+        vm.OpenVendorChecksCommand.CanExecute(null).Should().BeTrue();
     }
 
     [WpfFact]
@@ -1028,7 +1013,7 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
-    public async Task UpdateSingleAsync_on_vendor_check_row_shows_manual_action_after_opening_page()
+    public async Task UpdateSingleAsync_on_vendor_check_row_shows_manual_action_without_opening_page()
     {
         var driver = NewDriver("AMD Processor", "PCI\\VEN_1022&DEV_0001", new Version(1, 0, 0, 0));
         var advisory = NewCandidate(
@@ -1036,7 +1021,6 @@ public class MainViewModelUpdateSourceTests
             new Version(2026, 5, 18, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var opener = new RecordingUpdatePageOpener();
         var pipeline = new RecordingInstallPipeline();
         var vm = new MainViewModel(
             new FakeScanService(new[] { driver }),
@@ -1047,8 +1031,7 @@ public class MainViewModelUpdateSourceTests
             new NullHistoryWindowOpener(),
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
-            NullLogger<MainViewModel>.Instance,
-            opener);
+            NullLogger<MainViewModel>.Instance);
 
         await vm.ScanCommand.ExecuteAsync(null);
         vm.Drivers[0].Status = DriverStatus.UpToDate;
@@ -1057,7 +1040,6 @@ public class MainViewModelUpdateSourceTests
 
         pipeline.Operations.Should().ContainSingle()
             .Which.Candidate.SourceUpdateId.Should().Be(advisory.SourceUpdateId);
-        opener.Opened.Should().ContainSingle().Which.Should().Be(advisory.DownloadUrl);
         vm.Drivers[0].Status.Should().Be(DriverStatus.ManualActionRequired);
     }
 
@@ -1377,13 +1359,6 @@ public class MainViewModelUpdateSourceTests
         }
     }
 
-    private sealed class RecordingUpdatePageOpener : IUpdatePageOpener
-    {
-        public List<Uri> Opened { get; } = new();
-
-        public void Open(UpdateCandidate candidate) => Opened.Add(candidate.DownloadUrl);
-    }
-
     private sealed class ThrowingInstallPipeline : IInstallPipeline
     {
         public Task<UpdateOperation> ExecuteAsync(
@@ -1406,12 +1381,12 @@ public class MainViewModelUpdateSourceTests
         {
             Operations.Add(operation);
             // Mirrors the real pipeline: a vendor page candidate that could not be
-            // resolved to a direct installer is skipped so the UI opens the page.
+            // resolved to a direct installer remains unresolved inside the app.
             var finished = operation.Candidate.InstallKind == UpdateInstallKind.VendorPage
                 ? operation with
                 {
                     Status = UpdateStatus.Skipped,
-                    ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+                    ErrorMessage = $"No safe in-app installer was found on the official vendor page: {operation.Candidate.DownloadUrl}",
                     CompletedAt = DateTimeOffset.UtcNow
                 }
                 : operation with

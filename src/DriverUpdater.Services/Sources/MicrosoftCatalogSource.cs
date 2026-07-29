@@ -13,9 +13,6 @@ namespace DriverUpdater.Services.Sources;
 
 public sealed partial class MicrosoftCatalogSource : IUpdateSource
 {
-    private static readonly IReadOnlyDictionary<string, CatalogDownloadInfo> EmptyDownloadMap =
-        new Dictionary<string, CatalogDownloadInfo>(StringComparer.OrdinalIgnoreCase);
-
     private readonly ICatalogHttpClient _httpClient;
     private readonly IMemoryCache _cache;
     private readonly IOptionsMonitor<CatalogSettings> _settings;
@@ -278,18 +275,12 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
                 cancellationToken.ThrowIfCancellationRequested();
                 if (TryMap(hit, hardwareId, downloadMap, out var candidate))
                 {
-                    if (candidate.InstallKind == UpdateInstallKind.VendorPage)
-                    {
-                        _logger.LogDebug(
-                            "Catalog hit {UpdateId} for {HardwareId} has no downloadable package; offering the catalog page instead",
-                            hit.UpdateId, hardwareId);
-                    }
                     await writer.WriteAsync(candidate, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     _logger.LogDebug(
-                        "Catalog hit for {HardwareId} discarded: missing update id (title={Title})",
+                        "Catalog hit for {HardwareId} discarded: no installable download package or missing update id (title={Title})",
                         hardwareId, hit.Title);
                 }
             }
@@ -313,15 +304,28 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
         string hardwareId,
         IReadOnlyCollection<DriverInfo> matchingDrivers)
     {
-        if (!TryMap(
-                hit,
-                hardwareId,
-                EmptyDownloadMap,
-                out var candidate))
+        if (string.IsNullOrWhiteSpace(hit.UpdateId))
         {
             return false;
         }
 
+        var version = hit.Version
+            ?? (hit.LastUpdatedDate is { } date
+                ? new Version(date.Year, date.Month, date.Day, 0)
+                : new Version(0, 0, 0, 0));
+        var candidate = new UpdateCandidate(
+            ForHardwareId: hardwareId,
+            Source: UpdateSource.MicrosoftCatalog,
+            NewVersion: version,
+            NewDate: hit.LastUpdatedDate ?? DateOnly.MinValue,
+            DownloadUrl: new Uri("https://www.catalog.update.microsoft.com/"),
+            SizeBytes: hit.SizeBytes ?? 0,
+            KbArticle: null,
+            IsSuperseded: false,
+            SourceUpdateId: hit.UpdateId,
+            SupersededIds: Array.Empty<string>(),
+            InstallKind: UpdateInstallKind.PnPUtilPackage,
+            Confidence: UpdateConfidence.Confirmed);
         return matchingDrivers.Any(candidate.IsNewerThan);
     }
 
@@ -395,34 +399,30 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
             ?? (hit.LastUpdatedDate is { } date ? new Version(date.Year, date.Month, date.Day, 0) : new Version(0, 0, 0, 0));
         var newDate = hit.LastUpdatedDate ?? DateOnly.MinValue;
 
+        if (!downloadMap.TryGetValue(hit.UpdateId, out var info))
+        {
+            candidate = null!;
+            return false;
+        }
+
         Uri downloadUrl;
         long size = hit.SizeBytes ?? 0;
-        if (downloadMap.TryGetValue(hit.UpdateId, out var info))
+        // The Microsoft Update Catalog occasionally returns a non-driver executable package
+        // for a hardware-id query, for example rootsupd.exe matched against a virtualization
+        // device. These are not pnputil-installable drivers, so discard the hit.
+        var packageExt = Path.GetExtension(info.DownloadUrl.AbsolutePath);
+        if (packageExt.Equals(".exe", StringComparison.OrdinalIgnoreCase))
         {
-            // The Microsoft Update Catalog occasionally returns a non-driver executable package
-            // for a hardware-id query - e.g. rootsupd.exe (the Windows Root Certificates update)
-            // matched against the Hyper-V virtualization device. These are not pnputil-installable
-            // drivers, so discard the hit rather than offering a bogus update that can only be
-            // skipped or fail. Genuine catalog driver packages ship as .cab (or .msu/.msi).
-            var packageExt = Path.GetExtension(info.DownloadUrl.AbsolutePath);
-            if (packageExt.Equals(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                candidate = null!;
-                return false;
-            }
-
-            downloadUrl = info.DownloadUrl;
-            if (info.SizeBytes.HasValue)
-            {
-                size = info.SizeBytes.Value;
-            }
-        }
-        else
-        {
-            downloadUrl = new Uri($"https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid={hit.UpdateId}");
+            candidate = null!;
+            return false;
         }
 
-        var hasDownload = downloadMap.ContainsKey(hit.UpdateId);
+        downloadUrl = info.DownloadUrl;
+        if (info.SizeBytes.HasValue)
+        {
+            size = info.SizeBytes.Value;
+        }
+
         candidate = new UpdateCandidate(
             ForHardwareId: hardwareId,
             Source: UpdateSource.MicrosoftCatalog,
@@ -434,8 +434,8 @@ public sealed partial class MicrosoftCatalogSource : IUpdateSource
             IsSuperseded: false,
             SourceUpdateId: hit.UpdateId,
             SupersededIds: Array.Empty<string>(),
-            InstallKind: hasDownload ? UpdateInstallKind.PnPUtilPackage : UpdateInstallKind.VendorPage,
-            Confidence: hasDownload ? UpdateConfidence.Confirmed : UpdateConfidence.Advisory);
+            InstallKind: UpdateInstallKind.PnPUtilPackage,
+            Confidence: UpdateConfidence.Confirmed);
         return true;
     }
 

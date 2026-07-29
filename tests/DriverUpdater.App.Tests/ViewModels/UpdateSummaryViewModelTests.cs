@@ -48,10 +48,10 @@ public class UpdateSummaryViewModelTests
 
         var vm = new UpdateSummaryViewModel(report, AppLanguage.English);
 
-        vm.ManualActionCountText.Should().Contain("1 continue on vendor website");
-        vm.SummaryText.Should().Contain("No automatic installation was attempted");
-        vm.Items[0].StatusText.Should().Be("Continue on vendor website");
-        vm.Items[0].Explanation.Should().Contain("vendor page was opened");
+        vm.ManualActionCountText.Should().Contain("1 without a safe in-app installer");
+        vm.SummaryText.Should().Contain("No safe in-app installer was found");
+        vm.Items[0].StatusText.Should().Be("No safe in-app installer");
+        vm.Items[0].Explanation.Should().Contain("No external page was opened");
         vm.Items[0].VersionText.Should().Contain("No automatic change was made");
     }
 

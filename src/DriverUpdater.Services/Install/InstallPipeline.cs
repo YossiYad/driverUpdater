@@ -28,10 +28,12 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IPnPUtilRunner? _pnputil;
     private readonly IPowerShellInvoker? _powerShell;
     private readonly IVendorInstallerRunner? _vendorInstallerRunner;
+    private readonly IFileSignatureVerifier? _fileSignatureVerifier;
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IHistoryRepository? _historyRepository;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
+    private readonly IArchiveExtractor? _archiveExtractor;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -47,7 +49,9 @@ public sealed class InstallPipeline : IInstallPipeline
         IHistoryRepository? historyRepository = null,
         TimeProvider? clock = null,
         IVendorPageInstallerResolver? vendorPageResolver = null,
-        IInstalledDriverProbe? installedDriverProbe = null)
+        IInstalledDriverProbe? installedDriverProbe = null,
+        IFileSignatureVerifier? fileSignatureVerifier = null,
+        IArchiveExtractor? archiveExtractor = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -59,10 +63,12 @@ public sealed class InstallPipeline : IInstallPipeline
         _pnputil = pnputil;
         _powerShell = powerShell;
         _vendorInstallerRunner = vendorInstallerRunner;
+        _fileSignatureVerifier = fileSignatureVerifier;
         _httpClientFactory = httpClientFactory;
         _historyRepository = historyRepository;
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
+        _archiveExtractor = archiveExtractor;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -427,14 +433,14 @@ public sealed class InstallPipeline : IInstallPipeline
         }
 
         _logger.LogInformation(
-            "Vendor page update for {Device} cannot be installed in-app ({Reason}); deferring to vendor page {Url}",
+            "Vendor page update for {Device} cannot be installed in-app ({Reason}); no external page will be opened for {Url}",
             operation.TargetSnapshot.DeviceName,
             _vendorPageResolver is null ? "no vendor page resolver configured" : "no direct installer found on the page",
             operation.Candidate.DownloadUrl);
         operation = operation with
         {
             Status = UpdateStatus.Skipped,
-            ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+            ErrorMessage = $"No safe in-app installer was found on the official vendor page: {operation.Candidate.DownloadUrl}",
             CompletedAt = _clock.GetUtcNow()
         };
         progress?.Report(operation);
@@ -451,7 +457,7 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with
             {
                 Status = UpdateStatus.Skipped,
-                ErrorMessage = $"Open the official vendor page to install this update: {operation.Candidate.DownloadUrl}",
+                ErrorMessage = $"No safe in-app installer was found on the official vendor page: {operation.Candidate.DownloadUrl}",
                 CompletedAt = _clock.GetUtcNow()
             };
             progress?.Report(operation);
@@ -542,11 +548,21 @@ public sealed class InstallPipeline : IInstallPipeline
                     progress?.Report(operation);
                 },
                 cancellationToken).ConfigureAwait(false);
+            string? extractedPayloadRoot = null;
             if (Path.GetExtension(installerPath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out var extractionError);
+                var locatedInstaller = ExtractZipAndLocateInstaller(installerPath, workDir, out extractedPayloadRoot, out var extractionError);
                 if (locatedInstaller is null)
                 {
+                    if (extractedPayloadRoot is not null)
+                    {
+                        var infInstall = await TryInstallInfPayloadAsync(operation, progress, extractedPayloadRoot, cancellationToken).ConfigureAwait(false);
+                        if (infInstall is not null)
+                        {
+                            return infInstall;
+                        }
+                        extractionError += " The archive also contained no driver INF files to install directly.";
+                    }
                     operation = operation with
                     {
                         Status = UpdateStatus.Skipped,
@@ -561,10 +577,15 @@ public sealed class InstallPipeline : IInstallPipeline
 
             if (!TryBuildVendorInstallerCommand(operation.Candidate, installerPath, out var fileName, out var arguments, out var skipReason))
             {
+                var fallback = await TryInstallByExtractingInfAsync(operation, progress, installerPath, extractedPayloadRoot, workDir, cancellationToken).ConfigureAwait(false);
+                if (fallback.Operation is not null)
+                {
+                    return fallback.Operation;
+                }
                 operation = operation with
                 {
                     Status = UpdateStatus.Skipped,
-                    ErrorMessage = skipReason,
+                    ErrorMessage = string.IsNullOrEmpty(fallback.Detail) ? skipReason : $"{skipReason} {fallback.Detail}",
                     CompletedAt = _clock.GetUtcNow()
                 };
                 progress?.Report(operation);
@@ -584,6 +605,58 @@ public sealed class InstallPipeline : IInstallPipeline
                 progress?.Report(operation);
                 return operation;
             }
+
+            if (_fileSignatureVerifier is null)
+            {
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = "Digital-signature verification is not configured.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            var signature = _fileSignatureVerifier.Verify(installerPath);
+            if (!signature.IsTrusted)
+            {
+                _logger.LogError(
+                    "Vendor installer {Path} failed Authenticode verification: {Reason}",
+                    installerPath,
+                    signature.ErrorMessage ?? "unknown trust failure");
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"The downloaded installer failed digital-signature verification: {signature.ErrorMessage ?? "untrusted signature"}",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            if (!IsExpectedPublisher(operation.Candidate, operation.TargetSnapshot, signature.Publisher))
+            {
+                _logger.LogError(
+                    "Vendor installer {Path} has an unexpected Authenticode publisher {Publisher} for {SourceUpdateId}",
+                    installerPath,
+                    signature.Publisher ?? "<missing>",
+                    operation.Candidate.SourceUpdateId);
+                operation = operation with
+                {
+                    Status = UpdateStatus.Failed,
+                    ErrorMessage = $"The downloaded installer is signed by an unexpected publisher: {signature.Publisher ?? "unknown"}.",
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
+            _logger.LogInformation(
+                "Authenticode verification accepted {Path}, publisher {Publisher}, certificate {Thumbprint}",
+                installerPath,
+                signature.Publisher,
+                signature.CertificateThumbprint);
 
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
@@ -696,7 +769,7 @@ public sealed class InstallPipeline : IInstallPipeline
                 operation = operation with
                 {
                     Status = UpdateStatus.Skipped,
-                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil. Open the vendor page to install manually: {operation.Candidate.DownloadUrl}",
+                    ErrorMessage = $"Package format '{packageExt}' is not supported by pnputil, and no external page will be opened: {operation.Candidate.DownloadUrl}",
                     CompletedAt = _clock.GetUtcNow()
                 };
                 progress?.Report(operation);
@@ -708,52 +781,149 @@ public sealed class InstallPipeline : IInstallPipeline
             operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
             progress?.Report(operation);
 
-            var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
-            var result = await _pnputil.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
-
-            // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
-            // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
-            // (notably Intel SST/HDA components) when a prior pending reboot must be
-            // completed before the INF is fully applied. The pnputil output explicitly
-            // says "System reboot is needed to complete install operations!" in this case.
-            if (result.ExitCode is 3010 or 259)
-            {
-                _logger.LogInformation("pnputil catalog install succeeded with reboot required (exit {Code})", result.ExitCode);
-                operation = operation with
-                {
-                    Status = UpdateStatus.Succeeded,
-                    ErrorMessage = "Reboot required to complete driver installation.",
-                    CompletedAt = _clock.GetUtcNow()
-                };
-                progress?.Report(operation);
-                return operation;
-            }
-
-            if (!result.IsSuccess)
-            {
-                _logger.LogError("pnputil catalog install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
-                operation = operation with
-                {
-                    Status = UpdateStatus.Failed,
-                    ErrorMessage = $"pnputil install exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
-                    CompletedAt = _clock.GetUtcNow()
-                };
-                progress?.Report(operation);
-                return operation;
-            }
-
-            operation = operation with
-            {
-                Status = UpdateStatus.Succeeded,
-                CompletedAt = _clock.GetUtcNow()
-            };
-            progress?.Report(operation);
-            return operation;
+            return await RunPnPUtilAddDriverAsync(operation, progress, installRoot, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             TryDeleteWorkDirectory(workDir);
         }
+    }
+
+    private async Task<UpdateOperation> RunPnPUtilAddDriverAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string installRoot,
+        CancellationToken cancellationToken)
+    {
+        var addDriverArgs = $"/add-driver \"{Path.Combine(installRoot, "*.inf")}\" /subdirs /install";
+        var result = await _pnputil!.RunAsync(addDriverArgs, cancellationToken).ConfigureAwait(false);
+
+        // Exit 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: driver staged, reboot needed.
+        // Exit 259 = ERROR_NO_MORE_ITEMS, returned by pnputil on some Windows builds
+        // (notably Intel SST/HDA components) when a prior pending reboot must be
+        // completed before the INF is fully applied. The pnputil output explicitly
+        // says "System reboot is needed to complete install operations!" in this case.
+        if (result.ExitCode is 3010 or 259)
+        {
+            _logger.LogInformation("pnputil install succeeded with reboot required (exit {Code})", result.ExitCode);
+            operation = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                ErrorMessage = "Reboot required to complete driver installation.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError("pnputil install failed: exit {Code}, {Err}", result.ExitCode, result.StandardError);
+            operation = operation with
+            {
+                Status = UpdateStatus.Failed,
+                ErrorMessage = $"pnputil install exit {result.ExitCode}: {FirstNonEmpty(result.StandardError, result.StandardOutput)}",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Succeeded,
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
+    }
+
+    // Generic INF fallback: nearly every vendor "installer" (GPU, audio, chipset) is a
+    // self-extracting archive. When no documented silent switch exists, unpacking it and
+    // feeding the INFs to pnputil installs the driver without ever running the vendor exe.
+    // Authenticode on the outer exe is deliberately not required on this path: the exe is
+    // never executed, and pnputil itself enforces the driver package's catalog signature.
+    private async Task<(UpdateOperation? Operation, string Detail)> TryInstallByExtractingInfAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string installerPath,
+        string? alreadyExtractedRoot,
+        string workDir,
+        CancellationToken cancellationToken)
+    {
+        if (alreadyExtractedRoot is not null)
+        {
+            var fromZip = await TryInstallInfPayloadAsync(operation, progress, alreadyExtractedRoot, cancellationToken).ConfigureAwait(false);
+            if (fromZip is not null)
+            {
+                return (fromZip, string.Empty);
+            }
+        }
+
+        if (_archiveExtractor is null || _pnputil is null)
+        {
+            return (null, string.Empty);
+        }
+
+        if (!Path.GetExtension(installerPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            || !HasPortableExecutableMagic(installerPath))
+        {
+            return (null, string.Empty);
+        }
+
+        var payloadDir = Path.Combine(workDir, "payload");
+        if (!_archiveExtractor.TryExtract(installerPath, payloadDir, out var extractError))
+        {
+            _logger.LogInformation(
+                "INF fallback for {Device}: {Installer} could not be unpacked ({Error})",
+                DeviceLabel(operation.TargetSnapshot), Path.GetFileName(installerPath), extractError);
+            return (null, $"Unpacking it for a direct INF install also failed: {extractError}");
+        }
+
+        var infInstall = await TryInstallInfPayloadAsync(operation, progress, payloadDir, cancellationToken).ConfigureAwait(false);
+        if (infInstall is not null)
+        {
+            return (infInstall, string.Empty);
+        }
+
+        return (null, "It was unpacked for a direct INF install, but contained no driver INF files.");
+    }
+
+    private async Task<UpdateOperation?> TryInstallInfPayloadAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        string payloadRoot,
+        CancellationToken cancellationToken)
+    {
+        if (_pnputil is null)
+        {
+            return null;
+        }
+
+        bool hasInf;
+        try
+        {
+            hasInf = Directory.EnumerateFiles(payloadRoot, "*.inf", SearchOption.AllDirectories).Any();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "INF fallback: could not enumerate {Root}", payloadRoot);
+            return null;
+        }
+
+        if (!hasInf)
+        {
+            return null;
+        }
+
+        _logger.LogInformation(
+            "INF driver package fallback for {Device}: installing extracted INFs from {Root} via pnputil",
+            DeviceLabel(operation.TargetSnapshot), payloadRoot);
+
+        operation = operation with { Status = UpdateStatus.Installing, InstallStartedAt = _clock.GetUtcNow() };
+        progress?.Report(operation);
+
+        return await RunPnPUtilAddDriverAsync(operation, progress, payloadRoot, cancellationToken).ConfigureAwait(false);
     }
 
     private void TryDeleteWorkDirectory(string workDir)
@@ -975,6 +1145,108 @@ public sealed class InstallPipeline : IInstallPipeline
             : $"{message} {rebootMessage}";
     }
 
+    internal static bool IsExpectedPublisher(
+        UpdateCandidate candidate,
+        DriverInfo driver,
+        string? publisher)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(driver);
+
+        if (string.IsNullOrWhiteSpace(publisher))
+        {
+            return false;
+        }
+
+        var source = candidate.SourceUpdateId;
+        var host = candidate.DownloadUrl.IsFile ? string.Empty : candidate.DownloadUrl.Host;
+        var expected = new List<string>();
+
+        AddKnownPublisherTokens(source, host, expected);
+        AddDevicePublisherToken(driver.Provider, expected);
+        AddDevicePublisherToken(driver.Manufacturer, expected);
+
+        return expected.Any(token => publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AddKnownPublisherTokens(string source, string host, List<string> expected)
+    {
+        if (ContainsEither(source, host, "nvidia"))
+        {
+            expected.Add("NVIDIA Corporation");
+        }
+        if (ContainsEither(source, host, "amd") || source.Contains("Advanced Micro Devices", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("Advanced Micro Devices");
+        }
+        if (ContainsEither(source, host, "intel"))
+        {
+            expected.Add("Intel Corporation");
+        }
+        if (ContainsEither(source, host, "dell"))
+        {
+            expected.Add("Dell");
+        }
+        if (ContainsEither(source, host, "lenovo"))
+        {
+            expected.Add("Lenovo");
+        }
+        if (source.Contains("hp-image-assistant", StringComparison.OrdinalIgnoreCase)
+            || source.Contains(":hp:", StringComparison.OrdinalIgnoreCase)
+            || host.Contains("hp.com", StringComparison.OrdinalIgnoreCase)
+            || host.Contains("hpcloud", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("HP Inc");
+            expected.Add("Hewlett-Packard");
+        }
+        if (ContainsEither(source, host, "gigabyte") || source.Contains(":gigabyte:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("GIGA-BYTE");
+            expected.Add("GIGABYTE");
+        }
+        if (ContainsEither(source, host, "asus") || source.Contains(":asus:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("ASUSTeK");
+            expected.Add("ASUS");
+        }
+        if (source.Contains(":msi:", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("msi.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".msi.com", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("MICRO-STAR");
+        }
+        if (ContainsEither(source, host, "asrock") || source.Contains(":asrock:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("ASRock");
+        }
+        if (ContainsEither(source, host, "realtek"))
+        {
+            expected.Add("Realtek Semiconductor");
+        }
+        if (ContainsEither(source, host, "logitech") || ContainsEither(source, host, "logi"))
+        {
+            expected.Add("Logitech");
+        }
+    }
+
+    private static bool ContainsEither(string source, string host, string value) =>
+        source.Contains(value, StringComparison.OrdinalIgnoreCase)
+        || host.Contains(value, StringComparison.OrdinalIgnoreCase);
+
+    private static void AddDevicePublisherToken(string value, List<string> expected)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Equals("Microsoft", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Microsoft Corporation", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Standard system devices", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("(Standard system devices)", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        expected.Add(value.Trim());
+    }
+
     // A human-readable label for a device that never yields an empty string. Virtual/inbox
     // devices (e.g. Microsoft Print to PDF) can have a blank DeviceName, which otherwise leaks
     // into the restore point description ("DriverUpdater - before ") and logs.
@@ -1094,8 +1366,9 @@ public sealed class InstallPipeline : IInstallPipeline
     private static string QuotePowerShellLiteral(string value) =>
         $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 
-    internal string? ExtractZipAndLocateInstaller(string zipPath, string workDir, out string errorMessage)
+    internal string? ExtractZipAndLocateInstaller(string zipPath, string workDir, out string? extractedRoot, out string errorMessage)
     {
+        extractedRoot = null;
         errorMessage = string.Empty;
         var extractDir = Path.Combine(workDir, "extracted");
 
@@ -1135,6 +1408,7 @@ public sealed class InstallPipeline : IInstallPipeline
             return null;
         }
 
+        extractedRoot = extractDir;
         var located = LocateInstallerInTree(extractDir);
         if (located is null)
         {
@@ -1247,6 +1521,12 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        if (sourceUpdateId.StartsWith("vendor-installer:intel-graphics:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "--overwrite -s";
+            return true;
+        }
+
         if (sourceUpdateId.StartsWith("vendor-installer:inno:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
@@ -1261,7 +1541,7 @@ public sealed class InstallPipeline : IInstallPipeline
 
         if (sourceUpdateId.StartsWith("vendor-installer:oem-tool:dell-command-update:", StringComparison.OrdinalIgnoreCase))
         {
-            arguments = "/applyUpdates -silent -reboot=disable";
+            arguments = "/applyUpdates -silent -updateType=driver,firmware -reboot=disable";
             return true;
         }
 
@@ -1275,7 +1555,7 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             var downloadFolder = Path.Combine(Path.GetTempPath(), "DriverUpdater", "HPImageAssistant");
             Directory.CreateDirectory(downloadFolder);
-            arguments = $"/Operation:Analyze /Action:Install /Silent /Noninteractive /SoftpaqDownloadFolder:\"{downloadFolder}\"";
+            arguments = $"/Operation:Analyze /Category:Drivers,Firmware /Selection:All /Action:Install /Silent /Noninteractive /SoftpaqDownloadFolder:\"{downloadFolder}\"";
             return true;
         }
 
