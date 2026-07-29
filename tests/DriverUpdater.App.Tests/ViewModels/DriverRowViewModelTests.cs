@@ -90,7 +90,7 @@ public class DriverRowViewModelTests
     [InlineData(UpdateInstallKind.WindowsUpdate, "Install")]
     [InlineData(UpdateInstallKind.PnPUtilPackage, "Install")]
     [InlineData(UpdateInstallKind.VendorInstaller, "Update")]
-    [InlineData(UpdateInstallKind.VendorPage, "Resolve in app")]
+    [InlineData(UpdateInstallKind.VendorPage, "Update")]
     public void Update_action_text_matches_install_kind(UpdateInstallKind kind, string expected)
     {
         var row = new DriverRowViewModel(NewSampleDriver());
