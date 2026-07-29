@@ -82,7 +82,18 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
             vendorInstallerRunner: runner,
             httpClientFactory: downloads,
             vendorPageResolver: resolver,
-            installedDriverProbe: probe);
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier(ChipsetDevice.Manufacturer));
+    }
+
+    /// <summary>Always reports a trusted signature from the given publisher.</summary>
+    private sealed class FakeFileSignatureVerifier : IFileSignatureVerifier
+    {
+        private readonly FileSignatureVerification _result;
+
+        public FakeFileSignatureVerifier(string publisher) => _result = new FileSignatureVerification(true, publisher, "TEST", null);
+
+        public FileSignatureVerification Verify(string filePath) => _result;
     }
 
     private static VendorPageInstallerResolver BuildResolver(RoutingHttpClientFactory http) =>
@@ -115,11 +126,13 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
     }
 
     [Fact]
-    public async Task A_vendor_page_with_only_unrecognised_installers_falls_back_to_the_browser()
+    public async Task A_vendor_page_with_only_unrecognised_installers_is_skipped_without_launching_it()
     {
         const string pageUrl = "https://www.example-vendor.invalid/support/audio";
+        const string mysteryUrl = "https://cdn.example-vendor.invalid/mystery-setup.exe";
         var http = new RoutingHttpClientFactory()
-            .Serve(pageUrl, "<html><body><a href=\"https://cdn.example-vendor.invalid/mystery-setup.exe\">Get it</a></body></html>");
+            .Serve(pageUrl, $"<html><body><a href=\"{mysteryUrl}\">Get it</a></body></html>")
+            .Serve(mysteryUrl, PortableExecutable());
 
         var runner = new FakeVendorInstallerRunner();
         var pipeline = BuildPipeline(http, runner, BuildResolver(http));
@@ -129,7 +142,6 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false, DryRun: false));
 
         finished.Status.Should().Be(UpdateStatus.Skipped);
-        finished.ErrorMessage.Should().Contain("Open the official vendor page");
         runner.Invocations.Should().BeEmpty("an .exe with unknown silent flags must never be launched unattended");
     }
 
@@ -207,7 +219,7 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
             resolver: null);
         var workDir = _workspace.Path("work");
 
-        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, workDir, out var error);
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, workDir, out _, out var error);
 
         located.Should().BeNull();
         error.Should().Contain("escapes extraction directory");
@@ -237,7 +249,7 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
             new FakeVendorInstallerRunner(),
             resolver: null);
 
-        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, _workspace.Path("work2"), out var error);
+        var located = pipeline.ExtractZipAndLocateInstaller(zipPath, _workspace.Path("work2"), out _, out var error);
 
         error.Should().BeEmpty();
         located.Should().NotBeNull();

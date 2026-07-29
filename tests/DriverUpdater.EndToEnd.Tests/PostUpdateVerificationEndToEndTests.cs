@@ -182,7 +182,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
         var report = await coordinator.CompleteRunAsync(new[] { operation });
 
         report!.Items[0].Status.Should().Be(UpdateVerificationStatus.ManualActionRequired);
-        report.Items[0].ActionUrl.Should().Be(new Uri("https://www.nvidia.com/download/index.aspx"));
+        report.Items[0].ActionUrl.Should().BeNull("the app never opens an external page; nothing is left to point at");
         report.ManualActionCount.Should().Be(1);
         report.AiWasUsed.Should().BeFalse();
         ai.Prompts.Should().BeEmpty("Gemini has a hard daily quota; a manual-only run has nothing to summarize");

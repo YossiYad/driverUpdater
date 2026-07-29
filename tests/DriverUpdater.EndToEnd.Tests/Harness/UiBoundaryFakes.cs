@@ -21,14 +21,6 @@ public sealed class ScriptedInstallConfirmation : IInstallConfirmation
     }
 }
 
-/// <summary>Records which vendor pages the app decided to open in a browser.</summary>
-public sealed class RecordingUpdatePageOpener : IUpdatePageOpener
-{
-    public List<Uri> Opened { get; } = new();
-
-    public void Open(UpdateCandidate candidate) => Opened.Add(candidate.DownloadUrl);
-}
-
 public sealed class RecordingWindowOpener : IHistoryWindowOpener, ISettingsWindowOpener, ILogsWindowOpener
 {
     public int OpenCount { get; private set; }

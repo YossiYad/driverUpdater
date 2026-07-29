@@ -67,7 +67,6 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
         JsonIneffectiveUpdateStore IneffectiveStore,
         FakePnPUtilRunner PnPUtil,
         ScriptedInstallConfirmation Confirmation,
-        RecordingUpdatePageOpener PageOpener,
         ScriptedRebootPrompt RebootPrompt);
 
     private App BuildApp(
@@ -104,7 +103,6 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
             installedDriverProbe: probe);
 
         var confirmation = new ScriptedInstallConfirmation(confirmationAnswer);
-        var pageOpener = new RecordingUpdatePageOpener();
         var rebootPrompt = new ScriptedRebootPrompt(acceptRestart);
         var windows = new RecordingWindowOpener();
 
@@ -118,13 +116,12 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
             windows,
             windows,
             NullLogger<MainViewModel>.Instance,
-            updatePageOpener: pageOpener,
             driverCacheStore: cacheStore,
             updaterSettings: new StaticOptionsMonitor<UpdaterSettings>(new UpdaterSettings()),
             rebootPrompt: rebootPrompt,
             ineffectiveUpdateStore: ineffectiveStore);
 
-        return new App(viewModel, cacheStore, ineffectiveStore, pnputil, confirmation, pageOpener, rebootPrompt);
+        return new App(viewModel, cacheStore, ineffectiveStore, pnputil, confirmation, rebootPrompt);
     }
 
     [WpfFact]
@@ -227,7 +224,7 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
     }
 
     [WpfFact]
-    public async Task A_vendor_page_row_that_cannot_be_installed_falls_back_to_opening_the_page()
+    public async Task A_vendor_page_row_that_cannot_be_installed_is_flagged_for_manual_action()
     {
         var app = BuildApp(
             OneOutdatedAudioCard(),
@@ -247,10 +244,9 @@ public sealed class InteractiveAppEndToEndTests : IDisposable
 
         await app.ViewModel.UpdateAllCommand.ExecuteAsync(null);
 
-        app.PageOpener.Opened.Should().ContainSingle()
-            .Which.Should().Be(new Uri("https://www.realtek.com/downloads/audio"));
-        app.ViewModel.Drivers.Single(r => r.Driver.DeviceId == AudioDeviceId)
-            .Status.Should().Be(DriverStatus.ManualActionRequired);
+        var audioRow = app.ViewModel.Drivers.Single(r => r.Driver.DeviceId == AudioDeviceId);
+        audioRow.Status.Should().Be(DriverStatus.ManualActionRequired);
+        audioRow.LastOperation?.ErrorMessage.Should().Contain("No safe in-app installer");
     }
 
     [WpfFact]
