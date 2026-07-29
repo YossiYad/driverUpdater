@@ -2,6 +2,7 @@ using System.IO.Compression;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Services.Scanning;
+using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Install;
@@ -34,6 +35,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly IArchiveExtractor? _archiveExtractor;
+    private readonly IOemDetectionService? _oemDetectionService;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -51,7 +53,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IInstalledDriverProbe? installedDriverProbe = null,
         IFileSignatureVerifier? fileSignatureVerifier = null,
-        IArchiveExtractor? archiveExtractor = null)
+        IArchiveExtractor? archiveExtractor = null,
+        IOemDetectionService? oemDetectionService = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -69,6 +72,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
         _archiveExtractor = archiveExtractor;
+        _oemDetectionService = oemDetectionService;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -343,6 +347,16 @@ public sealed class InstallPipeline : IInstallPipeline
             return operation;
         }
 
+        // OEM update tools (dcu-cli / HPIA / Lenovo System Update) apply a machine-wide
+        // set of updates; the representative row's device may legitimately be unchanged.
+        if (IsOemToolCandidate(operation.Candidate))
+        {
+            _logger.LogInformation(
+                "OEM tool run completed for {Device}; per-device verification is deferred to the next scan",
+                deviceName);
+            return operation;
+        }
+
         // When a reboot is required the new driver only binds after restart, so an in-session
         // read-back would falsely report "unchanged". Defer verification to the next scan.
         if (operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true)
@@ -430,6 +444,15 @@ public sealed class InstallPipeline : IInstallPipeline
                 "Vendor page update for {Device} resolved to in-app installer {Url} ({SourceUpdateId})",
                 operation.TargetSnapshot.DeviceName, resolved.DownloadUrl, resolved.SourceUpdateId);
             return operation with { Candidate = resolved };
+        }
+
+        var oemToolCandidate = await TryBuildOemToolFallbackAsync(operation, cancellationToken).ConfigureAwait(false);
+        if (oemToolCandidate is not null)
+        {
+            _logger.LogInformation(
+                "Vendor page update for {Device} could not be resolved to a direct installer; routing to the verified OEM update tool ({SourceUpdateId})",
+                operation.TargetSnapshot.DeviceName, oemToolCandidate.SourceUpdateId);
+            return operation with { Candidate = oemToolCandidate };
         }
 
         _logger.LogInformation(
@@ -733,6 +756,23 @@ public sealed class InstallPipeline : IInstallPipeline
                     installStart,
                     out amdLogDetail,
                     out amdRebootRequired);
+            if (!result.IsSuccess
+                && IsOemToolCandidate(operation.Candidate)
+                && TryInterpretOemToolExit(operation.Candidate.SourceUpdateId, result.ExitCode, out var oemStatus, out var oemMessage))
+            {
+                _logger.LogInformation(
+                    "OEM tool run for {Device} finished with exit {Code}: {Message}",
+                    operation.TargetSnapshot.DeviceName, result.ExitCode, oemMessage);
+                operation = operation with
+                {
+                    Status = oemStatus,
+                    ErrorMessage = oemMessage,
+                    CompletedAt = _clock.GetUtcNow()
+                };
+                progress?.Report(operation);
+                return operation;
+            }
+
             var amdLogConfirmedSuccess = !result.IsSuccess && amdLogReportsSuccess;
             if (!result.IsSuccess && !amdLogConfirmedSuccess)
             {
@@ -1126,6 +1166,109 @@ public sealed class InstallPipeline : IInstallPipeline
 
     internal static bool IsAmdChipsetCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-chipset:", StringComparison.OrdinalIgnoreCase);
+
+    // Last-resort routing for a vendor-page row that produced no direct installer: if the
+    // machine has the OEM's own verified update tool (dcu-cli / HPIA / Lenovo System
+    // Update), run that instead of skipping. The tool applies whatever updates it deems
+    // applicable for the machine, which includes the device this row is about when the
+    // OEM ships that update.
+    private async Task<UpdateCandidate?> TryBuildOemToolFallbackAsync(
+        UpdateOperation operation,
+        CancellationToken cancellationToken)
+    {
+        if (_oemDetectionService is null || _fileSignatureVerifier is null || _vendorInstallerRunner is null)
+        {
+            return null;
+        }
+
+        if (!OemToolUpdateSource.IsOemToolDriverCandidate(operation.TargetSnapshot))
+        {
+            return null;
+        }
+
+        OemInfo? oem;
+        try
+        {
+            oem = await _oemDetectionService.DetectAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OEM tool fallback: OEM detection failed");
+            return null;
+        }
+
+        if (oem is null || !OemToolUpdateSource.TryBuildToolCandidate(oem, out var toolId, out var toolUri))
+        {
+            return null;
+        }
+
+        var signature = _fileSignatureVerifier.Verify(toolUri.LocalPath);
+        if (!signature.IsTrusted || !OemToolUpdateSource.IsExpectedToolPublisher(toolId, signature.Publisher))
+        {
+            _logger.LogWarning(
+                "OEM tool fallback rejected {Tool}: trusted={Trusted}, publisher={Publisher}",
+                toolUri.LocalPath, signature.IsTrusted, signature.Publisher ?? "<missing>");
+            return null;
+        }
+
+        return operation.Candidate with
+        {
+            DownloadUrl = toolUri,
+            InstallKind = UpdateInstallKind.VendorInstaller,
+            SourceUpdateId = $"vendor-installer:oem-tool:{toolId}:fallback:{operation.Candidate.SourceUpdateId}"
+        };
+    }
+
+    internal static bool IsOemToolCandidate(UpdateCandidate candidate) =>
+        candidate.SourceUpdateId.StartsWith("vendor-installer:oem-tool:", StringComparison.OrdinalIgnoreCase);
+
+    // OEM tools report per-machine, not per-device: a run can succeed while this row's
+    // device stays untouched (its update was not in the tool's applicable set) or while
+    // only other devices changed. A single-device read-back cannot classify that, so the
+    // outcome is left to the batch post-update verifier and the next scan.
+    internal static bool TryInterpretOemToolExit(string sourceUpdateId, int exitCode, out UpdateStatus status, out string? message)
+    {
+        status = UpdateStatus.Failed;
+        message = null;
+
+        if (sourceUpdateId.Contains(":dell-command-update:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode is 1 or 5)
+            {
+                status = UpdateStatus.Succeeded;
+                message = "Reboot required to complete installation.";
+                return true;
+            }
+            if (exitCode == 500)
+            {
+                status = UpdateStatus.Skipped;
+                message = "Dell Command Update found no applicable updates for this system.";
+                return true;
+            }
+        }
+
+        if (sourceUpdateId.Contains(":hp-image-assistant:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode == 3010)
+            {
+                status = UpdateStatus.Succeeded;
+                message = "Reboot required to complete installation.";
+                return true;
+            }
+            if (exitCode is 256 or 257)
+            {
+                status = UpdateStatus.Skipped;
+                message = "HP Image Assistant found no applicable updates for this system.";
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     internal static bool IsAmdAdrenalinCandidate(UpdateCandidate candidate) =>
         candidate.SourceUpdateId.StartsWith("vendor-installer:amd-adrenalin:", StringComparison.OrdinalIgnoreCase);

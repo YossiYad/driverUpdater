@@ -1112,6 +1112,168 @@ public class InstallPipelineTests
         bk.BackupInvocations.Should().Be(1);
     }
 
+    private static OemInfo NewDellOemInfo(string toolPath) => new(
+        Vendor: OemVendor.Dell,
+        Manufacturer: "Dell Inc.",
+        Model: "XPS 15",
+        ToolName: "Dell Command Update",
+        ToolPath: toolPath,
+        FallbackUrl: new Uri("https://www.dell.com/support"));
+
+    [Fact]
+    public async Task ExecuteAsync_routes_unresolved_vendor_page_to_verified_oem_tool()
+    {
+        using var temp = new TempDir();
+        var toolPath = Path.Combine(temp.Path, "dcu-cli.exe");
+        File.WriteAllBytes(toolPath, [0x4D, 0x5A, 0x00]);
+
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var oem = new FakeOemDetectionService { Info = NewDellOemInfo(toolPath) };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null),
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "Dell Inc.", "DELL123", null)
+            },
+            oemDetectionService: oem);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.Candidate.SourceUpdateId.Should().StartWith("vendor-installer:oem-tool:dell-command-update:fallback:");
+        oem.Invocations.Should().Be(1);
+        vendorInstaller.Invocations.Should().ContainSingle();
+        vendorInstaller.Invocations[0].FileName.Should().Be(toolPath);
+        vendorInstaller.Invocations[0].Arguments.Should().Contain("/applyUpdates");
+        probe.Invocations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_oem_tool_fallback_not_used_for_display_devices()
+    {
+        using var temp = new TempDir();
+        var toolPath = Path.Combine(temp.Path, "dcu-cli.exe");
+        File.WriteAllBytes(toolPath, [0x4D, 0x5A, 0x00]);
+
+        var oem = new FakeOemDetectionService { Info = NewDellOemInfo(toolPath) };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner(),
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null),
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "Dell Inc.", "DELL123", null)
+            },
+            oemDetectionService: oem);
+
+        var op = NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html"));
+        op = op with { TargetSnapshot = op.TargetSnapshot with { Category = DriverCategory.Display } };
+
+        var result = await pipeline.ExecuteAsync(op, new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        oem.Invocations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_oem_tool_fallback_rejected_when_tool_signature_untrusted()
+    {
+        using var temp = new TempDir();
+        var toolPath = Path.Combine(temp.Path, "dcu-cli.exe");
+        File.WriteAllBytes(toolPath, [0x4D, 0x5A, 0x00]);
+
+        var vendorInstaller = new FakeVendorInstallerRunner();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null),
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(false, null, null, "untrusted")
+            },
+            oemDetectionService: new FakeOemDetectionService { Info = NewDellOemInfo(toolPath) });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        vendorInstaller.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_dell_tool_exit_500_reports_no_applicable_updates()
+    {
+        using var temp = new TempDir();
+        var toolPath = Path.Combine(temp.Path, "dcu-cli.exe");
+        File.WriteAllBytes(toolPath, [0x4D, 0x5A, 0x00]);
+
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: new FakeVendorInstallerRunner { ExitCode = 500 },
+            httpClientFactory: new FakeHttpClientFactory(new byte[] { 1, 2, 3 }),
+            vendorPageResolver: new FakeVendorPageResolver(_ => null),
+            fileSignatureVerifier: new FakeFileSignatureVerifier
+            {
+                Verification = new FileSignatureVerification(true, "Dell Inc.", "DELL123", null)
+            },
+            oemDetectionService: new FakeOemDetectionService { Info = NewDellOemInfo(toolPath) });
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorPage, new Uri("https://vendor.example.com/support.html")),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Skipped);
+        result.ErrorMessage.Should().Contain("no applicable updates");
+    }
+
+    [Theory]
+    [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 1, UpdateStatus.Succeeded)]
+    [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 5, UpdateStatus.Succeeded)]
+    [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 500, UpdateStatus.Skipped)]
+    [InlineData("vendor-installer:oem-tool:hp-image-assistant:fallback:x", 3010, UpdateStatus.Succeeded)]
+    [InlineData("vendor-installer:oem-tool:hp-image-assistant:fallback:x", 257, UpdateStatus.Skipped)]
+    public void TryInterpretOemToolExit_maps_known_exit_codes(string sourceUpdateId, int exitCode, UpdateStatus expected)
+    {
+        var ok = InstallPipeline.TryInterpretOemToolExit(sourceUpdateId, exitCode, out var status, out var message);
+
+        ok.Should().BeTrue();
+        status.Should().Be(expected);
+        message.Should().NotBeNullOrEmpty();
+    }
+
+    [Theory]
+    [InlineData("vendor-installer:oem-tool:dell-command-update:fallback:x", 2)]
+    [InlineData("vendor-installer:oem-tool:lenovo-system-update:fallback:x", 1)]
+    public void TryInterpretOemToolExit_leaves_unknown_exit_codes_to_default_handling(string sourceUpdateId, int exitCode)
+    {
+        InstallPipeline.TryInterpretOemToolExit(sourceUpdateId, exitCode, out _, out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task ExecuteAsync_skips_vendor_page_without_resolver()
     {
@@ -1343,11 +1505,24 @@ public class InstallPipelineTests
     private sealed class FakeVendorInstallerRunner : IVendorInstallerRunner
     {
         public List<(string FileName, string Arguments)> Invocations { get; } = new();
+        public int ExitCode { get; init; }
 
         public Task<ProcessResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
         {
             Invocations.Add((fileName, arguments));
-            return Task.FromResult(new ProcessResult(0, "ok", ""));
+            return Task.FromResult(new ProcessResult(ExitCode, "ok", ""));
+        }
+    }
+
+    private sealed class FakeOemDetectionService : IOemDetectionService
+    {
+        public OemInfo? Info { get; init; }
+        public int Invocations { get; private set; }
+
+        public Task<OemInfo?> DetectAsync(CancellationToken cancellationToken = default)
+        {
+            Invocations++;
+            return Task.FromResult(Info);
         }
     }
 
