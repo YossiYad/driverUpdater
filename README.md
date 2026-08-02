@@ -5,7 +5,10 @@ Windows desktop app (WPF .NET 10) that scans the entire machine, lists every dri
 ## Highlights
 
 - Full driver inventory via WMI (`Win32_PnPSignedDriver`).
-- Update sources: Windows Update (WUApi), Microsoft Update Catalog (opt-in), OEM tool hints.
+- Update sources: Windows Update (WUApi), Microsoft Update Catalog (opt-in), OEM tool hints,
+  and official vendor downloads (NVIDIA, AMD graphics and chipset, Intel, motherboard vendors).
+- Versions are shown the way the vendor publishes them (for example the NVIDIA release
+  number), and after an install the app reports the version Windows actually bound.
 - Safety first: per-driver backup, System Restore Point before each batch, Dry-run mode, Confirmation dialog, per-device Rollback.
 - Optional scheduled scans (Manual / ScanOnly / ScanAndUpdate, daily/weekly/monthly).
 - Hebrew and English UI with full RTL support.
