@@ -197,6 +197,21 @@ public class DriverRowViewModelTests
     }
 
     [Fact]
+    public void Available_version_prefers_the_vendors_own_version_label()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver());
+
+        row.AvailableUpdate = NewCandidate() with
+        {
+            NewVersion = new Version(2026, 7, 28, 0),
+            NewDate = new DateOnly(2026, 7, 28),
+            VersionLabel = "610.88"
+        };
+
+        row.AvailableVersionText.Should().Be("610.88");
+    }
+
+    [Fact]
     public void CanAskAi_requires_only_that_ai_is_not_currently_checking()
     {
         var row = new DriverRowViewModel(NewSampleDriver());

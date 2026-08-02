@@ -174,5 +174,6 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             InstallerStatus: operation.Status,
             InstallKind: operation.Candidate.InstallKind,
             Confidence: operation.Candidate.Confidence,
-            ActionUrl: null);
+            ActionUrl: null,
+            ExpectedVersionLabel: operation.Candidate.VersionLabel);
 }

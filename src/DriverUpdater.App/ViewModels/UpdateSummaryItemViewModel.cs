@@ -157,7 +157,9 @@ public sealed class UpdateSummaryItemViewModel
                 : $"Currently installed version: {before}  |  No automatic change was made";
         }
         var current = item.CurrentVersion?.ToString()
-            ?? (item.Status == UpdateVerificationStatus.PendingRestart ? item.ExpectedVersion?.ToString() : null)
+            ?? (item.Status == UpdateVerificationStatus.PendingRestart
+                ? item.ExpectedVersionLabel ?? item.ExpectedVersion?.ToString()
+                : null)
             ?? "?";
         return language == AppLanguage.Hebrew
             ? $"גרסה קודמת: {before}  |  גרסה לאחר העדכון: {current}"

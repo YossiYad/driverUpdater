@@ -42,6 +42,21 @@ public class NvidiaGraphicsSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_labels_the_candidate_with_the_branded_nvidia_version()
+    {
+        // NewVersion is the release date so the candidate stays comparable against the installed
+        // INF version, which is why the label has to carry NVIDIA's own "610.47" for display.
+        var source = NewSource(SampleJson);
+        var driver = NewNvidiaDriver("NVIDIA GeForce RTX 4080", new DateOnly(2024, 10, 1));
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results[0].VersionLabel.Should().Be("610.47");
+        results[0].DisplayVersion.Should().Be("610.47");
+        results[0].NewVersion.Should().Be(new Version(2026, 5, 26, 0));
+    }
+
+    [Fact]
     public async Task SearchAsync_skips_when_local_driver_already_newer_or_equal()
     {
         var source = NewSource(SampleJson);

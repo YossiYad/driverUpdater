@@ -480,7 +480,7 @@ public partial class MainViewModel : ObservableObject
                 Category: r.Category.ToString(),
                 CurrentVersion: r.Driver.CurrentVersion?.ToString() ?? r.Driver.CurrentDate?.ToString(),
                 Status: r.StatusText,
-                AvailableVersion: actionableUpdate?.NewVersion?.ToString(),
+                AvailableVersion: actionableUpdate?.DisplayVersion,
                 AvailableSource: actionableUpdate?.Source.ToString());
         }).ToList();
 
@@ -1691,7 +1691,7 @@ public partial class MainViewModel : ObservableObject
             HardwareId: row.HardwareId,
             InstalledVersion: row.Driver.CurrentVersion?.ToString(),
             InstalledDate: row.Driver.CurrentDate,
-            CandidateVersion: row.AvailableUpdate.NewVersion.ToString(),
+            CandidateVersion: row.AvailableUpdate.DisplayVersion,
             CandidateDate: row.AvailableUpdate.NewDate,
             Source: row.AvailableUpdate.Source,
             DownloadUrl: row.AvailableUpdate.DownloadUrl.AbsoluteUri,
@@ -2591,10 +2591,19 @@ public partial class MainViewModel : ObservableObject
             {
                 var reboot = op.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true
                     ? " [REBOOT REQUIRED]" : string.Empty;
+                // Prefer the version read back from Windows after the install. The candidate's
+                // target is what the source advertised, which for date-stamped or differently
+                // branded vendor releases never matches the driver version Windows now reports.
+                var installed = op.VerifiedState?.Version?.ToString()
+                    ?? op.VerifiedState?.Date?.ToString();
+                var target = op.Candidate.DisplayVersion;
                 sb.Append("    - ").Append(row.DeviceName)
                     .Append(" [").Append(row.HardwareId).Append(']')
                     .Append(": ").Append(op.TargetSnapshot.CurrentVersion?.ToString() ?? "?")
-                    .Append(" → ").Append(op.Candidate.NewVersion?.ToString() ?? "?")
+                    .Append(" → ").Append(installed ?? target)
+                    .Append(installed is null || string.Equals(installed, target, StringComparison.OrdinalIgnoreCase)
+                        ? string.Empty
+                        : $" (package {target})")
                     .Append(" via ").Append(op.Candidate.Source).Append('/').Append(op.Candidate.InstallKind)
                     .AppendLine(reboot);
             }
@@ -2656,7 +2665,7 @@ public partial class MainViewModel : ObservableObject
                         row.Driver.CurrentVersion?.ToString()
                         ?? row.Driver.CurrentDate?.ToString()
                         ?? "?")
-                    .Append(", available=").Append(row.AvailableUpdate!.NewVersion?.ToString() ?? "?")
+                    .Append(", available=").Append(row.AvailableUpdate!.DisplayVersion)
                     .Append(", source=").Append(row.AvailableUpdate.Source)
                     .AppendLine();
             }
@@ -2705,6 +2714,7 @@ public partial class MainViewModel : ObservableObject
                         ForHardwareId = row.AvailableUpdate!.ForHardwareId,
                         NewVersion = row.AvailableUpdate.NewVersion,
                         NewDate = row.AvailableUpdate.NewDate,
+                        VersionLabel = row.AvailableUpdate.VersionLabel,
                         Confidence = row.AvailableUpdate.Confidence,
                         AiVerification = row.AvailableUpdate.AiVerification
                     }

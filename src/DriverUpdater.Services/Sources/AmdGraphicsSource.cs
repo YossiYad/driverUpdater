@@ -193,7 +193,8 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 IsSuperseded: false,
                 SourceUpdateId: $"vendor-installer:nullsoft:amd-radeon:{release.Revision}",
                 SupersededIds: Array.Empty<string>(),
-                InstallKind: UpdateInstallKind.VendorInstaller);
+                InstallKind: UpdateInstallKind.VendorInstaller,
+                VersionLabel: LabelFor(release));
         }
 
         return new UpdateCandidate(
@@ -207,8 +208,16 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             IsSuperseded: false,
             SourceUpdateId: $"{supportUri}#{release.Revision}",
             SupersededIds: Array.Empty<string>(),
-            InstallKind: UpdateInstallKind.VendorPage);
+            InstallKind: UpdateInstallKind.VendorPage,
+            VersionLabel: LabelFor(release));
     }
+
+    // Adrenalin releases are branded by revision ("25.8.1"). When AMD does not also publish the
+    // INF driver version, NewVersion is only a date stand-in, so show the branded revision.
+    private static string? LabelFor(AmdReleaseInfo release) =>
+        release.DriverVersion is null && !string.IsNullOrWhiteSpace(release.Revision)
+            ? release.Revision
+            : null;
 
     // The Adrenalin "minimal setup" / "_web" stub is a tiny downloader that always opens
     // its own GUI. /S does not actually run silent. Demote it to VendorPage so the in-app

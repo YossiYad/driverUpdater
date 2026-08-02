@@ -123,7 +123,8 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
             IsSuperseded: false,
             SourceUpdateId: $"vendor-installer:nvidia:{release.Version}",
             SupersededIds: Array.Empty<string>(),
-            InstallKind: UpdateInstallKind.VendorInstaller);
+            InstallKind: UpdateInstallKind.VendorInstaller,
+            VersionLabel: release.Version);
 
     internal static bool IsSupportedNvidiaGpu(DriverInfo driver)
     {

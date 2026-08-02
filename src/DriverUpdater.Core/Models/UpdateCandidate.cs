@@ -14,8 +14,16 @@ public sealed record UpdateCandidate(
     UpdateInstallKind InstallKind = UpdateInstallKind.WindowsUpdate,
     UpdateConfidence Confidence = UpdateConfidence.Confirmed,
     AiVerdict? AiVerification = null,
-    UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown)
+    UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown,
+    string? VersionLabel = null)
 {
+    // The version a human should see. Several vendors brand their release differently from the
+    // driver version Windows ends up reporting (NVIDIA ships "610.88" as INF 32.0.16.1088), and
+    // sources that only know a release date synthesise NewVersion from it purely so candidates
+    // stay comparable. NewVersion therefore stays the comparison key and this stays the label.
+    public string DisplayVersion =>
+        string.IsNullOrWhiteSpace(VersionLabel) ? NewVersion.ToString() : VersionLabel;
+
     public bool IsNewerThan(DriverInfo current)
     {
         ArgumentNullException.ThrowIfNull(current);

@@ -15,5 +15,6 @@ public enum OemVendor
     Toshiba,
     Gigabyte,
     ASRock,
-    Biostar
+    Biostar,
+    Maxsun
 }

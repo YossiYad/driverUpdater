@@ -26,7 +26,8 @@ public partial class HistoryRowViewModel : ObservableObject
     public string StartedAtText => Operation.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     public string? CompletedAtText => Operation.CompletedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     public string FromVersionText => Operation.TargetSnapshot.CurrentVersion?.ToString() ?? "n/a";
-    public string ToVersionText => Operation.Candidate.NewVersion.ToString();
+    public string ToVersionText =>
+        Operation.VerifiedState?.Version?.ToString() ?? Operation.Candidate.DisplayVersion;
     public bool CanRollback =>
         Operation.Status == UpdateStatus.Succeeded
         && !string.IsNullOrEmpty(Operation.BackupPath);

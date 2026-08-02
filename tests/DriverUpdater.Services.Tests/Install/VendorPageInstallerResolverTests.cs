@@ -294,6 +294,42 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
+    public async Task TryResolveAsync_skips_a_package_from_another_vendor_family_and_keeps_looking()
+    {
+        // amd.com lists the Adrenalin graphics installer above the chipset package. Picking the
+        // first link and only then checking compatibility rejected the whole page for a chipset
+        // device, so no chipset update was ever offered.
+        const string html = """
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-25.5.1-win11.exe">graphics</a>
+            <a href="https://drivers.amd.com/drivers/amd_chipset_software_7.03.11.361.exe">chipset</a>
+            """;
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(html),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+
+        var resolution = await resolver.TryResolveAsync(
+            NewVendorPageCandidate() with { ForHardwareId = "PCI\\VEN_1022&DEV_1485&SUBSYS_14851022&REV_00" });
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
+        resolution.Candidate!.DownloadUrl.Should()
+            .Be(new Uri("https://drivers.amd.com/drivers/amd_chipset_software_7.03.11.361.exe"));
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_reports_no_package_found_when_every_package_is_another_vendor_family()
+    {
+        const string html = "<a href=\"https://download.nvidia.com/Windows/610.88/610.88-desktop-win11-64bit.exe\">GRD</a>";
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(html),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+
+        var resolution = await resolver.TryResolveAsync(
+            NewVendorPageCandidate() with { ForHardwareId = "PCI\\VEN_1022&DEV_1485" });
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
+    }
+
+    [Fact]
     public async Task TryResolveAsync_reports_page_unreachable_when_the_site_404s_even_through_a_browser()
     {
         var browserFetcher = new StubBrowserFetcher(null);
