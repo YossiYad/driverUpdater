@@ -66,6 +66,34 @@ public sealed class SettingsRoundTripEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task Choosing_ai_driven_automatic_updates_persists_the_scope_and_its_risk_tolerance()
+    {
+        var (viewModel, store, path) = BuildApp();
+        await WriteSettingsAsync(path, new AppSettings());
+
+        await viewModel.LoadAsync();
+        viewModel.ScheduleMode = ScheduleMode.ScanAndUpdate;
+        viewModel.AcceptedAutoUpdateRisk = true;
+        viewModel.AutoUpdateScope = AutoUpdateScope.AiRecommended;
+        viewModel.AiRiskTolerance = AiAutoUpdateRiskTolerance.SafeAndCaution;
+        viewModel.ShowAiAutoUpdateOptions.Should().BeTrue();
+        viewModel.ShowAiProviderMissingWarning.Should().BeTrue("no provider is configured yet");
+        viewModel.SelectedAiProvider = AiProvider.Gemini;
+        viewModel.GeminiApiKey = "key-1";
+        viewModel.ShowAiProviderMissingWarning.Should().BeFalse();
+        await viewModel.SaveAsync();
+
+        var reloaded = await store.LoadAsync();
+        reloaded.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        reloaded.Schedule.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
+
+        var (nextSession, _, _) = BuildApp();
+        await nextSession.LoadAsync();
+        nextSession.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        nextSession.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
+    }
+
+    [Fact]
     public async Task Saving_settings_keeps_the_custom_backup_folder_configured_on_disk()
     {
         var (viewModel, store, path) = BuildApp();

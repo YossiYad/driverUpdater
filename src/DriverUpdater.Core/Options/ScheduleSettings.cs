@@ -17,4 +17,8 @@ public sealed class ScheduleSettings
     // Which drivers an unattended ScanAndUpdate run is allowed to install. The device list
     // itself lives in the auto-update selection store, not here.
     public AutoUpdateScope AutoUpdateScope { get; set; } = AutoUpdateScope.AllDrivers;
+
+    // Only read for AutoUpdateScope.AiRecommended: the highest risk rating the AI may hand
+    // back for an update to still be installed without anybody watching.
+    public AiAutoUpdateRiskTolerance AiRiskTolerance { get; set; } = AiAutoUpdateRiskTolerance.SafeOnly;
 }

@@ -44,6 +44,9 @@ public class AppCompositionTests
         // Optional on both MainViewModel and ScheduledScanRunner: without the registration the
         // per-driver automatic update choice would silently stop being saved and honoured.
         provider.GetRequiredService<IAutoUpdateSelectionStore>().Should().NotBeNull();
+        // Optional on ScheduledScanRunner: without it, an AI-recommended schedule would quietly
+        // install nothing instead of asking the AI what to install.
+        provider.GetRequiredService<IAiAutoUpdateAdvisor>().Should().NotBeNull();
         provider.GetServices<IUpdateSource>().Should().NotBeEmpty();
     }
 }

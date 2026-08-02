@@ -6,6 +6,7 @@ using DriverUpdater.Core.Options;
 using DriverUpdater.EndToEnd.Tests.Harness;
 using DriverUpdater.Infrastructure.Cache;
 using DriverUpdater.Infrastructure.Settings;
+using DriverUpdater.Services.Ai;
 using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
@@ -77,6 +78,16 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
         ScheduleSettings schedule,
         IAutoUpdateSelectionStore? autoUpdateSelectionStore,
         params IUpdateSource[] sources) =>
+        BuildRunner(wmi, cacheStore, pipeline, schedule, autoUpdateSelectionStore, aiAdvisor: null, sources);
+
+    private ScheduledScanRunner BuildRunner(
+        IWmiQueryRunner wmi,
+        IDriverCacheStore cacheStore,
+        IInstallPipeline pipeline,
+        ScheduleSettings schedule,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore,
+        IAiAutoUpdateAdvisor? aiAdvisor,
+        params IUpdateSource[] sources) =>
         new(
             new DriverScanService(wmi, NullLogger<DriverScanService>.Instance),
             sources,
@@ -85,7 +96,41 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
             new StaticOptionsMonitor<UpdaterSettings>(new UpdaterSettings()),
             NullLogger<ScheduledScanRunner>.Instance,
             new StaticOptionsMonitor<ScheduleSettings>(schedule),
-            autoUpdateSelectionStore);
+            autoUpdateSelectionStore,
+            aiAdvisor);
+
+    // The real advisor over the real Gemini verifier, talking to a stubbed transport that
+    // answers with a genuine Gemini envelope. Prompt building, JSON extraction, verdict
+    // parsing, and the install decision all run exactly as they do in production.
+    private static AiAutoUpdateAdvisor BuildAiAdvisor(HttpMessageHandler handler) =>
+        new(
+            new GeminiAiVerifier(
+                new HandlerHttpClientFactory(handler),
+                new StaticOptionsMonitor<AiSettings>(new AiSettings
+                {
+                    Provider = AiProvider.Gemini,
+                    GeminiApiKeys = new List<string> { "key-1" },
+                    GeminiModel = "gemini-2.5-flash",
+                    EnableWebSearch = true
+                }),
+                new GeminiQuotaGate(),
+                NullLogger<GeminiAiVerifier>.Instance),
+            NullLogger<AiAutoUpdateAdvisor>.Instance);
+
+    private static string GeminiVerdict(string id, bool genuinelyNewer, string risk)
+    {
+        var modelText = $$"""
+            ```json
+            {"verdicts":[{"id":"{{id}}","isGenuinelyNewer":{{(genuinelyNewer ? "true" : "false")}},"risk":"{{risk}}",
+            "summary":"{{(risk == "Safe" ? "Recommended" : "Avoid for now")}}","rationale":"Test rationale.",
+            "latestKnownVersion":"31.0.24027.1012","latestKnownDate":"2024-09-10"}]}
+            ```
+            """;
+        var escaped = System.Text.Json.JsonSerializer.Serialize(modelText);
+        return $$"""
+            {"candidates":[{"content":{"parts":[{"text":{{escaped}}}],"role":"model"},"finishReason":"STOP"}]}
+            """;
+    }
 
     private InstallPipeline BuildPipeline(IPnPUtilRunner pnputil, IInstalledDriverProbe probe) =>
         new(
@@ -217,6 +262,92 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task An_ai_scheduled_run_installs_the_update_the_model_rates_safe()
+    {
+        var handler = new ScriptedResponseHandler(
+            GeminiVerdict("catalog-amd-display-31.0.24027.1012", genuinelyNewer: true, risk: "Safe"));
+        var pnputil = new FakePnPUtilRunner();
+        var probe = new ScriptedInstalledDriverProbe()
+            .Always(GpuDeviceId, new InstalledDriverState(new Version(31, 0, 24027, 1012), new DateOnly(2024, 9, 10)));
+
+        var runner = BuildRunner(
+            TwoDevices(),
+            NewCacheStore(),
+            BuildPipeline(pnputil, probe),
+            new ScheduleSettings
+            {
+                AutoUpdateScope = AutoUpdateScope.AiRecommended,
+                AiRiskTolerance = AiAutoUpdateRiskTolerance.SafeOnly
+            },
+            autoUpdateSelectionStore: null,
+            BuildAiAdvisor(handler),
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerGpuDriver()));
+
+        await runner.RunAsync(installUpdates: true);
+
+        handler.Requests.Should().ContainSingle("the run asks the AI once about the single candidate it found");
+        handler.Requests[0].Body.Should().Contain("31.0.24027.1012", "the prompt carries the candidate version");
+        pnputil.Invocations.Should().Contain(a => a.Contains("/add-driver"));
+
+        var gpu = (await NewCacheStore().LoadAsync())!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
+        gpu.Status.Should().Be(DriverStatus.UpToDate);
+    }
+
+    [Fact]
+    public async Task An_ai_scheduled_run_leaves_a_high_risk_update_for_the_user_and_keeps_the_reason()
+    {
+        var handler = new ScriptedResponseHandler(
+            GeminiVerdict("catalog-amd-display-31.0.24027.1012", genuinelyNewer: true, risk: "HighRisk"));
+        var pnputil = new FakePnPUtilRunner();
+
+        var runner = BuildRunner(
+            TwoDevices(),
+            NewCacheStore(),
+            BuildPipeline(pnputil, new ScriptedInstalledDriverProbe()),
+            new ScheduleSettings
+            {
+                AutoUpdateScope = AutoUpdateScope.AiRecommended,
+                AiRiskTolerance = AiAutoUpdateRiskTolerance.SafeAndCaution
+            },
+            autoUpdateSelectionStore: null,
+            BuildAiAdvisor(handler),
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerGpuDriver()));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pnputil.Invocations.Should().NotContain(a => a.Contains("/add-driver"));
+
+        var gpu = (await NewCacheStore().LoadAsync())!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
+        gpu.Status.Should().Be(DriverStatus.Outdated);
+        gpu.AvailableUpdate.Should().NotBeNull("a rejected update stays installable by hand");
+        gpu.AvailableUpdate!.AiVerification.Should().NotBeNull();
+        gpu.AvailableUpdate.AiVerification!.Risk.Should().Be(AiRiskLevel.HighRisk);
+    }
+
+    [Fact]
+    public async Task An_ai_scheduled_run_installs_nothing_when_the_provider_is_unreachable()
+    {
+        var handler = new ScriptedResponseHandler(); // every call answers 503
+        var pnputil = new FakePnPUtilRunner();
+
+        var runner = BuildRunner(
+            TwoDevices(),
+            NewCacheStore(),
+            BuildPipeline(pnputil, new ScriptedInstalledDriverProbe()),
+            new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AiRecommended },
+            autoUpdateSelectionStore: null,
+            BuildAiAdvisor(handler),
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerGpuDriver()));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pnputil.Invocations.Should().NotContain(a => a.Contains("/add-driver"),
+            "an unreachable AI must not fall back to installing everything");
+        var gpu = (await NewCacheStore().LoadAsync())!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
+        gpu.AvailableUpdate.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task A_failed_install_keeps_the_device_flagged_so_the_user_can_see_it()
     {
         var cacheStore = NewCacheStore();
@@ -324,6 +455,44 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
         var reloaded = await NewCacheStore().LoadAsync();
         reloaded!.Entries.Should().HaveCount(2);
         reloaded.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId).AvailableUpdate.Should().NotBeNull();
+    }
+
+    private sealed class HandlerHttpClientFactory : IHttpClientFactory
+    {
+        private readonly HttpMessageHandler _handler;
+
+        public HandlerHttpClientFactory(HttpMessageHandler handler) => _handler = handler;
+
+        public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
+    }
+
+    private sealed class ScriptedResponseHandler : HttpMessageHandler
+    {
+        private readonly Queue<string> _responses;
+
+        public ScriptedResponseHandler(params string[] responses) => _responses = new Queue<string>(responses);
+
+        public List<(string Uri, string Body)> Requests { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            Requests.Add((request.RequestUri!.ToString(), body));
+
+            return _responses.Count > 0
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(_responses.Dequeue())
+                }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("{}")
+                };
+        }
     }
 
     private sealed class ThrowingUpdateSource : IUpdateSource

@@ -228,13 +228,34 @@
                                    Opacity="0.7"
                                    FontSize="12"
                                    TextWrapping="Wrap"
-                                   Text="All drivers: every confirmed update is installed unattended. Selected drivers: only the devices ticked in the Auto column of the main list are installed; everything else stays available to install by hand." />
+                                   Text="All drivers: every confirmed update is installed unattended. Selected drivers: only the devices ticked in the Auto column of the main list are installed. AI recommended: the scheduled run scans, asks the configured AI to review every update it found, and installs only the ones it recommends. Everything left out stays available to install by hand." />
                         <TextBlock Margin="120,6,0,0"
                                    FontSize="12"
                                    TextWrapping="Wrap"
                                    Foreground="#FF8B5A00"
                                    Visibility="{Binding ShowAutoUpdateSelectionHint, Converter={StaticResource BooleanToVisibilityConverter}}"
                                    Text="Tick the Auto column next to each driver you want updated automatically. With nothing ticked, the scheduled run scans but installs nothing." />
+
+                        <StackPanel Margin="0,12,0,0"
+                                    Visibility="{Binding ShowAiAutoUpdateOptions, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="120" VerticalAlignment="Center" Text="AI may install" />
+                                <ComboBox Width="220"
+                                          ItemsSource="{Binding AvailableAiRiskTolerances}"
+                                          SelectedItem="{Binding AiRiskTolerance}" />
+                            </StackPanel>
+                            <TextBlock Margin="120,6,0,0"
+                                       Opacity="0.7"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Text="The AI rates every update Safe, Caution, or High risk. SafeOnly installs only the safe ones. SafeAndCaution also installs the ones it flagged for caution. High-risk updates, and anything the AI could not rate, are never installed unattended." />
+                            <TextBlock Margin="120,6,0,0"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="#FF8B5A00"
+                                       Visibility="{Binding ShowAiProviderMissingWarning, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                       Text="No AI provider is selected. Pick one under Settings > AI, otherwise the scheduled run scans but installs nothing." />
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </TabItem>
