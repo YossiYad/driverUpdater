@@ -53,6 +53,7 @@ public sealed class SettingsRoundTripEndToEndTests : IDisposable
         viewModel.EnableWindowsUpdate = false;
         viewModel.BackupRetentionDays = 45;
         viewModel.ScheduleMode = ScheduleMode.ScanOnly;
+        viewModel.AutoUpdateScope = AutoUpdateScope.SelectedDrivers;
         viewModel.LogRetentionDays = 21;
         await viewModel.SaveAsync();
 
@@ -60,7 +61,36 @@ public sealed class SettingsRoundTripEndToEndTests : IDisposable
         reloaded.Updater.WindowsUpdateEnabled.Should().BeFalse();
         reloaded.Backup.RetentionDays.Should().Be(45);
         reloaded.Schedule.Mode.Should().Be(ScheduleMode.ScanOnly);
+        reloaded.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
         reloaded.LogCleanup.RetentionDays.Should().Be(21);
+    }
+
+    [Fact]
+    public async Task Choosing_ai_driven_automatic_updates_persists_the_scope_and_its_risk_tolerance()
+    {
+        var (viewModel, store, path) = BuildApp();
+        await WriteSettingsAsync(path, new AppSettings());
+
+        await viewModel.LoadAsync();
+        viewModel.ScheduleMode = ScheduleMode.ScanAndUpdate;
+        viewModel.AcceptedAutoUpdateRisk = true;
+        viewModel.AutoUpdateScope = AutoUpdateScope.AiRecommended;
+        viewModel.AiRiskTolerance = AiAutoUpdateRiskTolerance.SafeAndCaution;
+        viewModel.ShowAiAutoUpdateOptions.Should().BeTrue();
+        viewModel.ShowAiProviderMissingWarning.Should().BeTrue("no provider is configured yet");
+        viewModel.SelectedAiProvider = AiProvider.Gemini;
+        viewModel.GeminiApiKey = "key-1";
+        viewModel.ShowAiProviderMissingWarning.Should().BeFalse();
+        await viewModel.SaveAsync();
+
+        var reloaded = await store.LoadAsync();
+        reloaded.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        reloaded.Schedule.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
+
+        var (nextSession, _, _) = BuildApp();
+        await nextSession.LoadAsync();
+        nextSession.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        nextSession.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
     }
 
     [Fact]

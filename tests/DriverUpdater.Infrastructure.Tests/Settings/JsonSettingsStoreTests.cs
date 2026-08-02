@@ -38,7 +38,7 @@ public class JsonSettingsStoreTests : IDisposable
         var settings = await store.LoadAsync();
 
         settings.Should().NotBeNull();
-        settings.Application.CloseBehavior.Should().Be(WindowCloseBehavior.ExitApplication);
+        settings.Application.CloseBehavior.Should().Be(WindowCloseBehavior.KeepRunningInBackground);
         settings.Application.StartWithWindows.Should().BeFalse();
         settings.Catalog.Enabled.Should().BeTrue();
         settings.Schedule.Mode.Should().Be(ScheduleMode.Manual);

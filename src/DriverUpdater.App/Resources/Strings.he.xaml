@@ -54,6 +54,8 @@
     <sys:String x:Key="Grid.Ai">בדיקת AI</sys:String>
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
     <sys:String x:Key="Grid.DriverVersion">גרסת דרייבר</sys:String>
+    <sys:String x:Key="Grid.AutoUpdate">אוטומטי</sys:String>
+    <sys:String x:Key="Grid.AutoUpdateTooltip">‏עדכן את הדרייבר הזה אוטומטית לפי לוח הזמנים. פעיל כאשר הגדרות &gt; לוח זמנים מוגדר ל-"סריקה ועדכון" ומוגבל לדרייברים הנבחרים.</sys:String>
 
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
     <sys:String x:Key="Confirm.Current">נוכחי</sys:String>

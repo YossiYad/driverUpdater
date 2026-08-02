@@ -101,6 +101,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<GeminiAiVerifier>();
         services.AddSingleton<OllamaAiVerifier>();
         services.AddSingleton<IAiVerifier, AiVerifierSelector>();
+        services.AddSingleton<IAiAutoUpdateAdvisor, AiAutoUpdateAdvisor>();
 
         services.AddSingleton<GeminiAiTextCompleter>();
         services.AddSingleton<OllamaAiTextCompleter>();

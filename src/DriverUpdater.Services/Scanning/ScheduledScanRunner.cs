@@ -19,6 +19,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
     private readonly IInstallPipeline _installPipeline;
     private readonly IDriverCacheStore _driverCacheStore;
     private readonly IOptionsMonitor<UpdaterSettings> _updaterSettings;
+    private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
+    private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
+    private readonly IAiAutoUpdateAdvisor? _aiAdvisor;
     private readonly ILogger<ScheduledScanRunner> _logger;
 
     public ScheduledScanRunner(
@@ -27,7 +30,10 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         IInstallPipeline installPipeline,
         IDriverCacheStore driverCacheStore,
         IOptionsMonitor<UpdaterSettings> updaterSettings,
-        ILogger<ScheduledScanRunner> logger)
+        ILogger<ScheduledScanRunner> logger,
+        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
+        IAiAutoUpdateAdvisor? aiAdvisor = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -40,6 +46,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         _installPipeline = installPipeline;
         _driverCacheStore = driverCacheStore;
         _updaterSettings = updaterSettings;
+        _scheduleSettings = scheduleSettings;
+        _autoUpdateSelectionStore = autoUpdateSelectionStore;
+        _aiAdvisor = aiAdvisor;
         _logger = logger;
     }
 
@@ -64,7 +73,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
 
         if (installUpdates && outdated > 0)
         {
-            await InstallAsync(states, cancellationToken).ConfigureAwait(false);
+            var scope = await ResolveInstallScopeAsync(cancellationToken).ConfigureAwait(false);
+            var aiApprovals = await ResolveAiApprovalsAsync(states, cancellationToken).ConfigureAwait(false);
+            await InstallAsync(states, scope, aiApprovals, cancellationToken).ConfigureAwait(false);
         }
 
         await CarryOverUnmatchedCacheEntriesAsync(states, cancellationToken).ConfigureAwait(false);
@@ -126,9 +137,138 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
     }
 
-    private async Task InstallAsync(List<DriverState> states, CancellationToken cancellationToken)
+    // Which devices this unattended run may install for. Null means every device: either the
+    // user kept the default scope, or the settings/selection plumbing is not wired up (the
+    // parameters are optional so older compositions keep their previous behaviour).
+    private async Task<AutoUpdateSelection?> ResolveInstallScopeAsync(CancellationToken cancellationToken)
+    {
+        var scope = _scheduleSettings?.CurrentValue.AutoUpdateScope ?? AutoUpdateScope.AllDrivers;
+        if (scope != AutoUpdateScope.SelectedDrivers || _autoUpdateSelectionStore is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var selection = await _autoUpdateSelectionStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Scheduled run installs only the {Count} driver(s) selected for automatic updates",
+                selection.DeviceIds.Count);
+            return selection;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Failing open would install drivers the user deliberately excluded, so treat an
+            // unreadable selection as "nothing is opted in".
+            _logger.LogError(ex, "Could not read the automatic-update selection; no driver is installed this run");
+            return AutoUpdateSelection.Empty;
+        }
+    }
+
+    // Which updates the AI endorsed for this run. Null means the user did not hand the choice
+    // to the AI, so every candidate stays eligible. An empty set means the AI was supposed to
+    // decide but could not: nothing is installed, because an unattended install the user asked
+    // the AI to vet must never happen unvetted.
+    private async Task<IReadOnlySet<string>?> ResolveAiApprovalsAsync(
+        List<DriverState> states,
+        CancellationToken cancellationToken)
+    {
+        var settings = _scheduleSettings?.CurrentValue;
+        if ((settings?.AutoUpdateScope ?? AutoUpdateScope.AllDrivers) != AutoUpdateScope.AiRecommended)
+        {
+            return null;
+        }
+
+        var nothing = (IReadOnlySet<string>)new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_aiAdvisor is null || !_aiAdvisor.IsConfigured)
+        {
+            _logger.LogError(
+                "Automatic updates are limited to what the AI recommends, but no AI provider is configured. Nothing is installed this run; pick a provider in Settings > AI.");
+            return nothing;
+        }
+
+        var items = states
+            .Where(s => s.Candidate is not null && IsInstallable(s.Candidate.InstallKind))
+            .GroupBy(s => s.Candidate!.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new AiUpdateReviewItem(g.First().Driver, g.First().Candidate!))
+            .ToArray();
+        if (items.Length == 0)
+        {
+            return nothing;
+        }
+
+        IReadOnlyList<AiUpdateDecision> decisions;
+        try
+        {
+            decisions = await _aiAdvisor
+                .ReviewAsync(items, settings!.AiRiskTolerance, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "The AI review of this run's updates failed; no driver is installed");
+            return nothing;
+        }
+
+        var approved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var decision in decisions)
+        {
+            if (decision.ShouldInstall)
+            {
+                approved.Add(decision.SourceUpdateId);
+            }
+
+            AttachVerdict(states, decision);
+            _logger.LogInformation(
+                "AI {Outcome} the update for {Device} (id={Id}): {Reason}",
+                decision.ShouldInstall ? "approved" : "rejected",
+                decision.DeviceName,
+                decision.SourceUpdateId,
+                decision.Reason);
+        }
+
+        _logger.LogInformation(
+            "AI approved {Approved} of {Total} update(s) for unattended install at tolerance {Tolerance}",
+            approved.Count, items.Length, settings!.AiRiskTolerance);
+        return approved;
+    }
+
+    // Keep the AI's reasoning on the candidate so it survives into the saved cache and the
+    // next interactive session can show why a scheduled run left an update alone.
+    private static void AttachVerdict(List<DriverState> states, AiUpdateDecision decision)
+    {
+        if (decision.Verdict is null)
+        {
+            return;
+        }
+
+        foreach (var state in states)
+        {
+            if (state.Candidate is { } candidate
+                && string.Equals(candidate.SourceUpdateId, decision.SourceUpdateId, StringComparison.OrdinalIgnoreCase))
+            {
+                state.Candidate = candidate with { AiVerification = decision.Verdict };
+            }
+        }
+    }
+
+    private async Task InstallAsync(
+        List<DriverState> states,
+        AutoUpdateSelection? scope,
+        IReadOnlySet<string>? aiApprovals,
+        CancellationToken cancellationToken)
     {
         var processed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var skipped = 0;
+        var rejectedByAi = 0;
 
         foreach (var state in states)
         {
@@ -136,6 +276,20 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
             var candidate = state.Candidate;
             if (candidate is null || !IsInstallable(candidate.InstallKind))
             {
+                continue;
+            }
+            // The user restricted automatic updates to specific devices. Filter before the
+            // dedupe below so a shared installer is only ever reached through a device that
+            // was actually opted in.
+            if (scope is not null && !scope.Contains(state.Driver.DeviceId))
+            {
+                skipped++;
+                continue;
+            }
+            // The user handed the choice to the AI: only what it endorsed gets installed.
+            if (aiApprovals is not null && !aiApprovals.Contains(candidate.SourceUpdateId))
+            {
+                rejectedByAi++;
                 continue;
             }
             // Many device rows can share one installer (e.g. an AMD chipset package). Run
@@ -172,6 +326,20 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                 "Scheduled install for {Device} finished with {Status}{Error}",
                 state.Driver.DeviceName, finished.Status,
                 string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
+        }
+
+        if (skipped > 0)
+        {
+            _logger.LogInformation(
+                "Scheduled run left {Count} available update(s) for the next interactive session: their device is not selected for automatic updates",
+                skipped);
+        }
+
+        if (rejectedByAi > 0)
+        {
+            _logger.LogInformation(
+                "Scheduled run left {Count} available update(s) for the next interactive session: the AI did not recommend installing them unattended",
+                rejectedByAi);
         }
     }
 

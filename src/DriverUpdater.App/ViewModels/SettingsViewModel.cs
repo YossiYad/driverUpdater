@@ -25,6 +25,10 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
+    public IReadOnlyList<AutoUpdateScope> AvailableAutoUpdateScopes { get; } =
+        Enum.GetValues<AutoUpdateScope>().ToArray();
+    public IReadOnlyList<AiAutoUpdateRiskTolerance> AvailableAiRiskTolerances { get; } =
+        Enum.GetValues<AiAutoUpdateRiskTolerance>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableAiResponseLanguages { get; } =
         [AppLanguage.English, AppLanguage.Hebrew];
@@ -47,11 +51,19 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private DayOfWeek _scheduleDayOfWeek = DayOfWeek.Monday;
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAutoUpdateSelectionHint))]
+    [NotifyPropertyChangedFor(nameof(ShowAiAutoUpdateOptions))]
+    [NotifyPropertyChangedFor(nameof(ShowAiProviderMissingWarning))]
+    private AutoUpdateScope _autoUpdateScope = AutoUpdateScope.AllDrivers;
+
+    [ObservableProperty] private AiAutoUpdateRiskTolerance _aiRiskTolerance = AiAutoUpdateRiskTolerance.SafeOnly;
+
     [ObservableProperty] private bool _enablePlaywrightFallback;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
-    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.ExitApplication;
+    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.KeepRunningInBackground;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
@@ -67,6 +79,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
+    [NotifyPropertyChangedFor(nameof(ShowAiProviderMissingWarning))]
     private AiProvider _selectedAiProvider = AiProvider.Off;
     public ObservableCollection<GeminiApiKeyEntryViewModel> GeminiApiKeys { get; } =
         new() { new GeminiApiKeyEntryViewModel() };
@@ -126,6 +139,16 @@ public partial class SettingsViewModel : ObservableObject
         _logCleanupService?.LogDirectory ?? LogCleanupService.DefaultLogDirectory();
 
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
+
+    public bool ShowAutoUpdateSelectionHint =>
+        ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.SelectedDrivers;
+
+    public bool ShowAiAutoUpdateOptions =>
+        ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.AiRecommended;
+
+    /// <summary>AI-driven automatic updates install nothing while no provider is configured.</summary>
+    public bool ShowAiProviderMissingWarning =>
+        ShowAiAutoUpdateOptions && SelectedAiProvider == AiProvider.Off;
 
     public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
 
@@ -216,6 +239,9 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnScheduleModeChanged(ScheduleMode value)
     {
         OnPropertyChanged(nameof(ShowAutoUpdateWarning));
+        OnPropertyChanged(nameof(ShowAutoUpdateSelectionHint));
+        OnPropertyChanged(nameof(ShowAiAutoUpdateOptions));
+        OnPropertyChanged(nameof(ShowAiProviderMissingWarning));
         if (value != ScheduleMode.ScanAndUpdate)
         {
             AcceptedAutoUpdateRisk = false;
@@ -461,7 +487,9 @@ public partial class SettingsViewModel : ObservableObject
             Mode = ScheduleMode,
             Cadence = ScheduleCadence,
             TimeOfDay = ScheduleTimeOfDay,
-            DayOfWeek = ScheduleDayOfWeek
+            DayOfWeek = ScheduleDayOfWeek,
+            AutoUpdateScope = AutoUpdateScope,
+            AiRiskTolerance = AiRiskTolerance
         },
         Language = new LanguageSettings
         {
@@ -511,6 +539,8 @@ public partial class SettingsViewModel : ObservableObject
         ScheduleCadence = settings.Schedule.Cadence;
         ScheduleTimeOfDay = settings.Schedule.TimeOfDay;
         ScheduleDayOfWeek = settings.Schedule.DayOfWeek;
+        AutoUpdateScope = settings.Schedule.AutoUpdateScope;
+        AiRiskTolerance = settings.Schedule.AiRiskTolerance;
         SelectedLanguage = settings.Language.Language;
         SelectedAiResponseLanguage = settings.Ai.ResponseLanguage is AppLanguage.Hebrew
             ? AppLanguage.Hebrew

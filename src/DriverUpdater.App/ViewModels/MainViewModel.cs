@@ -48,7 +48,13 @@ public partial class MainViewModel : ObservableObject
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
+    private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
+    private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
     private readonly Dispatcher _dispatcher;
+
+    // Devices opted in to unattended updating. Mirrors the auto-update selection store so a row
+    // created mid-scan can be initialised without another disk read.
+    private readonly HashSet<string> _autoUpdateDeviceIds = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _aiSearchCancellation;
     private CancellationTokenSource? _scanCancellation;
     private bool _skipAiSearchRequested;
@@ -180,7 +186,9 @@ public partial class MainViewModel : ObservableObject
         ISupportWindowOpener? supportWindowOpener = null,
         IOptionsMonitor<AiSettings>? aiSettings = null,
         IAiScanConfirmation? aiScanConfirmation = null,
-        IVendorPageInstallerResolver? vendorPageResolver = null)
+        IVendorPageInstallerResolver? vendorPageResolver = null,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
+        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -213,6 +221,8 @@ public partial class MainViewModel : ObservableObject
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
         _vendorPageResolver = vendorPageResolver;
+        _autoUpdateSelectionStore = autoUpdateSelectionStore;
+        _scheduleSettings = scheduleSettings;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -220,6 +230,11 @@ public partial class MainViewModel : ObservableObject
         {
             _driverCacheStore.Cleared += OnDriverCacheCleared;
         }
+
+        // The Settings window rewrites settings.json, which reloads the bound options. Reflect a
+        // changed auto-update scope in the grid without needing a restart.
+        _scheduleSettings?.OnChange(_ =>
+            _dispatcher.BeginInvoke(() => OnPropertyChanged(nameof(IsAutoUpdateSelectionActive))));
 
         DriversView = CollectionViewSource.GetDefaultView(Drivers);
         DriversView.Filter = FilterDriver;
@@ -488,6 +503,128 @@ public partial class MainViewModel : ObservableObject
     partial void OnUpdateFilterChanged(DriverUpdateFilter value) => DriversView.Refresh();
     partial void OnSearchTextChanged(string value) => DriversView.Refresh();
 
+    // ----- Per-driver automatic update opt-in -----
+
+    /// <summary>
+    /// True while Settings > Schedule limits unattended installs to the selected drivers, which
+    /// is the only mode in which the grid's auto-update checkboxes change what actually happens.
+    /// </summary>
+    public bool IsAutoUpdateSelectionActive =>
+        _scheduleSettings?.CurrentValue.AutoUpdateScope == AutoUpdateScope.SelectedDrivers;
+
+    private void AddDriverRow(DriverRowViewModel row)
+    {
+        row.IsAutoUpdateEnabled = _autoUpdateDeviceIds.Contains(row.Driver.DeviceId);
+        row.PropertyChanged += OnDriverRowPropertyChanged;
+        Drivers.Add(row);
+    }
+
+    private void ClearDriverRows()
+    {
+        foreach (var row in Drivers)
+        {
+            row.PropertyChanged -= OnDriverRowPropertyChanged;
+        }
+        Drivers.Clear();
+    }
+
+    private void OnDriverRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(DriverRowViewModel.IsAutoUpdateEnabled)
+            || sender is not DriverRowViewModel row)
+        {
+            return;
+        }
+
+        _ = PersistAutoUpdateSelectionAsync(row);
+    }
+
+    private async Task LoadAutoUpdateSelectionAsync(CancellationToken cancellationToken)
+    {
+        if (_autoUpdateSelectionStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var selection = await _autoUpdateSelectionStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            _autoUpdateDeviceIds.Clear();
+            foreach (var deviceId in selection.DeviceIds)
+            {
+                _autoUpdateDeviceIds.Add(deviceId);
+            }
+
+            foreach (var row in Drivers)
+            {
+                row.IsAutoUpdateEnabled = _autoUpdateDeviceIds.Contains(row.Driver.DeviceId);
+            }
+
+            _logger.LogInformation(
+                "Loaded {Count} driver(s) selected for automatic updates",
+                _autoUpdateDeviceIds.Count);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load the automatic-update selection");
+        }
+    }
+
+    private async Task PersistAutoUpdateSelectionAsync(DriverRowViewModel row)
+    {
+        var deviceId = row.Driver.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return;
+        }
+
+        var changed = row.IsAutoUpdateEnabled
+            ? _autoUpdateDeviceIds.Add(deviceId)
+            : _autoUpdateDeviceIds.Remove(deviceId);
+        if (!changed || _autoUpdateSelectionStore is null)
+        {
+            return;
+        }
+
+        // Every row for the same device shares the opt-in, so keep the duplicates in step.
+        foreach (var sibling in Drivers)
+        {
+            if (!ReferenceEquals(sibling, row)
+                && string.Equals(sibling.Driver.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                sibling.IsAutoUpdateEnabled = row.IsAutoUpdateEnabled;
+            }
+        }
+
+        try
+        {
+            await _autoUpdateSelectionStore
+                .SaveAsync(new AutoUpdateSelection(_autoUpdateDeviceIds.ToArray()))
+                .ConfigureAwait(true);
+            _logger.LogInformation(
+                "{Device} is {State} automatic updates ({Count} driver(s) selected)",
+                row.DeviceName,
+                row.IsAutoUpdateEnabled ? "opted in to" : "opted out of",
+                _autoUpdateDeviceIds.Count);
+
+            if (row.IsAutoUpdateEnabled && !IsAutoUpdateSelectionActive)
+            {
+                StatusText =
+                    "Saved. To have these drivers installed automatically, set Settings > Schedule to "
+                    + "\"Scan and update\" and limit automatic updates to the selected drivers.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save the automatic-update selection for {Device}", row.DeviceName);
+            StatusText = $"Could not save the automatic update choice: {ex.Message}";
+        }
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -503,6 +640,7 @@ public partial class MainViewModel : ObservableObject
             _logger.LogWarning(ex, "OEM detection failed");
         }
 
+        await LoadAutoUpdateSelectionAsync(cancellationToken).ConfigureAwait(true);
         await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
 
         if (_postUpdateSummaryCoordinator is not null)
@@ -637,7 +775,7 @@ public partial class MainViewModel : ObservableObject
                     IsUpdateFromCache = cachedUpdate is not null,
                     IsScannedThisRun = false
                 };
-                Drivers.Add(row);
+                AddDriverRow(row);
             }
 
             if (staleDropped > 0)
@@ -728,7 +866,7 @@ public partial class MainViewModel : ObservableObject
     {
         var driverCount = Drivers.Count;
         var updateCount = Drivers.Count(row => row.AvailableUpdate is not null);
-        Drivers.Clear();
+        ClearDriverRows();
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
         UpdatesFoundCount = 0;
@@ -780,7 +918,7 @@ public partial class MainViewModel : ObservableObject
         var cancellationToken = scanCancellation.Token;
         IsScanning = true;
         var previousRows = SnapshotRowsByDeviceId();
-        Drivers.Clear();
+        ClearDriverRows();
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
         UpdatesFoundCount = 0;
@@ -793,7 +931,7 @@ public partial class MainViewModel : ObservableObject
         {
             await foreach (var driver in _scanService.ScanAsync(cancellationToken))
             {
-                Drivers.Add(new DriverRowViewModel(driver));
+                AddDriverRow(new DriverRowViewModel(driver));
                 ScannedCount = Drivers.Count;
             }
 
