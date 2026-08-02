@@ -1,6 +1,7 @@
 using System.Text;
 using DriverUpdater.App.Logging;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 
 namespace DriverUpdater.App.Ai;
 
@@ -29,7 +30,8 @@ public static class DriverChatPromptBuilder
         IReadOnlyList<LogChatMessage> history,
         string question,
         AppLanguage responseLanguage = AppLanguage.English,
-        bool allowInstallActions = true)
+        bool allowInstallActions = true,
+        AppSettings? settings = null)
     {
         ArgumentNullException.ThrowIfNull(drivers);
         ArgumentNullException.ThrowIfNull(history);
@@ -73,6 +75,11 @@ public static class DriverChatPromptBuilder
         }
         sb.AppendLine();
 
+        if (settings is not null && allowInstallActions)
+        {
+            AppendSettingsProtocol(sb, settings);
+        }
+
         var withUpdates = drivers.Count(d => !string.IsNullOrEmpty(d.AvailableVersion));
         sb.Append("DRIVERS (").Append(drivers.Count).Append(" total, ").Append(withUpdates).AppendLine(" with an available update):");
         sb.AppendLine("Format: name | hardwareId | category | installed | status | available (source)");
@@ -104,6 +111,33 @@ public static class DriverChatPromptBuilder
         sb.Append("User: ").AppendLine(question);
         sb.Append("Assistant:");
         return sb.ToString();
+    }
+
+    private static void AppendSettingsProtocol(StringBuilder sb, AppSettings settings)
+    {
+        sb.AppendLine("APP SETTINGS you can change for the user. Current values:");
+        foreach (var line in ChatSettingCatalog.DescribeCurrent(settings))
+        {
+            sb.Append("- ").AppendLine(line);
+        }
+        sb.AppendLine();
+        sb.AppendLine("Keys and the values each one accepts:");
+        foreach (var line in ChatSettingCatalog.DescribeOptions())
+        {
+            sb.Append("- ").AppendLine(line);
+        }
+        sb.AppendLine();
+        sb.AppendLine("Use these to answer questions about how the app is configured. When the user asks you to");
+        sb.AppendLine("change something, or when a setting would clearly solve what they are describing, propose it");
+        sb.AppendLine("by finishing your reply with one extra line, exactly in this format:");
+        sb.AppendLine("SET_OPTION: <key>=<value>; <key>=<value>");
+        sb.AppendLine("Rules for that line: use only the keys and values listed above, put it on its own line at the");
+        sb.AppendLine("very end, and never mention the line itself in your prose. The app turns it into a card that");
+        sb.AppendLine("asks the user to confirm before anything is written, so describe the change in plain language");
+        sb.AppendLine("in your prose first. Do not claim the change is already done. Propose settings only when they");
+        sb.AppendLine("are relevant; a normal driver question needs no SET_OPTION line. You may offer a helpful");
+        sb.AppendLine("setting the user did not ask for, as long as you explain why in one short sentence.");
+        sb.AppendLine();
     }
 
     private static string Clean(string? value) =>

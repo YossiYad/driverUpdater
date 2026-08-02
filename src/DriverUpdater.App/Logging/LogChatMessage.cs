@@ -1,3 +1,4 @@
+using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Models;
 
 namespace DriverUpdater.App.Logging;
@@ -12,7 +13,8 @@ public sealed record LogChatMessage(
     string Text,
     IReadOnlyList<string>? RecommendedHardwareIds = null,
     bool ShowScanAction = false,
-    AppLanguage? ResponseLanguage = null)
+    AppLanguage? ResponseLanguage = null,
+    ChatSettingProposalViewModel? SettingProposal = null)
 {
     public string RoleLabel => IsUser ? "You" : "AI";
 
@@ -20,7 +22,9 @@ public sealed record LogChatMessage(
 
     public bool HasScanAction => ShowScanAction;
 
-    public bool HasAction => HasInstallAction || HasScanAction;
+    public bool HasSettingAction => SettingProposal is not null;
+
+    public bool HasAction => HasInstallAction || HasScanAction || HasSettingAction;
 
     public int RecommendedCount => RecommendedHardwareIds?.Count ?? 0;
 

@@ -63,7 +63,29 @@ public class WelcomeWindowNewFeaturesTests
 
         card.Descendants(Presentation + "Run")
             .Count(run => run.Attribute("FontWeight")?.Value == "SemiBold")
-            .Should().Be(4, "one schedule list, the AI schedule, the driver picker, close to tray");
+            .Should().Be(7,
+                "AI settings control, asking what is on, conversation starters, the schedule list, "
+                + "the AI schedule, the driver picker, close to tray");
+    }
+
+    [Theory]
+    [InlineData("EnglishPanel", "EnglishNewCard")]
+    [InlineData("HebrewPanel", "HebrewNewCard")]
+    public void Each_language_panel_offers_a_shortcut_down_to_the_new_features_card(
+        string panelName,
+        string cardName)
+    {
+        var panel = Panel(panelName);
+
+        var jumpButtons = panel.Elements(Presentation + "Button")
+            .Where(button => button.Attribute("Click")?.Value == "OnShowNewFeatures")
+            .ToArray();
+        jumpButtons.Should().ContainSingle();
+        ((string?)jumpButtons[0].Attribute("Content")).Should().NotBeNullOrWhiteSpace();
+
+        // The handler scrolls by name, so the card has to keep carrying it.
+        panel.Elements(Presentation + "Border")
+            .Should().ContainSingle(border => (string?)border.Attribute(X + "Name") == cardName);
     }
 
     private static XElement Panel(string panelName)

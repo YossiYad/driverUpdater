@@ -48,6 +48,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
+    private readonly IChatSettingsApplier? _chatSettingsApplier;
     private readonly Dispatcher _dispatcher;
 
     // Devices opted in to unattended updating. Mirrors the auto-update selection store so a row
@@ -183,7 +184,8 @@ public partial class MainViewModel : ObservableObject
         ISupportWindowOpener? supportWindowOpener = null,
         IOptionsMonitor<AiSettings>? aiSettings = null,
         IAiScanConfirmation? aiScanConfirmation = null,
-        IVendorPageInstallerResolver? vendorPageResolver = null)
+        IVendorPageInstallerResolver? vendorPageResolver = null,
+        IChatSettingsApplier? chatSettingsApplier = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -216,6 +218,7 @@ public partial class MainViewModel : ObservableObject
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
         _vendorPageResolver = vendorPageResolver;
+        _chatSettingsApplier = chatSettingsApplier;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -232,6 +235,8 @@ public partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(HasDriverChat));
             OnPropertyChanged(nameof(HasNoDriverChat));
         };
+
+        ResetChatSuggestions();
     }
 
     // ----- AI chat about the scanned drivers -----
@@ -355,12 +360,14 @@ public partial class MainViewModel : ObservableObject
             var responseLanguage = responseLanguageOverride
                 ?? _aiSettings?.CurrentValue.ResponseLanguage
                 ?? AppLanguage.English;
+            var currentSettings = await LoadChatSettingsAsync(cancellationToken).ConfigureAwait(true);
             var prompt = DriverChatPromptBuilder.Build(
                 context,
                 history,
                 question,
                 responseLanguage,
-                allowInstallActions);
+                allowInstallActions,
+                currentSettings);
             var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(answer))
             {
@@ -370,7 +377,7 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            var (text, recommendedIds, requestsScan) = DriverChatActionParser.Parse(answer);
+            var (text, recommendedIds, requestsScan, settingChanges) = DriverChatActionParser.Parse(answer);
             var matched = allowInstallActions
                 ? MatchRecommendedRows(recommendedIds)
                 : Array.Empty<DriverRowViewModel>();
@@ -388,6 +395,9 @@ public partial class MainViewModel : ObservableObject
                 && matched.Length == 0
                 && hasNoAvailableUpdates
                 && (requestsScan || rejectedUnavailableRecommendations);
+            var proposedSettings = allowInstallActions && _chatSettingsApplier is not null
+                ? settingChanges
+                : Array.Empty<ChatSettingChange>();
             var questionLanguage = DetectResponseLanguage(displayQuestion ?? question, responseLanguage);
             var actualResponseLanguage = DetectResponseLanguage(text, questionLanguage);
             if (!string.IsNullOrWhiteSpace(text))
@@ -407,9 +417,18 @@ public partial class MainViewModel : ObservableObject
                     noUpdatesText,
                     ResponseLanguage: actualResponseLanguage));
             }
-            else if (matched.Length == 0)
+            else if (matched.Length == 0 && proposedSettings.Count == 0)
             {
                 DriverChatMessages.Add(new LogChatMessage(IsUser: false, answer.Trim()));
+            }
+
+            if (proposedSettings.Count > 0)
+            {
+                DriverChatMessages.Add(new LogChatMessage(
+                    IsUser: false,
+                    Text: string.Empty,
+                    ResponseLanguage: actualResponseLanguage,
+                    SettingProposal: new ChatSettingProposalViewModel(proposedSettings, actualResponseLanguage)));
             }
 
             if (matched.Length > 0)
@@ -427,6 +446,12 @@ public partial class MainViewModel : ObservableObject
                     ShowScanAction: true,
                     ResponseLanguage: actualResponseLanguage));
                 StatusText = "AI does not see available updates in the current scan. Press Scan now to refresh the list.";
+            }
+            else if (proposedSettings.Count > 0)
+            {
+                StatusText = proposedSettings.Count == 1
+                    ? "AI suggests a settings change. Confirm it in the chat."
+                    : $"AI suggests {proposedSettings.Count} settings changes. Confirm them in the chat.";
             }
             else
             {
@@ -470,8 +495,212 @@ public partial class MainViewModel : ObservableObject
     private void ClearDriverChat()
     {
         DriverChatMessages.Clear();
+        ResetChatSuggestions();
         StatusText = "Driver chat cleared.";
     }
+
+    // ----- Settings the AI proposes changing -----
+
+    private async Task<AppSettings?> LoadChatSettingsAsync(CancellationToken cancellationToken)
+    {
+        if (_chatSettingsApplier is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _chatSettingsApplier.LoadAsync(cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Without the settings block the chat still answers about drivers, so a read
+            // failure must not take the whole turn down.
+            _logger.LogWarning(ex, "Driver chat could not read the current settings for the prompt");
+            return null;
+        }
+    }
+
+    private static bool CanApplyChatSettings(ChatSettingProposalViewModel? proposal) =>
+        proposal is { IsPending: true };
+
+    [RelayCommand(CanExecute = nameof(CanApplyChatSettings))]
+    private async Task ApplyChatSettingsAsync(
+        ChatSettingProposalViewModel? proposal,
+        CancellationToken cancellationToken)
+    {
+        if (proposal is not { IsPending: true })
+        {
+            return;
+        }
+
+        if (_chatSettingsApplier is null)
+        {
+            proposal.MarkFailed("settings cannot be changed from the chat in this build");
+            return;
+        }
+
+        try
+        {
+            var result = await _chatSettingsApplier
+                .ApplyAsync(proposal.Changes, cancellationToken)
+                .ConfigureAwait(true);
+            if (result.Succeeded)
+            {
+                proposal.MarkApplied(result.Warning);
+                StatusText = "Settings updated from the AI chat.";
+            }
+            else
+            {
+                proposal.MarkFailed(result.Warning ?? "unknown error");
+                StatusText = "The AI settings change could not be applied.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "The AI settings change was cancelled.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Applying an AI-proposed settings change failed");
+            proposal.MarkFailed(ex.Message);
+            StatusText = $"The AI settings change failed: {ex.Message}";
+        }
+        finally
+        {
+            ApplyChatSettingsCommand.NotifyCanExecuteChanged();
+            DeclineChatSettingsCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApplyChatSettings))]
+    private void DeclineChatSettings(ChatSettingProposalViewModel? proposal)
+    {
+        if (proposal is not { IsPending: true })
+        {
+            return;
+        }
+
+        proposal.MarkDeclined();
+        StatusText = "The AI settings change was declined.";
+        ApplyChatSettingsCommand.NotifyCanExecuteChanged();
+        DeclineChatSettingsCommand.NotifyCanExecuteChanged();
+    }
+
+    // ----- Drifting conversation starters -----
+
+    private readonly Random _suggestionRandom = new();
+    private DispatcherTimer? _suggestionTimer;
+    private int _suggestionSlot;
+
+    /// <summary>How long one chip stays on screen before it is swapped for a new one.</summary>
+    public static TimeSpan SuggestionRotationInterval => TimeSpan.FromSeconds(8);
+
+    public ObservableCollection<ChatSuggestion> ChatSuggestions { get; } = new();
+
+    private AppLanguage SuggestionLanguage =>
+        _aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English;
+
+    /// <summary>
+    /// Starts the row over with a single chip. The rest fade in one tick apart, which is what
+    /// keeps every chip's 24-second fade-out landing exactly on the tick that replaces it.
+    /// </summary>
+    public void ResetChatSuggestions()
+    {
+        ChatSuggestions.Clear();
+        _suggestionSlot = 0;
+        var first = PickSuggestion();
+        if (first is not null)
+        {
+            ChatSuggestions.Add(first);
+        }
+    }
+
+    /// <summary>
+    /// Grows the row to its full size one chip per call, then keeps replacing a single chip
+    /// per call, round-robin, so it changes slowly enough to read instead of all at once.
+    /// </summary>
+    public void AdvanceChatSuggestions()
+    {
+        var next = PickSuggestion();
+        if (next is null)
+        {
+            return;
+        }
+
+        if (ChatSuggestions.Count < ChatSuggestionCatalog.VisibleCount)
+        {
+            ChatSuggestions.Add(next);
+            return;
+        }
+
+        var slot = _suggestionSlot % ChatSuggestions.Count;
+        _suggestionSlot = (slot + 1) % ChatSuggestions.Count;
+        ChatSuggestions[slot] = next;
+    }
+
+    private ChatSuggestion? PickSuggestion()
+    {
+        var candidates = ChatSuggestionCatalog
+            .For(SuggestionLanguage)
+            .Where(suggestion => !ChatSuggestions.Contains(suggestion))
+            .ToArray();
+        return candidates.Length == 0 ? null : candidates[_suggestionRandom.Next(candidates.Length)];
+    }
+
+    private bool CanUseChatSuggestion(ChatSuggestion? suggestion) =>
+        !IsDriverChatting && suggestion is not null;
+
+    [RelayCommand(CanExecute = nameof(CanUseChatSuggestion))]
+    private async Task UseChatSuggestionAsync(ChatSuggestion? suggestion, CancellationToken cancellationToken)
+    {
+        if (suggestion is null || IsDriverChatting)
+        {
+            return;
+        }
+
+        DriverChatInput = string.Empty;
+        await SendDriverChatQuestionAsync(suggestion.Text, allowInstallActions: true, cancellationToken)
+            .ConfigureAwait(true);
+    }
+
+    partial void OnIsDriverChattingChanged(bool value) =>
+        UseChatSuggestionCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsDriverChatVisibleChanged(bool value)
+    {
+        if (value)
+        {
+            ResetChatSuggestions();
+            StartSuggestionRotation();
+        }
+        else
+        {
+            StopSuggestionRotation();
+        }
+    }
+
+    private void StartSuggestionRotation()
+    {
+        if (_suggestionTimer is not null)
+        {
+            _suggestionTimer.Start();
+            return;
+        }
+
+        _suggestionTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = SuggestionRotationInterval
+        };
+        _suggestionTimer.Tick += (_, _) => AdvanceChatSuggestions();
+        _suggestionTimer.Start();
+    }
+
+    private void StopSuggestionRotation() => _suggestionTimer?.Stop();
 
     private IReadOnlyList<DriverChatContextItem> BuildDriverChatContext() =>
         Drivers.Select(r =>
