@@ -38,6 +38,9 @@ public static class AppServices
         services.AddSingleton<IHistoryWindowOpener, HistoryWindowOpener>();
         services.AddSingleton<ISettingsWindowOpener, SettingsWindowOpener>();
         services.AddSingleton<ILogsWindowOpener, LogsWindowOpener>();
+        services.AddSingleton<IAutoUpdateSelectionWindowOpener, AutoUpdateSelectionWindowOpener>();
+        services.AddTransient<AutoUpdateSelectionViewModel>();
+        services.AddTransient<AutoUpdateSelectionWindow>();
         services.AddSingleton(logSink);
         services.AddSingleton<MainViewModel>();
         services.AddTransient<HistoryViewModel>();

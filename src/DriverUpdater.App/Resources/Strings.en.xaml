@@ -53,8 +53,6 @@
     <sys:String x:Key="Grid.Ai">AI check</sys:String>
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
     <sys:String x:Key="Grid.DriverVersion">Driver version</sys:String>
-    <sys:String x:Key="Grid.AutoUpdate">Auto</sys:String>
-    <sys:String x:Key="Grid.AutoUpdateTooltip">Update this driver automatically on the schedule. Takes effect when Settings &gt; Schedule is set to "Scan and update" and limited to the selected drivers.</sys:String>
 
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
     <sys:String x:Key="Confirm.Current">Current</sys:String>

@@ -1,0 +1,116 @@
+<ui:FluentWindow x:Class="DriverUpdater.App.Views.AutoUpdateSelectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:AutoUpdateSelectionViewModel}"
+        Title="DriverUpdater - Drivers updated automatically"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="700" Height="620"
+        MinWidth="560" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        Loaded="OnLoaded">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Height="56"
+                     Padding="20,0"
+                     Title="DriverUpdater - Drivers updated automatically"
+                     Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                     ButtonsForeground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                     ButtonsBackground="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                     ShowMinimize="True"
+                     ShowMaximize="False"
+                     CanMaximize="False"
+                     ShowClose="True" />
+
+        <StackPanel Grid.Row="1" Margin="16,12,16,8">
+            <TextBlock TextWrapping="Wrap"
+                       Opacity="0.8"
+                       FontSize="13"
+                       Text="Tick every driver the scheduled run may update on its own. Anything left unticked stays available to install by hand." />
+            <TextBox Margin="0,10,0,0"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Filter by device name or category" />
+        </StackPanel>
+
+        <Border Grid.Row="2" Margin="16,0,16,0">
+            <Grid>
+                <ListBox ItemsSource="{Binding DriversView}"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="4" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DeviceName}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding SubtitleText}"
+                                                   Opacity="0.65"
+                                                   FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </CheckBox>
+                                <Button Grid.Column="1"
+                                        Padding="10,4"
+                                        VerticalAlignment="Center"
+                                        Content="Remove"
+                                        Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                        CommandParameter="{Binding}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Opacity="0.7"
+                           Text="No scan results yet. Run a scan in the main window, then come back and pick the drivers."
+                           Visibility="{Binding HasNoDrivers, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </Grid>
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="16,12,16,16" LastChildFill="False">
+            <TextBlock DockPanel.Dock="Left"
+                       VerticalAlignment="Center"
+                       Opacity="0.75"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Text="{Binding StatusText}" />
+            <Button DockPanel.Dock="Right"
+                    Padding="18,7"
+                    Margin="10,0,0,0"
+                    Content="Close"
+                    IsDefault="True"
+                    Style="{DynamicResource AccentButtonStyle}"
+                    Click="OnClose" />
+            <Button DockPanel.Dock="Right"
+                    Padding="14,7"
+                    Content="Remove all"
+                    Command="{Binding ClearAllCommand}" />
+        </DockPanel>
+    </Grid>
+</ui:FluentWindow>

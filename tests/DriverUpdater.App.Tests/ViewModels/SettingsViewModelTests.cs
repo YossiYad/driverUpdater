@@ -120,16 +120,114 @@ public class SettingsViewModelTests
         await vm.LoadAsync();
 
         vm.AutoUpdateScope.Should().Be(AutoUpdateScope.AllDrivers);
-        vm.ShowAutoUpdateSelectionHint.Should().BeFalse();
+        vm.IsCustomSchedule.Should().BeFalse();
 
-        vm.ScheduleMode = ScheduleMode.ScanAndUpdate;
         vm.AcceptedAutoUpdateRisk = true;
-        vm.AutoUpdateScope = AutoUpdateScope.SelectedDrivers;
-        vm.ShowAutoUpdateSelectionHint.Should().BeTrue();
+        vm.IsCustomSchedule = true;
+        vm.ScheduleMode.Should().Be(ScheduleMode.ScanAndUpdate);
 
         await vm.SaveAsync();
 
         store.Saved!.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
+    }
+
+    [WpfFact]
+    public async Task Picking_the_ai_option_selects_the_scope_and_shows_its_risk_choice()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        vm.ScheduleMode = ScheduleMode.ScanAndUpdate;
+        vm.AcceptedAutoUpdateRisk = true;
+
+        vm.IsGeneralSchedule.Should().BeTrue("scan and update with the default scope");
+        vm.ShowAiAutoUpdateOptions.Should().BeFalse();
+
+        vm.IsAiSchedule = true;
+
+        vm.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        vm.ScheduleMode.Should().Be(ScheduleMode.ScanAndUpdate);
+        vm.IsGeneralSchedule.Should().BeFalse("the radio group is exclusive");
+        vm.IsCustomSchedule.Should().BeFalse();
+        vm.ShowAiAutoUpdateOptions.Should().BeTrue();
+        vm.ShowAiProviderMissingWarning.Should().BeTrue("no provider is configured yet");
+
+        vm.AiInstallsSafeOnly.Should().BeTrue("the cautious tolerance is the default");
+        vm.AiInstallsSafeAndCaution = true;
+        vm.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
+        vm.AiInstallsSafeOnly.Should().BeFalse();
+
+        await vm.SaveAsync();
+
+        store.Saved!.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.AiRecommended);
+        store.Saved.Schedule.AiRiskTolerance.Should().Be(AiAutoUpdateRiskTolerance.SafeAndCaution);
+    }
+
+    [WpfFact]
+    public async Task Unchecking_a_schedule_radio_leaves_the_current_choice_alone()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        vm.IsCustomSchedule = true;
+
+        // WPF clears the previously checked radio before setting the new one. That clear must
+        // not reset the choice, or the setting would flip back to the default mid-click.
+        vm.IsCustomSchedule = false;
+
+        vm.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
+        vm.ScheduleMode.Should().Be(ScheduleMode.ScanAndUpdate);
+        vm.IsCustomSchedule.Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task The_schedule_types_map_onto_the_stored_mode_and_scope()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.IsScheduleOff.Should().BeTrue("a fresh install schedules nothing");
+        vm.ShowScheduleTiming.Should().BeFalse();
+
+        vm.IsScanOnlySchedule = true;
+        vm.ScheduleMode.Should().Be(ScheduleMode.ScanOnly);
+        vm.ShowScheduleTiming.Should().BeTrue();
+        vm.ShowAutoUpdateWarning.Should().BeFalse("a scan-only run installs nothing");
+
+        vm.IsCustomSchedule = true;
+        vm.ScheduleMode.Should().Be(ScheduleMode.ScanAndUpdate);
+        vm.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
+        vm.ShowAutoUpdateWarning.Should().BeTrue();
+
+        vm.IsScheduleOff = true;
+        vm.ScheduleMode.Should().Be(ScheduleMode.Manual);
+        vm.AcceptedAutoUpdateRisk.Should().BeFalse("turning the schedule off withdraws the consent");
+    }
+
+    [WpfFact]
+    public async Task The_driver_picker_button_reports_how_many_drivers_are_chosen()
+    {
+        var store = new FakeStore(new AppSettings());
+        var selection = new FakeAutoUpdateSelectionStore(@"ID\gpu", @"ID\nic");
+        var opener = new RecordingAutoUpdateSelectionWindowOpener();
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            autoUpdateSelectionStore: selection,
+            autoUpdateSelectionWindowOpener: opener);
+
+        await vm.LoadAsync();
+
+        vm.SelectedDriverCount.Should().Be(2);
+        vm.SelectedDriverCountText.Should().Contain("2");
+
+        selection.DeviceIds = new[] { @"ID\gpu" };
+        await vm.ChooseAutoUpdateDriversCommand.ExecuteAsync(null);
+
+        opener.OpenCount.Should().Be(1);
+        vm.SelectedDriverCount.Should().Be(1, "the count refreshes when the picker closes");
     }
 
     [WpfFact]
@@ -651,6 +749,29 @@ public class SettingsViewModelTests
             Prompts.Add(version);
             return _answer;
         }
+    }
+
+    private sealed class FakeAutoUpdateSelectionStore : IAutoUpdateSelectionStore
+    {
+        public FakeAutoUpdateSelectionStore(params string[] deviceIds) => DeviceIds = deviceIds;
+
+        public IReadOnlyList<string> DeviceIds { get; set; }
+
+        public Task<AutoUpdateSelection> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AutoUpdateSelection(DeviceIds));
+
+        public Task SaveAsync(AutoUpdateSelection selection, CancellationToken cancellationToken = default)
+        {
+            DeviceIds = selection.DeviceIds;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingAutoUpdateSelectionWindowOpener : IAutoUpdateSelectionWindowOpener
+    {
+        public int OpenCount { get; private set; }
+
+        public void Open(object? owner = null) => OpenCount++;
     }
 
     private sealed class FakeStore : ISettingsStore
