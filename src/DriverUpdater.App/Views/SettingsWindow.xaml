@@ -215,6 +215,27 @@
                                       Content="I understand and want to enable automatic updates" />
                         </StackPanel>
                     </Border>
+
+                    <StackPanel Margin="0,16,0,0"
+                                Visibility="{Binding ShowAutoUpdateWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="120" VerticalAlignment="Center" Text="Update" />
+                            <ComboBox Width="220"
+                                      ItemsSource="{Binding AvailableAutoUpdateScopes}"
+                                      SelectedItem="{Binding AutoUpdateScope}" />
+                        </StackPanel>
+                        <TextBlock Margin="120,6,0,0"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="All drivers: every confirmed update is installed unattended. Selected drivers: only the devices ticked in the Auto column of the main list are installed; everything else stays available to install by hand." />
+                        <TextBlock Margin="120,6,0,0"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Foreground="#FF8B5A00"
+                                   Visibility="{Binding ShowAutoUpdateSelectionHint, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                   Text="Tick the Auto column next to each driver you want updated automatically. With nothing ticked, the scheduled run scans but installs nothing." />
+                    </StackPanel>
                 </StackPanel>
             </TabItem>
 

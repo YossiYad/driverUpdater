@@ -134,6 +134,128 @@ public class ScheduledScanRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_installs_only_the_drivers_selected_for_automatic_updates()
+    {
+        var chosen = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var other = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var chosenCandidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var otherCandidate = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { chosen, other },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, chosenCandidate, otherCandidate) },
+            pipeline,
+            cache,
+            schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            autoUpdateSelectionStore: new StubAutoUpdateSelectionStore(chosen.DeviceId));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(chosenCandidate.SourceUpdateId);
+
+        var entries = cache.Saved[0].Entries;
+        entries.Should().ContainSingle(e => e.Driver.DeviceName == "Intel Display"
+            && e.Status == DriverStatus.UpToDate && e.AvailableUpdate == null);
+        entries.Should().ContainSingle(e => e.Driver.DeviceName == "Realtek Audio"
+            && e.Status == DriverStatus.Outdated && e.AvailableUpdate != null,
+            "a driver the user did not opt in stays available to install by hand");
+    }
+
+    [Fact]
+    public async Task RunAsync_installs_nothing_when_the_selected_scope_has_no_drivers()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
+            new ThrowingInstallPipeline(),
+            cache,
+            schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            autoUpdateSelectionStore: new StubAutoUpdateSelectionStore());
+
+        await runner.RunAsync(installUpdates: true);
+
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RunAsync_installs_nothing_when_the_selection_cannot_be_read()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
+            new ThrowingInstallPipeline(),
+            cache,
+            schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            autoUpdateSelectionStore: new ThrowingAutoUpdateSelectionStore());
+
+        await runner.RunAsync(installUpdates: true);
+
+        cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
+            "an unreadable selection must not be treated as opting every driver in");
+    }
+
+    [Fact]
+    public async Task RunAsync_ignores_the_selection_when_every_driver_updates_automatically()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
+            pipeline,
+            cache,
+            schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AllDrivers },
+            autoUpdateSelectionStore: new StubAutoUpdateSelectionStore());
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_a_shared_installer_reached_only_through_unselected_devices()
+    {
+        const string sharedId = "vendor-installer:amd-chipset:8.05";
+        var opted = NewDriver("AMD Tools", "ROOT\\SYSTEM\\0001", new Version(1, 0, 0, 0));
+        var notOpted = NewDriver("AMD Defender", "ROOT\\SYSTEM\\0002", new Version(1, 0, 0, 0));
+        var candA = NewCandidate("ROOT\\SYSTEM\\0001", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller)
+            with { SourceUpdateId = sharedId };
+        var candB = NewCandidate("ROOT\\SYSTEM\\0002", new Version(2, 0, 0, 0), UpdateInstallKind.VendorInstaller)
+            with { SourceUpdateId = sharedId };
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { notOpted, opted },
+            new[] { new FakeUpdateSource(UpdateSource.Oem, candA, candB) },
+            pipeline,
+            cache,
+            schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            autoUpdateSelectionStore: new StubAutoUpdateSelectionStore(opted.DeviceId));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().ContainSingle(
+            "the shared package still runs once, reached through the device that was opted in");
+        cache.Saved[0].Entries.Should().OnlyContain(e => e.Status == DriverStatus.UpToDate,
+            "a shared installer's outcome fans out to every row that shares its id");
+    }
+
+    [Fact]
     public async Task RunAsync_runs_a_shared_installer_once_and_fans_the_result_to_every_row()
     {
         const string sharedId = "vendor-installer:amd-chipset:8.05";
@@ -253,14 +375,18 @@ public class ScheduledScanRunnerTests
         IReadOnlyList<IUpdateSource> sources,
         IInstallPipeline pipeline,
         IDriverCacheStore cache,
-        UpdaterSettings? settings = null) =>
+        UpdaterSettings? settings = null,
+        ScheduleSettings? schedule = null,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore = null) =>
         new(
             new FakeScanService(drivers),
             sources,
             pipeline,
             cache,
             new StubOptionsMonitor<UpdaterSettings>(settings ?? new UpdaterSettings()),
-            NullLogger<ScheduledScanRunner>.Instance);
+            NullLogger<ScheduledScanRunner>.Instance,
+            new StubOptionsMonitor<ScheduleSettings>(schedule ?? new ScheduleSettings()),
+            autoUpdateSelectionStore);
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",
@@ -373,6 +499,29 @@ public class ScheduledScanRunnerTests
             IProgress<UpdateOperation>? progress = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("install should not be called");
+    }
+
+    private sealed class StubAutoUpdateSelectionStore : IAutoUpdateSelectionStore
+    {
+        private readonly AutoUpdateSelection _selection;
+
+        public StubAutoUpdateSelectionStore(params string[] deviceIds) =>
+            _selection = new AutoUpdateSelection(deviceIds);
+
+        public Task<AutoUpdateSelection> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_selection);
+
+        public Task SaveAsync(AutoUpdateSelection selection, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class ThrowingAutoUpdateSelectionStore : IAutoUpdateSelectionStore
+    {
+        public Task<AutoUpdateSelection> LoadAsync(CancellationToken cancellationToken = default) =>
+            throw new IOException("selection file is locked");
+
+        public Task SaveAsync(AutoUpdateSelection selection, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class StubDriverCacheStore : IDriverCacheStore

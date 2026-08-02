@@ -5,6 +5,7 @@ using DriverUpdater.Core.Models;
 using DriverUpdater.Core.Options;
 using DriverUpdater.EndToEnd.Tests.Harness;
 using DriverUpdater.Infrastructure.Cache;
+using DriverUpdater.Infrastructure.Settings;
 using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
@@ -67,13 +68,24 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
         IDriverCacheStore cacheStore,
         IInstallPipeline pipeline,
         params IUpdateSource[] sources) =>
+        BuildRunner(wmi, cacheStore, pipeline, new ScheduleSettings(), autoUpdateSelectionStore: null, sources);
+
+    private ScheduledScanRunner BuildRunner(
+        IWmiQueryRunner wmi,
+        IDriverCacheStore cacheStore,
+        IInstallPipeline pipeline,
+        ScheduleSettings schedule,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore,
+        params IUpdateSource[] sources) =>
         new(
             new DriverScanService(wmi, NullLogger<DriverScanService>.Instance),
             sources,
             pipeline,
             cacheStore,
             new StaticOptionsMonitor<UpdaterSettings>(new UpdaterSettings()),
-            NullLogger<ScheduledScanRunner>.Instance);
+            NullLogger<ScheduledScanRunner>.Instance,
+            new StaticOptionsMonitor<ScheduleSettings>(schedule),
+            autoUpdateSelectionStore);
 
     private InstallPipeline BuildPipeline(IPnPUtilRunner pnputil, IInstalledDriverProbe probe) =>
         new(
@@ -149,6 +161,59 @@ public sealed class ScheduledRunAndCacheEndToEndTests : IDisposable
         var gpu = reloaded!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
         gpu.Status.Should().Be(DriverStatus.UpToDate);
         gpu.AvailableUpdate.Should().BeNull("a successfully installed update must not be re-offered next run");
+    }
+
+    [Fact]
+    public async Task A_scan_and_update_run_installs_only_the_devices_written_to_the_selection_file()
+    {
+        var selectionStore = new JsonAutoUpdateSelectionStore(
+            NullLogger<JsonAutoUpdateSelectionStore>.Instance,
+            _workspace.Path("auto-update-selection.json"));
+        await selectionStore.SaveAsync(new AutoUpdateSelection(new[] { GpuDeviceId }));
+
+        var cacheStore = NewCacheStore();
+        var pnputil = new FakePnPUtilRunner();
+        var probe = new ScriptedInstalledDriverProbe()
+            .Always(GpuDeviceId, new InstalledDriverState(new Version(31, 0, 24027, 1012), new DateOnly(2024, 9, 10)));
+        var runner = BuildRunner(
+            TwoDevices(),
+            cacheStore,
+            BuildPipeline(pnputil, probe),
+            new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            selectionStore,
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerGpuDriver()));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pnputil.Invocations.Should().Contain(a => a.Contains("/add-driver"));
+        var gpu = (await NewCacheStore().LoadAsync())!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
+        gpu.Status.Should().Be(DriverStatus.UpToDate);
+    }
+
+    [Fact]
+    public async Task A_scan_and_update_run_installs_nothing_when_the_device_was_not_selected()
+    {
+        var selectionStore = new JsonAutoUpdateSelectionStore(
+            NullLogger<JsonAutoUpdateSelectionStore>.Instance,
+            _workspace.Path("auto-update-selection.json"));
+        await selectionStore.SaveAsync(new AutoUpdateSelection(new[] { @"USB\VID_046D&PID_C52B\5&1a2b3c4d&0&1" }));
+
+        var cacheStore = NewCacheStore();
+        var pnputil = new FakePnPUtilRunner();
+        var runner = BuildRunner(
+            TwoDevices(),
+            cacheStore,
+            BuildPipeline(pnputil, new ScriptedInstalledDriverProbe()),
+            new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
+            selectionStore,
+            new StubUpdateSource(UpdateSource.MicrosoftCatalog, "Microsoft Update Catalog", NewerGpuDriver()));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pnputil.Invocations.Should().NotContain(a => a.Contains("/add-driver"));
+        var gpu = (await NewCacheStore().LoadAsync())!.Entries.Single(e => e.Driver.DeviceId == GpuDeviceId);
+        gpu.Status.Should().Be(DriverStatus.Outdated);
+        gpu.AvailableUpdate.Should().NotBeNull("an unselected driver stays offered for a manual install");
     }
 
     [Fact]

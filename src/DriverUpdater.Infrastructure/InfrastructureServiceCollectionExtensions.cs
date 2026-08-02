@@ -36,6 +36,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IApplicationStartupService, WindowsApplicationStartupService>();
         services.AddSingleton<ISettingsStore>(sp =>
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
+        services.AddSingleton<IAutoUpdateSelectionStore>(sp =>
+            new JsonAutoUpdateSelectionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonAutoUpdateSelectionStore>>()));
         services.AddSingleton<IDriverCacheStore>(sp =>
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>

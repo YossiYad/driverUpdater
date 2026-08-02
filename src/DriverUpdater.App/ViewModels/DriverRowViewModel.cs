@@ -16,6 +16,13 @@ public partial class DriverRowViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>
+    /// The user opted this device in to unattended updating by the scheduled task. Only has an
+    /// effect while Settings > Schedule is set to update the selected drivers only.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isAutoUpdateEnabled;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AvailableVersionText))]
     [NotifyPropertyChangedFor(nameof(AvailableDateText))]

@@ -113,6 +113,26 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task Auto_update_scope_round_trips_and_defaults_to_every_driver()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(store, new FakeScheduler(), NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+
+        vm.AutoUpdateScope.Should().Be(AutoUpdateScope.AllDrivers);
+        vm.ShowAutoUpdateSelectionHint.Should().BeFalse();
+
+        vm.ScheduleMode = ScheduleMode.ScanAndUpdate;
+        vm.AcceptedAutoUpdateRisk = true;
+        vm.AutoUpdateScope = AutoUpdateScope.SelectedDrivers;
+        vm.ShowAutoUpdateSelectionHint.Should().BeTrue();
+
+        await vm.SaveAsync();
+
+        store.Saved!.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
+    }
+
+    [WpfFact]
     public async Task LoadAsync_reads_log_cleanup_settings()
     {
         var store = new FakeStore(new AppSettings

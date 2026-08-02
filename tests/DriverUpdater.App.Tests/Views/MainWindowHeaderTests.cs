@@ -7,7 +7,7 @@ namespace DriverUpdater.App.Tests.Views;
 public class MainWindowHeaderTests
 {
     [Fact]
-    public void Driver_grid_keeps_only_five_user_facing_columns_at_stable_widths()
+    public void Driver_grid_keeps_only_six_user_facing_columns_at_stable_widths()
     {
         var document = XDocument.Load(Path.Combine(ViewsFolder(), "MainWindow.xaml"));
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
@@ -27,6 +27,7 @@ public class MainWindowHeaderTests
             "{DynamicResource Grid.Status}",
             "{DynamicResource Grid.DriverVersion}",
             "{DynamicResource Grid.Update}",
+            "{DynamicResource Grid.AutoUpdate}",
             "{DynamicResource Grid.Ai}");
         columns.All(column =>
             int.TryParse(column.Attribute("MinWidth")?.Value, out var width) && width >= 112)

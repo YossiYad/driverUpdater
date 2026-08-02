@@ -19,6 +19,8 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
     private readonly IInstallPipeline _installPipeline;
     private readonly IDriverCacheStore _driverCacheStore;
     private readonly IOptionsMonitor<UpdaterSettings> _updaterSettings;
+    private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
+    private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
     private readonly ILogger<ScheduledScanRunner> _logger;
 
     public ScheduledScanRunner(
@@ -27,7 +29,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         IInstallPipeline installPipeline,
         IDriverCacheStore driverCacheStore,
         IOptionsMonitor<UpdaterSettings> updaterSettings,
-        ILogger<ScheduledScanRunner> logger)
+        ILogger<ScheduledScanRunner> logger,
+        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -40,6 +44,8 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         _installPipeline = installPipeline;
         _driverCacheStore = driverCacheStore;
         _updaterSettings = updaterSettings;
+        _scheduleSettings = scheduleSettings;
+        _autoUpdateSelectionStore = autoUpdateSelectionStore;
         _logger = logger;
     }
 
@@ -64,7 +70,8 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
 
         if (installUpdates && outdated > 0)
         {
-            await InstallAsync(states, cancellationToken).ConfigureAwait(false);
+            var scope = await ResolveInstallScopeAsync(cancellationToken).ConfigureAwait(false);
+            await InstallAsync(states, scope, cancellationToken).ConfigureAwait(false);
         }
 
         await CarryOverUnmatchedCacheEntriesAsync(states, cancellationToken).ConfigureAwait(false);
@@ -126,9 +133,45 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
     }
 
-    private async Task InstallAsync(List<DriverState> states, CancellationToken cancellationToken)
+    // Which devices this unattended run may install for. Null means every device: either the
+    // user kept the default scope, or the settings/selection plumbing is not wired up (the
+    // parameters are optional so older compositions keep their previous behaviour).
+    private async Task<AutoUpdateSelection?> ResolveInstallScopeAsync(CancellationToken cancellationToken)
+    {
+        var scope = _scheduleSettings?.CurrentValue.AutoUpdateScope ?? AutoUpdateScope.AllDrivers;
+        if (scope != AutoUpdateScope.SelectedDrivers || _autoUpdateSelectionStore is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var selection = await _autoUpdateSelectionStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Scheduled run installs only the {Count} driver(s) selected for automatic updates",
+                selection.DeviceIds.Count);
+            return selection;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Failing open would install drivers the user deliberately excluded, so treat an
+            // unreadable selection as "nothing is opted in".
+            _logger.LogError(ex, "Could not read the automatic-update selection; no driver is installed this run");
+            return AutoUpdateSelection.Empty;
+        }
+    }
+
+    private async Task InstallAsync(
+        List<DriverState> states,
+        AutoUpdateSelection? scope,
+        CancellationToken cancellationToken)
     {
         var processed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var skipped = 0;
 
         foreach (var state in states)
         {
@@ -136,6 +179,14 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
             var candidate = state.Candidate;
             if (candidate is null || !IsInstallable(candidate.InstallKind))
             {
+                continue;
+            }
+            // The user restricted automatic updates to specific devices. Filter before the
+            // dedupe below so a shared installer is only ever reached through a device that
+            // was actually opted in.
+            if (scope is not null && !scope.Contains(state.Driver.DeviceId))
+            {
+                skipped++;
                 continue;
             }
             // Many device rows can share one installer (e.g. an AMD chipset package). Run
@@ -172,6 +223,13 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                 "Scheduled install for {Device} finished with {Status}{Error}",
                 state.Driver.DeviceName, finished.Status,
                 string.IsNullOrWhiteSpace(finished.ErrorMessage) ? string.Empty : " - " + finished.ErrorMessage);
+        }
+
+        if (skipped > 0)
+        {
+            _logger.LogInformation(
+                "Scheduled run left {Count} available update(s) for the next interactive session: their device is not selected for automatic updates",
+                skipped);
         }
     }
 

@@ -10,7 +10,8 @@ Windows desktop app (WPF .NET 10) that scans the entire machine, lists every dri
 - Versions are shown the way the vendor publishes them (for example the NVIDIA release
   number), and after an install the app reports the version Windows actually bound.
 - Safety first: per-driver backup, System Restore Point before each batch, Dry-run mode, Confirmation dialog, per-device Rollback.
-- Optional scheduled scans (Manual / ScanOnly / ScanAndUpdate, daily/weekly/monthly).
+- Optional scheduled scans (Manual / ScanOnly / ScanAndUpdate, daily/weekly/monthly), which can
+  be limited to the individual drivers you tick in the Auto column instead of updating everything.
 - Hebrew and English UI with full RTL support.
 
 ## Requirements

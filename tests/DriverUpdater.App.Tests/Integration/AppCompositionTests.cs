@@ -41,6 +41,9 @@ public class AppCompositionTests
         // hands the user the page itself when it cannot. Both are optional constructor
         // parameters on MainViewModel, so a missing registration would silently disable them.
         provider.GetRequiredService<IVendorPageInstallerResolver>().Should().NotBeNull();
+        // Optional on both MainViewModel and ScheduledScanRunner: without the registration the
+        // per-driver automatic update choice would silently stop being saved and honoured.
+        provider.GetRequiredService<IAutoUpdateSelectionStore>().Should().NotBeNull();
         provider.GetServices<IUpdateSource>().Should().NotBeEmpty();
     }
 }

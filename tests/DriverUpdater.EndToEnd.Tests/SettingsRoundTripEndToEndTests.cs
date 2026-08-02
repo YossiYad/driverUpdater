@@ -53,6 +53,7 @@ public sealed class SettingsRoundTripEndToEndTests : IDisposable
         viewModel.EnableWindowsUpdate = false;
         viewModel.BackupRetentionDays = 45;
         viewModel.ScheduleMode = ScheduleMode.ScanOnly;
+        viewModel.AutoUpdateScope = AutoUpdateScope.SelectedDrivers;
         viewModel.LogRetentionDays = 21;
         await viewModel.SaveAsync();
 
@@ -60,6 +61,7 @@ public sealed class SettingsRoundTripEndToEndTests : IDisposable
         reloaded.Updater.WindowsUpdateEnabled.Should().BeFalse();
         reloaded.Backup.RetentionDays.Should().Be(45);
         reloaded.Schedule.Mode.Should().Be(ScheduleMode.ScanOnly);
+        reloaded.Schedule.AutoUpdateScope.Should().Be(AutoUpdateScope.SelectedDrivers);
         reloaded.LogCleanup.RetentionDays.Should().Be(21);
     }
 

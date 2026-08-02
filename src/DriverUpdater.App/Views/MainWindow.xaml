@@ -411,6 +411,19 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="{DynamicResource Grid.AutoUpdate}"
+                                        Width="112"
+                                        MinWidth="112">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding IsAutoUpdateEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      ToolTip="{DynamicResource Grid.AutoUpdateTooltip}"
+                                      ToolTipService.ShowDuration="30000" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="{DynamicResource Grid.Ai}"
                                         Width="190"
                                         MinWidth="190">

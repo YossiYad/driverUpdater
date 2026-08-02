@@ -25,6 +25,8 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
+    public IReadOnlyList<AutoUpdateScope> AvailableAutoUpdateScopes { get; } =
+        Enum.GetValues<AutoUpdateScope>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableAiResponseLanguages { get; } =
         [AppLanguage.English, AppLanguage.Hebrew];
@@ -46,6 +48,10 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private TimeOnly _scheduleTimeOfDay = new(9, 0);
     [ObservableProperty] private DayOfWeek _scheduleDayOfWeek = DayOfWeek.Monday;
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAutoUpdateSelectionHint))]
+    private AutoUpdateScope _autoUpdateScope = AutoUpdateScope.AllDrivers;
 
     [ObservableProperty] private bool _enablePlaywrightFallback;
 
@@ -126,6 +132,9 @@ public partial class SettingsViewModel : ObservableObject
         _logCleanupService?.LogDirectory ?? LogCleanupService.DefaultLogDirectory();
 
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
+
+    public bool ShowAutoUpdateSelectionHint =>
+        ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.SelectedDrivers;
 
     public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
 
@@ -216,6 +225,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnScheduleModeChanged(ScheduleMode value)
     {
         OnPropertyChanged(nameof(ShowAutoUpdateWarning));
+        OnPropertyChanged(nameof(ShowAutoUpdateSelectionHint));
         if (value != ScheduleMode.ScanAndUpdate)
         {
             AcceptedAutoUpdateRisk = false;
@@ -461,7 +471,8 @@ public partial class SettingsViewModel : ObservableObject
             Mode = ScheduleMode,
             Cadence = ScheduleCadence,
             TimeOfDay = ScheduleTimeOfDay,
-            DayOfWeek = ScheduleDayOfWeek
+            DayOfWeek = ScheduleDayOfWeek,
+            AutoUpdateScope = AutoUpdateScope
         },
         Language = new LanguageSettings
         {
@@ -511,6 +522,7 @@ public partial class SettingsViewModel : ObservableObject
         ScheduleCadence = settings.Schedule.Cadence;
         ScheduleTimeOfDay = settings.Schedule.TimeOfDay;
         ScheduleDayOfWeek = settings.Schedule.DayOfWeek;
+        AutoUpdateScope = settings.Schedule.AutoUpdateScope;
         SelectedLanguage = settings.Language.Language;
         SelectedAiResponseLanguage = settings.Ai.ResponseLanguage is AppLanguage.Hebrew
             ? AppLanguage.Hebrew
