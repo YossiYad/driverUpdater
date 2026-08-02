@@ -119,7 +119,14 @@
                                FontWeight="SemiBold"
                                Foreground="#FFC4B5FD"
                                Text="What is new in this version is listed at the bottom of this guide." />
-                    <TextBlock Margin="0,6,0,20"
+                    <Button Margin="0,10,0,0"
+                            Padding="16,7"
+                            HorizontalAlignment="Left"
+                            FontSize="13"
+                            Content="Take me to what is new"
+                            Style="{DynamicResource AccentButtonStyle}"
+                            Click="OnShowNewFeatures" />
+                    <TextBlock Margin="0,14,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
                                Text="This short guide opens when DriverUpdater starts. You can turn off automatic opening below and open it again from Settings at any time." />
@@ -224,7 +231,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource WelcomeNewCardStyle}">
+                    <Border x:Name="EnglishNewCard" Style="{StaticResource WelcomeNewCardStyle}">
                         <StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,10,0" />
@@ -236,6 +243,12 @@
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="Ask the AI to change your settings: " />
+                                <Run Text="Tell the chat what you want - turn scheduled updates on or off, decide what the X button does, start with Windows, pick the day and time, switch driver sources, and more. The AI shows you exactly what it is about to change and nothing happens until you press the confirm button. It can also suggest a setting on its own when it would solve what you are describing.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="Ask what is turned on right now: " />
+                                <Run Text="The chat knows your current settings, so you can simply ask what your schedule is set to, or what the close button does, instead of hunting through tabs.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="Conversation starters: " />
+                                <Run Text="Open the AI panel and suggested questions drift slowly under the chat. Click one to send it, or ignore them and keep typing - they change on their own, a few seconds apart, so there is always something new to try.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="One list of schedule types in Settings > Schedule: " />
                                 <Run Text="Off, scan only, update every driver, update only the drivers you choose, or let the AI decide. Pick one, set the day and time, and you are done.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="The AI can decide what a scheduled run installs: " />
@@ -287,7 +300,14 @@
                                FontWeight="SemiBold"
                                Foreground="#FFC4B5FD"
                                Text="הפיצ׳רים החדשים בגרסה הזו מפורטים בתחתית המדריך." />
-                    <TextBlock Margin="0,6,0,20"
+                    <Button Margin="0,10,0,0"
+                            Padding="16,7"
+                            HorizontalAlignment="Right"
+                            FontSize="13"
+                            Content="קחו אותי לפיצ׳רים החדשים"
+                            Style="{DynamicResource AccentButtonStyle}"
+                            Click="OnShowNewFeatures" />
+                    <TextBlock Margin="0,14,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
                                Text="המדריך הקצר הזה נפתח עם הפעלת DriverUpdater. אפשר לבטל למטה את הפתיחה האוטומטית ולפתוח אותו שוב מההגדרות בכל עת." />
@@ -392,7 +412,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource WelcomeNewCardStyle}">
+                    <Border x:Name="HebrewNewCard" Style="{StaticResource WelcomeNewCardStyle}">
                         <StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,10,0" />
@@ -404,6 +424,12 @@
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="אפשר לבקש מה־AI לשנות הגדרות: " />
+                                <Run Text="פשוט אומרים לצ'אט מה רוצים - להפעיל או לכבות עדכונים מתוזמנים, להחליט מה כפתור ה־X עושה, לעלות עם Windows, לקבוע יום ושעה, לשנות מקורות למנהלי התקנים ועוד. ה־AI מציג בדיוק מה הוא עומד לשנות, ושום דבר לא קורה עד שלוחצים על כפתור האישור. הוא גם יכול להציע הגדרה מיוזמתו כשהיא פותרת את מה שתיארתם.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="אפשר לשאול מה מוגדר כרגע: " />
+                                <Run Text="הצ'אט מכיר את ההגדרות הנוכחיות, אז אפשר פשוט לשאול מה מוגדר בתזמון או מה כפתור הסגירה עושה, בלי לחפש בין הלשוניות.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="כפתורי פתיחת שיחה: " />
+                                <Run Text="כשפותחים את חלונית ה־AI, הצעות לשאלות נעות לאט מתחת לצ'אט. אפשר ללחוץ על אחת כדי לשלוח אותה, או להתעלם ולהמשיך להקליד - הן מתחלפות מעצמן, בהפרש של כמה שניות, כך שתמיד יש משהו חדש לנסות.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="רשימה אחת של סוגי תזמון בהגדרות, בלשונית Schedule: " />
                                 <Run Text="כבוי, סריקה בלבד, עדכון כל מנהלי ההתקנים, עדכון רק של אלה שתבחרו, או תזמון שה־AI מחליט בו. בוחרים אחד, קובעים יום ושעה, וזהו.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="ה־AI מחליט מה יותקן בסריקה המתוזמנת: " />

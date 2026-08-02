@@ -60,6 +60,69 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Conversation starter chip. The whole 24s life is one storyboard: a slow fade in,
+             a barely-perceptible sideways drift, and a fade out that lands exactly when the
+             view model swaps this slot for a new suggestion. -->
+        <Style x:Key="ChatSuggestionChipStyle" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="#FFDCD3F5" />
+            <Setter Property="Background" Value="#FF231C3A" />
+            <Setter Property="BorderBrush" Value="#FF4C3A80" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ChipRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                CornerRadius="14"
+                                Opacity="0">
+                            <Border.RenderTransform>
+                                <TranslateTransform x:Name="ChipDrift" />
+                            </Border.RenderTransform>
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ChipRoot"
+                                                                       Storyboard.TargetProperty="Opacity">
+                                            <LinearDoubleKeyFrame Value="0" KeyTime="0:0:0" />
+                                            <LinearDoubleKeyFrame Value="1" KeyTime="0:0:2.5" />
+                                            <LinearDoubleKeyFrame Value="1" KeyTime="0:0:21.5" />
+                                            <LinearDoubleKeyFrame Value="0" KeyTime="0:0:24" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimation Storyboard.TargetName="ChipDrift"
+                                                         Storyboard.TargetProperty="X"
+                                                         From="-10" To="10" Duration="0:0:24" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ChipRoot" Property="Background" Value="#FF2F2551" />
+                                <Setter TargetName="ChipRoot" Property="BorderBrush" Value="#FF8B5CF6" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ChipRoot" Property="Background" Value="#FF3E2D70" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ChipRoot" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -539,6 +602,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
@@ -554,7 +618,7 @@
 
                     <Border Grid.Row="1"
                             Visibility="{Binding HasNoDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Text="Ask about your drivers - what is worth updating, whether an update is safe for this exact hardware, why a driver is flagged, and so on. The AI answers from the current scan, and when it recommends installing specific updates you get a one-click Install button."
+                        <TextBlock Text="Ask about your drivers - what is worth updating, whether an update is safe for this exact hardware, why a driver is flagged, and so on. The AI answers from the current scan, and when it recommends installing specific updates you get a one-click Install button. It can also change app settings for you, such as the scheduled run or what the X button does; it always shows the change first and waits for your confirmation."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" VerticalAlignment="Top" />
                     </Border>
 
@@ -624,6 +688,63 @@
                                                     Style="{DynamicResource AccentButtonStyle}"
                                                     Visibility="{Binding HasScanAction, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                     Command="{Binding DataContext.ScanCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+
+                                            <ContentControl Content="{Binding SettingProposal}"
+                                                            Visibility="{Binding HasSettingAction, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <ContentControl.ContentTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel>
+                                                            <TextBlock Text="{Binding Title}"
+                                                                       FontSize="12"
+                                                                       FontWeight="SemiBold"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxWidth="300" />
+                                                            <ItemsControl Margin="0,6,0,0" ItemsSource="{Binding Descriptions}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <TextBlock Text="{Binding}"
+                                                                                   FontSize="12"
+                                                                                   TextWrapping="Wrap"
+                                                                                   MaxWidth="290"
+                                                                                   Margin="0,0,0,3" />
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       Text="{Binding UnattendedInstallWarning}"
+                                                                       FontSize="11"
+                                                                       Foreground="#FFFFC857"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxWidth="290"
+                                                                       Visibility="{Binding WarnsAboutUnattendedInstalls, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                            <StackPanel Margin="0,8,0,0"
+                                                                        Visibility="{Binding IsPending, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                <Button Padding="14,5"
+                                                                        FontSize="12"
+                                                                        HorizontalAlignment="Stretch"
+                                                                        Content="{Binding ApplyLabel}"
+                                                                        Style="{DynamicResource AccentButtonStyle}"
+                                                                        Command="{Binding DataContext.ApplyChatSettingsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                <Button Margin="0,6,0,0"
+                                                                        Padding="14,5"
+                                                                        FontSize="12"
+                                                                        HorizontalAlignment="Stretch"
+                                                                        Content="{Binding DeclineLabel}"
+                                                                        Command="{Binding DataContext.DeclineChatSettingsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}" />
+                                                            </StackPanel>
+                                                            <TextBlock Margin="0,8,0,0"
+                                                                       Text="{Binding ResultText}"
+                                                                       FontSize="11"
+                                                                       Opacity="0.8"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxWidth="290"
+                                                                       Visibility="{Binding IsResolved, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ContentControl.ContentTemplate>
+                                            </ContentControl>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -631,7 +752,23 @@
                         </ItemsControl>
                     </ScrollViewer>
 
-                    <Grid Grid.Row="2" Margin="0,8,0,0">
+                    <ItemsControl Grid.Row="2"
+                                  Margin="0,10,0,0"
+                                  MinHeight="106"
+                                  VerticalAlignment="Bottom"
+                                  ItemsSource="{Binding ChatSuggestions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource ChatSuggestionChipStyle}"
+                                        Command="{Binding DataContext.UseChatSuggestionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}">
+                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxWidth="300" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Grid Grid.Row="3" Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />

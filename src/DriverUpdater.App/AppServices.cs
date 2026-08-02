@@ -25,6 +25,7 @@ public static class AppServices
         services.AddSingleton<ISupportWindowOpener, SupportWindowOpener>();
         services.AddSingleton<ILogCleanupService, LogCleanupService>();
         services.AddSingleton<ApplicationBehaviorState>();
+        services.AddSingleton<IChatSettingsApplier, ChatSettingsApplier>();
         services.AddSingleton<NotificationAreaService>();
         services.AddHostedService<LogCleanupBackgroundService>();
         services.AddSingleton<IAiResultTranslator, AiResultTranslator>();

@@ -46,6 +46,12 @@ public partial class WelcomeWindow : FluentWindow
         WelcomeTitleBar.Title = Title;
     }
 
+    private void OnShowNewFeatures(object sender, RoutedEventArgs e)
+    {
+        var card = LanguageSelector.SelectedIndex == 1 ? HebrewNewCard : EnglishNewCard;
+        card.BringIntoView();
+    }
+
     private void OnOpenAiSettings(object sender, RoutedEventArgs e)
     {
         OpenAiSettingsRequested?.Invoke(this, EventArgs.Empty);
