@@ -8,11 +8,11 @@ namespace DriverUpdater.App.Tests.Services;
 public class ApplicationBehaviorStateTests
 {
     [Fact]
-    public void Default_behavior_exits_the_application()
+    public void Default_behavior_keeps_running_in_background()
     {
         var state = new ApplicationBehaviorState();
 
-        state.CloseBehavior.Should().Be(WindowCloseBehavior.ExitApplication);
+        state.CloseBehavior.Should().Be(WindowCloseBehavior.KeepRunningInBackground);
         state.ShouldStartHidden.Should().BeFalse();
     }
 

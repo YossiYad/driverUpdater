@@ -51,7 +51,7 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanStartMinimized))]
-    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.ExitApplication;
+    private WindowCloseBehavior _closeBehavior = WindowCloseBehavior.KeepRunningInBackground;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanStartMinimized))]

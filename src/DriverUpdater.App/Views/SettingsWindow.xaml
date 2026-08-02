@@ -141,7 +141,7 @@
                                    Opacity="0.7"
                                    FontSize="12"
                                    TextWrapping="Wrap"
-                                   Text="Default: exit completely. If background mode is selected, use the DriverUpdater icon in the Windows notification area to reopen or exit the app." />
+                                   Text="Default: hide the window and keep running. Use the DriverUpdater icon in the Windows notification area to reopen or exit the app." />
 
                         <Separator Margin="0,22,0,18" />
 

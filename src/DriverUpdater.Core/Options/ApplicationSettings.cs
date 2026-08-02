@@ -4,7 +4,7 @@ namespace DriverUpdater.Core.Options;
 
 public sealed class ApplicationSettings
 {
-    public WindowCloseBehavior CloseBehavior { get; set; } = WindowCloseBehavior.ExitApplication;
+    public WindowCloseBehavior CloseBehavior { get; set; } = WindowCloseBehavior.KeepRunningInBackground;
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; }
 }
