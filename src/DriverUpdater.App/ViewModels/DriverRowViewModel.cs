@@ -88,6 +88,7 @@ public partial class DriverRowViewModel : ObservableObject
     public bool IsSigned => Driver.IsSigned;
     public string? AvailableVersionText =>
         AvailableUpdate is not { } update ? null
+        : !string.IsNullOrWhiteSpace(update.VersionLabel) ? update.VersionLabel
         : IsDateBasedPlaceholderVersion(update) ? "latest"
         : update.NewVersion.ToString();
 

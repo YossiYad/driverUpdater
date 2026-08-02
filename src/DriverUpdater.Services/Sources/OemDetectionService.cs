@@ -135,6 +135,10 @@ public sealed class OemDetectionService : IOemDetectionService
         {
             return OemVendor.Biostar;
         }
+        if (Contains(lookup, "MAXSUN"))
+        {
+            return OemVendor.Maxsun;
+        }
         return OemVendor.Unknown;
     }
 
@@ -255,6 +259,10 @@ public sealed class OemDetectionService : IOemDetectionService
                 ToolName: "BIOSTAR support",
                 CandidateToolPaths: Array.Empty<string>(),
                 FallbackUrl: new Uri("https://www.biostar.com.tw/app/en/support/download.php")),
+            OemVendor.Maxsun => new OemToolTemplate(
+                ToolName: "MAXSUN support",
+                CandidateToolPaths: Array.Empty<string>(),
+                FallbackUrl: new Uri("https://www.maxsun.com/pages/support")),
             _ => new OemToolTemplate(
                 ToolName: "OEM tool",
                 CandidateToolPaths: Array.Empty<string>(),

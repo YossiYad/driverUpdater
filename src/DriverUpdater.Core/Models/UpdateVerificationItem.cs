@@ -15,4 +15,5 @@ public sealed record UpdateVerificationItem(
     UpdateStatus InstallerStatus,
     UpdateInstallKind InstallKind,
     UpdateConfidence Confidence,
-    Uri? ActionUrl);
+    Uri? ActionUrl,
+    string? ExpectedVersionLabel = null);

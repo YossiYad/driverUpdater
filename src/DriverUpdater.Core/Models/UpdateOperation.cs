@@ -12,7 +12,8 @@ public sealed record UpdateOperation(
     DateTimeOffset? CompletedAt,
     long DownloadedBytes = 0,
     long? TotalBytes = null,
-    DateTimeOffset? InstallStartedAt = null)
+    DateTimeOffset? InstallStartedAt = null,
+    InstalledDriverState? VerifiedState = null)
 {
     public bool IsTerminal => Status is UpdateStatus.Succeeded
         or UpdateStatus.Failed

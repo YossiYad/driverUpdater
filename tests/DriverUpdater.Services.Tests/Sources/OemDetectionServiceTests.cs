@@ -24,6 +24,7 @@ public class OemDetectionServiceTests
     [InlineData("Gigabyte Technology Co., Ltd.", "Z790 AORUS ELITE AX", OemVendor.Gigabyte)]
     [InlineData("ASRock", "B850 Steel Legend", OemVendor.ASRock)]
     [InlineData("BIOSTAR Group", "B850MT", OemVendor.Biostar)]
+    [InlineData("MAXSUN", "MS-Challenger B650M", OemVendor.Maxsun)]
     [InlineData("Some Generic Maker", "Mystery Box", OemVendor.Unknown)]
     [InlineData("", "", OemVendor.Unknown)]
     public void MapVendor_recognizes_known_manufacturers(string manufacturer, string model, OemVendor expected)
@@ -77,6 +78,31 @@ public class OemDetectionServiceTests
 
         info.Should().NotBeNull();
         info!.Vendor.Should().Be(OemVendor.Asus);
+    }
+
+    [Fact]
+    public async Task DetectAsync_recognizes_maxsun_boards_from_the_baseboard_row()
+    {
+        var fake = new FakeWmiRunner(
+            new Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>
+            {
+                ["computersystem"] = new[]
+                {
+                    Row(("Manufacturer", null), ("Model", null))
+                },
+                ["baseboard"] = new[]
+                {
+                    Row(("Manufacturer", "MAXSUN"), ("Product", "MS-Challenger B650M"))
+                }
+            });
+
+        var service = new OemDetectionService(fake, NullLogger<OemDetectionService>.Instance);
+
+        var info = await service.DetectAsync();
+
+        info.Should().NotBeNull();
+        info!.Vendor.Should().Be(OemVendor.Maxsun);
+        info.FallbackUrl.Host.Should().Contain("maxsun.com");
     }
 
     [Fact]

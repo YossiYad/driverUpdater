@@ -30,7 +30,7 @@ public sealed partial class AiResultViewModel : ObservableObject
         Category = driver.Category.ToString();
         InstalledVersion = driver.CurrentVersion?.ToString() ?? "Unknown";
         InstalledDate = driver.CurrentDate?.ToString("yyyy-MM-dd") ?? "Unknown";
-        CandidateVersion = candidate?.NewVersion.ToString() ?? verdict.LatestKnownVersion ?? "No candidate";
+        CandidateVersion = candidate?.DisplayVersion ?? verdict.LatestKnownVersion ?? "No candidate";
         CandidateDate = candidate?.NewDate.ToString("yyyy-MM-dd")
             ?? verdict.LatestKnownDate?.ToString("yyyy-MM-dd")
             ?? "Unknown";

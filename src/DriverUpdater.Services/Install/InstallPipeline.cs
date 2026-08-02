@@ -371,6 +371,8 @@ public sealed class InstallPipeline : IInstallPipeline
                 deviceName,
                 before.CurrentVersion?.ToString() ?? "?", before.CurrentDate?.ToString() ?? "?",
                 current.Version?.ToString() ?? "?", current.Date?.ToString() ?? "?");
+            operation = operation with { VerifiedState = current };
+            progress?.Report(operation);
             return operation;
         }
 
@@ -1584,7 +1586,7 @@ public sealed class InstallPipeline : IInstallPipeline
             lines.Add($"{lines.Count + 1}. Back up current driver ({operation.TargetSnapshot.InfName ?? "INF unknown"}) to %ProgramData%\\DriverUpdater\\Backups");
         }
         lines.Add($"{lines.Count + 1}. Download from {operation.Candidate.Source} ({operation.Candidate.DownloadUrl})");
-        lines.Add($"{lines.Count + 1}. Install version {operation.Candidate.NewVersion}, {operation.Candidate.SizeBytes:N0} bytes");
+        lines.Add($"{lines.Count + 1}. Install version {operation.Candidate.DisplayVersion}, {operation.Candidate.SizeBytes:N0} bytes");
         return string.Join('\n', lines);
     }
 }

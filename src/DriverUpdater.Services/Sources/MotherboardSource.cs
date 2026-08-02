@@ -164,7 +164,17 @@ public sealed class MotherboardSource : IUpdateSource
             IsSuperseded: false,
             SourceUpdateId: $"vendor-installer:{ResolveInstallerFamily(vendorTag)}:{vendorTag}:{model}:{entry.Title}:{entry.Version}",
             SupersededIds: Array.Empty<string>(),
-            InstallKind: UpdateInstallKind.VendorInstaller);
+            InstallKind: UpdateInstallKind.VendorInstaller,
+            VersionLabel: BuildCandidateLabel(driver, entry));
+
+    // When the catalog version cannot be compared against the installed one, NewVersion falls
+    // back to the release date - which is not a version anyone should be shown. Keep the
+    // catalog's own version string as the label in that case.
+    private static string? BuildCandidateLabel(DriverInfo driver, MotherboardDriverEntry entry) =>
+        string.IsNullOrWhiteSpace(entry.Version)
+            || BuildCandidateVersion(driver, entry) == TryParseEntryVersion(entry.Version)
+            ? null
+            : entry.Version;
 
     private static Version BuildCandidateVersion(DriverInfo driver, MotherboardDriverEntry entry)
     {

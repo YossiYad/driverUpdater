@@ -114,9 +114,15 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             return VendorPageResolution.PageUnreachable;
         }
 
+        // A vendor download page lists packages for the whole product family - amd.com offers
+        // the Adrenalin graphics installer next to the chipset one. Filtering while scanning
+        // (instead of only rejecting the winner afterwards) keeps looking past a package that
+        // belongs to a different vendor family than the device this candidate is for.
+        bool IsCompatible(Uri url, string kind) => IsPackageCompatibleWithHardware(candidate, url, kind);
+
         Uri packageUrl;
         string installerKind;
-        if (!TryFindInstallerLink(candidate.DownloadUrl, html, out packageUrl, out installerKind))
+        if (!TryFindInstallerLink(candidate.DownloadUrl, html, out packageUrl, out installerKind, IsCompatible))
         {
             // A page that answers 200 with no package links is usually a download list that
             // builds its links in the browser (realtek.com and amd.com both do this). The
@@ -126,7 +132,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
                 ? null
                 : await TryFetchViaBrowserAsync(candidate, cancellationToken).ConfigureAwait(false);
             if (rendered is null
-                || !TryFindInstallerLink(candidate.DownloadUrl, rendered, out packageUrl, out installerKind))
+                || !TryFindInstallerLink(candidate.DownloadUrl, rendered, out packageUrl, out installerKind, IsCompatible))
             {
                 LogInstallerCandidateDiagnostics(candidate, rendered ?? html);
                 return VendorPageResolution.NoPackageFound;
@@ -204,13 +210,19 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
 
         _logger.LogWarning(
             "Vendor page resolve for {SourceUpdateId} ({Device}) found no installable package on {Url} " +
-            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). The row remains unresolved in the application. " +
-            "To install this in-app, the page needs a downloadable .msi/.zip/.exe driver package link.",
+            "({Bytes} bytes, {LinkCount} downloadable link(s): {Links}). Any link listed here was rejected as " +
+            "belonging to a different vendor family than the device. The row remains unresolved in the application. " +
+            "To install this in-app, the page needs a downloadable .msi/.zip/.exe driver package for this device.",
             candidate.SourceUpdateId, candidate.ForHardwareId, candidate.DownloadUrl, html.Length,
             links.Count, links.Count == 0 ? "none" : string.Join(", ", links));
     }
 
-    internal static bool TryFindInstallerLink(Uri page, string html, out Uri packageUrl, out string installerKind)
+    internal static bool TryFindInstallerLink(
+        Uri page,
+        string html,
+        out Uri packageUrl,
+        out string installerKind,
+        Func<Uri, string, bool>? isCompatible = null)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(html);
@@ -234,21 +246,25 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             var extension = Path.GetExtension(resolved.LocalPath);
             if (msi is null && extension.Equals(".msi", StringComparison.OrdinalIgnoreCase))
             {
+                if (isCompatible?.Invoke(resolved, "msi-wrapper") == false) { continue; }
                 msi = resolved;
             }
             else if (zip is null && extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
+                if (isCompatible?.Invoke(resolved, "zip-inf") == false) { continue; }
                 zip = resolved;
             }
             else if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
             {
                 if (exe is null && TryClassifyExe(resolved, out var kind))
                 {
+                    if (isCompatible?.Invoke(resolved, kind) == false) { continue; }
                     exe = resolved;
                     exeKind = kind;
                 }
                 else if (unknownExe is null)
                 {
+                    if (isCompatible?.Invoke(resolved, "exe-extract") == false) { continue; }
                     unknownExe = resolved;
                 }
             }

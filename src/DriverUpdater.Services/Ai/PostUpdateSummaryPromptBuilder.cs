@@ -42,7 +42,8 @@ internal static class PostUpdateSummaryPromptBuilder
             sb.Append("Delivery type: ").AppendLine(item.InstallKind.ToString());
             sb.Append("Evidence confidence: ").AppendLine(item.Confidence.ToString());
             sb.Append("Before: ").AppendLine(Format(item.PreviousVersion, item.PreviousDate));
-            sb.Append("Expected update: ").AppendLine(Format(item.ExpectedVersion, item.ExpectedDate));
+            sb.Append("Expected update: ").AppendLine(
+                Format(item.ExpectedVersionLabel ?? item.ExpectedVersion?.ToString(), item.ExpectedDate));
             sb.Append("Windows now reports: ").AppendLine(Format(item.CurrentVersion, item.CurrentDate));
             if (!string.IsNullOrWhiteSpace(item.TechnicalDetail))
             {
@@ -59,5 +60,8 @@ internal static class PostUpdateSummaryPromptBuilder
     }
 
     private static string Format(Version? version, DateOnly? date) =>
-        $"version {version?.ToString() ?? "unknown"}, date {date?.ToString("yyyy-MM-dd") ?? "unknown"}";
+        Format(version?.ToString(), date);
+
+    private static string Format(string? version, DateOnly? date) =>
+        $"version {version ?? "unknown"}, date {date?.ToString("yyyy-MM-dd") ?? "unknown"}";
 }
