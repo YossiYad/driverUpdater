@@ -52,11 +52,13 @@ This restores the previous driver immediately. If pnputil fails or the device is
 
 ## Layer 6: Scope of an unattended run
 
-A scheduled run in "Scan and update" mode installs without anybody watching, so Settings > Schedule limits what it may touch:
+Settings > Schedule offers one list of schedule types, and the installing ones run without anybody watching:
 
-- **All drivers**: every confirmed update the run found is installed.
-- **Selected drivers**: only the devices ticked in the Auto column of the main list.
-- **AI recommended**: the run scans, sends every update it found to the configured AI provider, and installs only what the AI endorses. The risk tolerance decides whether "Caution" counts as an endorsement; "High risk", "Unknown", and any update the AI did not answer for are never installed. The verdict is stored on the cached candidate, so the next interactive session shows why an update was left alone.
+- **Off**: nothing runs on its own.
+- **Scan only**: scans on the schedule and installs nothing.
+- **General schedule**: every confirmed update the run found is installed.
+- **Custom schedule**: only the devices on the user's list, edited through Settings > Schedule > "Choose the drivers...".
+- **AI schedule**: the run scans, sends every update it found to the configured AI provider, and installs only what the AI endorses. The risk tolerance decides whether "Caution" counts as an endorsement; "High risk", "Unknown", and any update the AI did not answer for are never installed. The verdict is stored on the cached candidate, so the next interactive session shows why an update was left alone.
 
 Every one of these gates fails closed. An unreadable selection file, a missing AI provider, an unreachable AI provider, or a failed AI review all mean "install nothing this run" - never "install everything". Restore point and per-device backup still run for each unattended install.
 

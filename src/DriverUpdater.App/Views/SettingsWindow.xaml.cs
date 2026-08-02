@@ -11,7 +11,7 @@ public partial class SettingsWindow : FluentWindow
 {
     private static readonly Uri GeminiApiKeysUri = new("https://aistudio.google.com/api-keys");
     private const int AiTabIndex = 5;
-    private const int AboutTabIndex = 6;
+    private const int UpdateTabIndex = 6;
     private readonly SettingsViewModel _viewModel;
     private bool _syncingKey;
     private WelcomeWindow? _welcomeWindow;
@@ -26,7 +26,9 @@ public partial class SettingsWindow : FluentWindow
 
     public void SelectAiTab() => SettingsTabs.SelectedIndex = AiTabIndex;
 
-    public void SelectAboutTab() => SettingsTabs.SelectedIndex = AboutTabIndex;
+    public void SelectUpdateTab() => SettingsTabs.SelectedIndex = UpdateTabIndex;
+
+    private void OnOpenAiTab(object sender, RoutedEventArgs e) => SelectAiTab();
 
     private void OnOpenWelcomeGuide(object sender, RoutedEventArgs e)
     {
@@ -49,7 +51,7 @@ public partial class SettingsWindow : FluentWindow
         };
         welcomeWindow.OpenAutomaticUpdateSettingsRequested += (_, _) =>
         {
-            SelectAboutTab();
+            SelectUpdateTab();
             Activate();
         };
         welcomeWindow.Closed += (_, _) =>

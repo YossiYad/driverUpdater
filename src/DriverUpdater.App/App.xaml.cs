@@ -163,7 +163,7 @@ public partial class App : Application
             welcomeWindow.OpenAutomaticUpdateSettingsRequested += (_, _) =>
             {
                 var settingsWindow = _host.Services.GetRequiredService<SettingsWindow>();
-                settingsWindow.SelectAboutTab();
+                settingsWindow.SelectUpdateTab();
                 settingsWindow.Owner = welcomeWindow;
                 settingsWindow.ShowDialog();
             };

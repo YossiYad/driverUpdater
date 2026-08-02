@@ -171,34 +171,150 @@
             </TabItem>
 
             <TabItem Header="Schedule">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="16">
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Width="120" VerticalAlignment="Center" Text="Mode" />
-                        <ComboBox Width="220"
-                                  ItemsSource="{Binding AvailableModes}"
-                                  SelectedItem="{Binding ScheduleMode}" />
+                    <TextBlock FontSize="16"
+                               FontWeight="SemiBold"
+                               Text="Scheduled driver updates" />
+                    <TextBlock Margin="0,4,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Pick how DriverUpdater should work on its own. Anything it does not install stays available to install by hand from the main window." />
+
+                    <RadioButton Margin="0,14,0,0"
+                                 GroupName="ScheduleType"
+                                 IsChecked="{Binding IsScheduleOff, Mode=TwoWay}"
+                                 Content="Off" />
+                    <TextBlock Margin="28,2,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Nothing runs on its own. You scan and install whenever you want to." />
+
+                    <RadioButton Margin="0,12,0,0"
+                                 GroupName="ScheduleType"
+                                 IsChecked="{Binding IsScanOnlySchedule, Mode=TwoWay}"
+                                 Content="Scan only" />
+                    <TextBlock Margin="28,2,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Scans on the schedule and leaves the results in the main window. Installs nothing." />
+
+                    <RadioButton Margin="0,12,0,0"
+                                 GroupName="ScheduleType"
+                                 IsChecked="{Binding IsGeneralSchedule, Mode=TwoWay}"
+                                 Content="General schedule: update every driver" />
+                    <TextBlock Margin="28,2,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Scans on the schedule and installs every update it finds." />
+
+                    <RadioButton Margin="0,12,0,0"
+                                 GroupName="ScheduleType"
+                                 IsChecked="{Binding IsCustomSchedule, Mode=TwoWay}"
+                                 Content="Custom schedule: update only the drivers I choose" />
+                    <TextBlock Margin="28,2,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Scans on the schedule and installs updates only for the drivers on your list." />
+                    <StackPanel Margin="28,8,0,0"
+                                Visibility="{Binding IsCustomSchedule, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Button Padding="14,7"
+                                HorizontalAlignment="Left"
+                                Content="Choose the drivers..."
+                                Command="{Binding ChooseAutoUpdateDriversCommand}" />
+                        <TextBlock Margin="0,6,0,0"
+                                   Opacity="0.75"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding SelectedDriverCountText}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Width="120" VerticalAlignment="Center" Text="Cadence" />
-                        <ComboBox Width="220"
-                                  ItemsSource="{Binding AvailableCadences}"
-                                  SelectedItem="{Binding ScheduleCadence}" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Width="120" VerticalAlignment="Center" Text="Day of week" />
-                        <ComboBox Width="220"
-                                  ItemsSource="{Binding AvailableDays}"
-                                  SelectedItem="{Binding ScheduleDayOfWeek}" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Width="120" VerticalAlignment="Center" Text="Time" />
-                        <TextBox Width="120"
-                                 Text="{Binding ScheduleTimeOfDay, StringFormat=HH:mm}" />
+
+                    <RadioButton Margin="0,12,0,0"
+                                 GroupName="ScheduleType"
+                                 IsChecked="{Binding IsAiSchedule, Mode=TwoWay}"
+                                 Content="AI schedule: let the AI decide what to update" />
+                    <TextBlock Margin="28,2,0,0"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Scans on the schedule, then asks your AI provider to review every update it found: how the offered version compares with the installed one, what the vendor actually published, and whether that exact version has reported problems. Only what the AI recommends is installed; the rest is left for you with the reason attached." />
+
+                    <Border Margin="28,10,0,0"
+                            Padding="14,10"
+                            CornerRadius="6"
+                            Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                            Visibility="{Binding ShowAiAutoUpdateOptions, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold"
+                                       TextWrapping="Wrap"
+                                       Text="How far may the AI go?" />
+                            <RadioButton Margin="0,8,0,0"
+                                         GroupName="AiRiskTolerance"
+                                         IsChecked="{Binding AiInstallsSafeOnly, Mode=TwoWay}"
+                                         Content="Install only updates it rates Safe" />
+                            <RadioButton Margin="0,6,0,0"
+                                         GroupName="AiRiskTolerance"
+                                         IsChecked="{Binding AiInstallsSafeAndCaution, Mode=TwoWay}"
+                                         Content="Also install updates it flags with Caution" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Opacity="0.7"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Text="Updates the AI rates High risk, and anything it cannot rate or does not answer about, are never installed unattended." />
+
+                            <Border Margin="0,10,0,0"
+                                    Padding="12,10"
+                                    CornerRadius="6"
+                                    Background="#FFFFF4E5"
+                                    Visibility="{Binding ShowAiProviderMissingWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel>
+                                    <TextBlock Foreground="#FF8B5A00"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Text="No AI provider is set up yet, so this option would scan and install nothing. Choose Google Gemini or Ollama first." />
+                                    <Button Margin="0,8,0,0"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Left"
+                                            Content="Set up the AI provider"
+                                            Click="OnOpenAiTab" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Margin="0,20,0,0"
+                                Visibility="{Binding ShowScheduleTiming, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,10"
+                                   Text="When should it run?" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Width="120" VerticalAlignment="Center" Text="Cadence" />
+                            <ComboBox Width="220"
+                                      ItemsSource="{Binding AvailableCadences}"
+                                      SelectedItem="{Binding ScheduleCadence}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Width="120" VerticalAlignment="Center" Text="Day of week" />
+                            <ComboBox Width="220"
+                                      ItemsSource="{Binding AvailableDays}"
+                                      SelectedItem="{Binding ScheduleDayOfWeek}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="120" VerticalAlignment="Center" Text="Time" />
+                            <TextBox Width="120"
+                                     Text="{Binding ScheduleTimeOfDay, StringFormat=HH:mm}" />
+                        </StackPanel>
                     </StackPanel>
 
                     <Border Padding="14,10"
                             CornerRadius="6"
-                            Margin="0,12,0,0"
+                            Margin="0,16,0,0"
                             Background="#FFFFF4E5"
                             Visibility="{Binding ShowAutoUpdateWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <StackPanel>
@@ -215,49 +331,8 @@
                                       Content="I understand and want to enable automatic updates" />
                         </StackPanel>
                     </Border>
-
-                    <StackPanel Margin="0,16,0,0"
-                                Visibility="{Binding ShowAutoUpdateWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Width="120" VerticalAlignment="Center" Text="Update" />
-                            <ComboBox Width="220"
-                                      ItemsSource="{Binding AvailableAutoUpdateScopes}"
-                                      SelectedItem="{Binding AutoUpdateScope}" />
-                        </StackPanel>
-                        <TextBlock Margin="120,6,0,0"
-                                   Opacity="0.7"
-                                   FontSize="12"
-                                   TextWrapping="Wrap"
-                                   Text="All drivers: every confirmed update is installed unattended. Selected drivers: only the devices ticked in the Auto column of the main list are installed. AI recommended: the scheduled run scans, asks the configured AI to review every update it found, and installs only the ones it recommends. Everything left out stays available to install by hand." />
-                        <TextBlock Margin="120,6,0,0"
-                                   FontSize="12"
-                                   TextWrapping="Wrap"
-                                   Foreground="#FF8B5A00"
-                                   Visibility="{Binding ShowAutoUpdateSelectionHint, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                   Text="Tick the Auto column next to each driver you want updated automatically. With nothing ticked, the scheduled run scans but installs nothing." />
-
-                        <StackPanel Margin="0,12,0,0"
-                                    Visibility="{Binding ShowAiAutoUpdateOptions, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="120" VerticalAlignment="Center" Text="AI may install" />
-                                <ComboBox Width="220"
-                                          ItemsSource="{Binding AvailableAiRiskTolerances}"
-                                          SelectedItem="{Binding AiRiskTolerance}" />
-                            </StackPanel>
-                            <TextBlock Margin="120,6,0,0"
-                                       Opacity="0.7"
-                                       FontSize="12"
-                                       TextWrapping="Wrap"
-                                       Text="The AI rates every update Safe, Caution, or High risk. SafeOnly installs only the safe ones. SafeAndCaution also installs the ones it flagged for caution. High-risk updates, and anything the AI could not rate, are never installed unattended." />
-                            <TextBlock Margin="120,6,0,0"
-                                       FontSize="12"
-                                       TextWrapping="Wrap"
-                                       Foreground="#FF8B5A00"
-                                       Visibility="{Binding ShowAiProviderMissingWarning, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                       Text="No AI provider is selected. Pick one under Settings > AI, otherwise the scheduled run scans but installs nothing." />
-                        </StackPanel>
-                    </StackPanel>
                 </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Logs">
@@ -538,7 +613,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="About">
+            <TabItem Header="Update">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="16">
                     <TextBlock Text="{DynamicResource App.Version}" FontSize="18" FontWeight="SemiBold" />

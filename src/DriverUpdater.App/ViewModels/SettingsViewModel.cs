@@ -20,15 +20,12 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IDriverCacheStore? _driverCacheStore;
     private readonly ApplicationBehaviorState? _applicationBehaviorState;
     private readonly IApplicationStartupService? _applicationStartupService;
+    private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
+    private readonly IAutoUpdateSelectionWindowOpener? _autoUpdateSelectionWindowOpener;
     private readonly ILogger<SettingsViewModel> _logger;
 
-    public IReadOnlyList<ScheduleMode> AvailableModes { get; } = Enum.GetValues<ScheduleMode>().ToArray();
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
     public IReadOnlyList<DayOfWeek> AvailableDays { get; } = Enum.GetValues<DayOfWeek>().ToArray();
-    public IReadOnlyList<AutoUpdateScope> AvailableAutoUpdateScopes { get; } =
-        Enum.GetValues<AutoUpdateScope>().ToArray();
-    public IReadOnlyList<AiAutoUpdateRiskTolerance> AvailableAiRiskTolerances { get; } =
-        Enum.GetValues<AiAutoUpdateRiskTolerance>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableLanguages { get; } = Enum.GetValues<AppLanguage>().ToArray();
     public IReadOnlyList<AppLanguage> AvailableAiResponseLanguages { get; } =
         [AppLanguage.English, AppLanguage.Hebrew];
@@ -45,16 +42,16 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _backupBeforeInstall = true;
     [ObservableProperty] private int _backupRetentionDays = 30;
 
-    [ObservableProperty] private ScheduleMode _scheduleMode = ScheduleMode.Manual;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowScheduleTiming))]
+    private ScheduleMode _scheduleMode = ScheduleMode.Manual;
+
     [ObservableProperty] private ScheduleCadence _scheduleCadence = ScheduleCadence.Weekly;
     [ObservableProperty] private TimeOnly _scheduleTimeOfDay = new(9, 0);
     [ObservableProperty] private DayOfWeek _scheduleDayOfWeek = DayOfWeek.Monday;
     [ObservableProperty] private bool _acceptedAutoUpdateRisk;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowAutoUpdateSelectionHint))]
-    [NotifyPropertyChangedFor(nameof(ShowAiAutoUpdateOptions))]
-    [NotifyPropertyChangedFor(nameof(ShowAiProviderMissingWarning))]
     private AutoUpdateScope _autoUpdateScope = AutoUpdateScope.AllDrivers;
 
     [ObservableProperty] private AiAutoUpdateRiskTolerance _aiRiskTolerance = AiAutoUpdateRiskTolerance.SafeOnly;
@@ -140,11 +137,139 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool ShowAutoUpdateWarning => ScheduleMode == ScheduleMode.ScanAndUpdate;
 
-    public bool ShowAutoUpdateSelectionHint =>
-        ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.SelectedDrivers;
+    /// <summary>The cadence, day, and time only matter once something is scheduled at all.</summary>
+    public bool ShowScheduleTiming => ScheduleMode != ScheduleMode.Manual;
 
-    public bool ShowAiAutoUpdateOptions =>
-        ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.AiRecommended;
+    // ----- The five schedule types the Schedule tab offers -----
+    // Each one is a (ScheduleMode, AutoUpdateScope) pair behind the scenes; the tab shows them
+    // as one plain-language radio list so nobody has to work out which enum combination means
+    // "let the AI update my drivers".
+
+    public bool IsScheduleOff
+    {
+        get => ScheduleMode == ScheduleMode.Manual;
+        set => SetScheduleType(value, ScheduleMode.Manual, AutoUpdateScope);
+    }
+
+    public bool IsScanOnlySchedule
+    {
+        get => ScheduleMode == ScheduleMode.ScanOnly;
+        set => SetScheduleType(value, ScheduleMode.ScanOnly, AutoUpdateScope);
+    }
+
+    public bool IsGeneralSchedule
+    {
+        get => ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.AllDrivers;
+        set => SetScheduleType(value, ScheduleMode.ScanAndUpdate, AutoUpdateScope.AllDrivers);
+    }
+
+    public bool IsCustomSchedule
+    {
+        get => ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.SelectedDrivers;
+        set => SetScheduleType(value, ScheduleMode.ScanAndUpdate, AutoUpdateScope.SelectedDrivers);
+    }
+
+    public bool IsAiSchedule
+    {
+        get => ScheduleMode == ScheduleMode.ScanAndUpdate && AutoUpdateScope == AutoUpdateScope.AiRecommended;
+        set => SetScheduleType(value, ScheduleMode.ScanAndUpdate, AutoUpdateScope.AiRecommended);
+    }
+
+    public bool ShowAiAutoUpdateOptions => IsAiSchedule;
+
+    public bool AiInstallsSafeOnly
+    {
+        get => AiRiskTolerance == AiAutoUpdateRiskTolerance.SafeOnly;
+        set => SetRiskTolerance(value, AiAutoUpdateRiskTolerance.SafeOnly);
+    }
+
+    public bool AiInstallsSafeAndCaution
+    {
+        get => AiRiskTolerance == AiAutoUpdateRiskTolerance.SafeAndCaution;
+        set => SetRiskTolerance(value, AiAutoUpdateRiskTolerance.SafeAndCaution);
+    }
+
+    /// <summary>How many drivers the custom schedule is allowed to update, for the picker button.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedDriverCountText))]
+    private int _selectedDriverCount;
+
+    public string SelectedDriverCountText => SelectedDriverCount switch
+    {
+        0 => "No driver picked yet. The scheduled run would install nothing.",
+        1 => "1 driver is updated automatically.",
+        _ => $"{SelectedDriverCount} drivers are updated automatically."
+    };
+
+    // WPF clears the previously checked radio before setting the new one, so only a check
+    // changes anything here. An uncheck must leave the current type alone.
+    private void SetScheduleType(bool isChecked, ScheduleMode mode, AutoUpdateScope scope)
+    {
+        if (!isChecked)
+        {
+            return;
+        }
+
+        AutoUpdateScope = scope;
+        ScheduleMode = mode;
+    }
+
+    private void SetRiskTolerance(bool isChecked, AiAutoUpdateRiskTolerance tolerance)
+    {
+        if (isChecked)
+        {
+            AiRiskTolerance = tolerance;
+        }
+    }
+
+    private void NotifyScheduleTypeChanged()
+    {
+        OnPropertyChanged(nameof(IsScheduleOff));
+        OnPropertyChanged(nameof(IsScanOnlySchedule));
+        OnPropertyChanged(nameof(IsGeneralSchedule));
+        OnPropertyChanged(nameof(IsCustomSchedule));
+        OnPropertyChanged(nameof(IsAiSchedule));
+        OnPropertyChanged(nameof(ShowAiAutoUpdateOptions));
+        OnPropertyChanged(nameof(ShowAiProviderMissingWarning));
+    }
+
+    partial void OnAutoUpdateScopeChanged(AutoUpdateScope value) => NotifyScheduleTypeChanged();
+
+    partial void OnAiRiskToleranceChanged(AiAutoUpdateRiskTolerance value)
+    {
+        OnPropertyChanged(nameof(AiInstallsSafeOnly));
+        OnPropertyChanged(nameof(AiInstallsSafeAndCaution));
+    }
+
+    /// <summary>Opens the list of drivers the custom schedule may update.</summary>
+    [RelayCommand]
+    private async Task ChooseAutoUpdateDriversAsync(CancellationToken cancellationToken = default)
+    {
+        _autoUpdateSelectionWindowOpener?.Open();
+        await RefreshSelectedDriverCountAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task RefreshSelectedDriverCountAsync(CancellationToken cancellationToken = default)
+    {
+        if (_autoUpdateSelectionStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var selection = await _autoUpdateSelectionStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            SelectedDriverCount = selection.DeviceIds.Count;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read how many drivers are selected for automatic updates");
+        }
+    }
 
     /// <summary>AI-driven automatic updates install nothing while no provider is configured.</summary>
     public bool ShowAiProviderMissingWarning =>
@@ -167,7 +292,9 @@ public partial class SettingsViewModel : ObservableObject
         ILogCleanupService? logCleanupService = null,
         IDriverCacheStore? driverCacheStore = null,
         ApplicationBehaviorState? applicationBehaviorState = null,
-        IApplicationStartupService? applicationStartupService = null)
+        IApplicationStartupService? applicationStartupService = null,
+        IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
+        IAutoUpdateSelectionWindowOpener? autoUpdateSelectionWindowOpener = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -181,6 +308,8 @@ public partial class SettingsViewModel : ObservableObject
         _driverCacheStore = driverCacheStore;
         _applicationBehaviorState = applicationBehaviorState;
         _applicationStartupService = applicationStartupService;
+        _autoUpdateSelectionStore = autoUpdateSelectionStore;
+        _autoUpdateSelectionWindowOpener = autoUpdateSelectionWindowOpener;
         _logger = logger;
     }
 
@@ -239,9 +368,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnScheduleModeChanged(ScheduleMode value)
     {
         OnPropertyChanged(nameof(ShowAutoUpdateWarning));
-        OnPropertyChanged(nameof(ShowAutoUpdateSelectionHint));
-        OnPropertyChanged(nameof(ShowAiAutoUpdateOptions));
-        OnPropertyChanged(nameof(ShowAiProviderMissingWarning));
+        NotifyScheduleTypeChanged();
         if (value != ScheduleMode.ScanAndUpdate)
         {
             AcceptedAutoUpdateRisk = false;
@@ -256,6 +383,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             var settings = await _settingsStore.LoadAsync(cancellationToken).ConfigureAwait(true);
             ApplyFromSettings(settings);
+            await RefreshSelectedDriverCountAsync(cancellationToken).ConfigureAwait(true);
             StatusText = $"Loaded from {_settingsStore.SettingsPath}";
         }
         catch (Exception ex)

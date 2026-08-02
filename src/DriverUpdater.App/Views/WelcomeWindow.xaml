@@ -29,6 +29,24 @@
             <Setter Property="LineHeight" Value="22" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
+        <Style x:Key="WelcomeNewBadgeStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FF2D214D" />
+            <Setter Property="BorderBrush" Value="#FF8B5CF6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="WelcomeNewBadgeTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#FFC4B5FD" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="WelcomeNewCardStyle" TargetType="Border" BasedOn="{StaticResource WelcomeCardStyle}">
+            <Setter Property="Background" Value="#FF2D214D" />
+            <Setter Property="BorderBrush" Value="#FF8B5CF6" />
+        </Style>
     </Window.Resources>
 
     <Grid Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
@@ -81,9 +99,26 @@
                       VerticalScrollBarVisibility="Auto">
             <Grid>
                 <StackPanel x:Name="EnglishPanel" FlowDirection="LeftToRight">
-                    <TextBlock Text="Welcome to DriverUpdater"
-                               FontSize="30"
-                               FontWeight="SemiBold" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Welcome to DriverUpdater"
+                                   FontSize="30"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Border Style="{StaticResource WelcomeNewBadgeStyle}" Margin="12,6,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,8,0" />
+                                <TextBlock Style="{StaticResource WelcomeNewBadgeTextStyle}">
+                                    <Run Text="New features in " />
+                                    <Run Text="{DynamicResource App.Version}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Margin="0,10,0,0"
+                               Style="{StaticResource WelcomeBodyStyle}"
+                               FontWeight="SemiBold"
+                               Foreground="#FFC4B5FD"
+                               Text="What is new in this version is listed at the bottom of this guide." />
                     <TextBlock Margin="0,6,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
@@ -189,6 +224,30 @@
                         </StackPanel>
                     </Border>
 
+                    <Border Style="{StaticResource WelcomeNewCardStyle}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,10,0" />
+                                <TextBlock Style="{StaticResource WelcomeSectionTitleStyle}"
+                                           Margin="0"
+                                           VerticalAlignment="Center">
+                                    <Run Text="What is new in " />
+                                    <Run Text="{DynamicResource App.Version}" />
+                                </TextBlock>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="One list of schedule types in Settings > Schedule: " />
+                                <Run Text="Off, scan only, update every driver, update only the drivers you choose, or let the AI decide. Pick one, set the day and time, and you are done.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="The AI can decide what a scheduled run installs: " />
+                                <Run Text="It reviews every update the run found, compares it with what is installed, checks what the vendor published and whether that version has reported problems, and installs only what it recommends. You choose how far that goes: safe updates only, or safe updates plus the ones flagged for caution. High-risk updates, and anything the AI cannot rate, are left for you with the reason attached.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="Your own list of drivers: " />
+                                <Run Text="Choose the custom schedule and click Choose the drivers to tick exactly which devices may update on their own, and to remove any you no longer want on the list.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="The close button keeps DriverUpdater running: " />
+                                <Run Text="X now leaves the app in the Windows notification area instead of exiting. Change it under Settings > Application if you prefer a full exit." />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
                     <DockPanel LastChildFill="False">
                         <CheckBox x:Name="EnglishDontShowAgain"
                                   VerticalAlignment="Center"
@@ -208,9 +267,26 @@
                 <StackPanel x:Name="HebrewPanel"
                             FlowDirection="RightToLeft"
                             Visibility="Collapsed">
-                    <TextBlock Text="ברוכים הבאים ל־DriverUpdater"
-                               FontSize="30"
-                               FontWeight="SemiBold" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="ברוכים הבאים ל־DriverUpdater"
+                                   FontSize="30"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Border Style="{StaticResource WelcomeNewBadgeStyle}" Margin="12,6,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,8,0" />
+                                <TextBlock Style="{StaticResource WelcomeNewBadgeTextStyle}">
+                                    <Run Text="פיצ׳רים חדשים בגרסה " />
+                                    <Run Text="{DynamicResource App.Version}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Margin="0,10,0,0"
+                               Style="{StaticResource WelcomeBodyStyle}"
+                               FontWeight="SemiBold"
+                               Foreground="#FFC4B5FD"
+                               Text="הפיצ׳רים החדשים בגרסה הזו מפורטים בתחתית המדריך." />
                     <TextBlock Margin="0,6,0,20"
                                Style="{StaticResource WelcomeBodyStyle}"
                                Opacity="0.8"
@@ -312,6 +388,30 @@
                                 <Run Text="פתחו את Logs כאשר משהו נכשל. צ׳אט ה־AI שם נשאר סגור עד שתבחרו לפתוח אותו.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="6. כלי היצרן: " />
                                 <Run Text="עבור קושחה, תחנות עגינה, מקשים מיוחדים ורכיבים ייחודיים, השתמשו גם בכלי היצרן שהאפליקציה מציגה." />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource WelcomeNewCardStyle}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <ContentControl Content="{StaticResource AiSparkleIcon}" Margin="0,0,10,0" />
+                                <TextBlock Style="{StaticResource WelcomeSectionTitleStyle}"
+                                           Margin="0"
+                                           VerticalAlignment="Center">
+                                    <Run Text="מה חדש בגרסה " />
+                                    <Run Text="{DynamicResource App.Version}" />
+                                </TextBlock>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="רשימה אחת של סוגי תזמון בהגדרות, בלשונית Schedule: " />
+                                <Run Text="כבוי, סריקה בלבד, עדכון כל מנהלי ההתקנים, עדכון רק של אלה שתבחרו, או תזמון שה־AI מחליט בו. בוחרים אחד, קובעים יום ושעה, וזהו.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="ה־AI מחליט מה יותקן בסריקה המתוזמנת: " />
+                                <Run Text="הוא בודק כל עדכון שהסריקה מצאה, משווה אותו למותקן, בודק מה היצרן פרסם והאם דווחו תקלות בגרסה הזו, ומתקין רק את מה שהוא ממליץ עליו. אתם קובעים עד כמה: רק עדכונים בטוחים, או גם אלה שסומנו לזהירות. עדכונים בסיכון גבוה, וכל מה שה־AI לא הצליח לדרג, נשארים להתקנה ידנית עם הסיבה מצורפת.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="רשימת מנהלי ההתקנים שלכם: " />
+                                <Run Text="בחרו בתזמון המותאם ולחצו על Choose the drivers כדי לסמן בדיוק אילו התקנים מותר לעדכן לבד, ולהסיר כל אחד שכבר לא רוצים ברשימה.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="כפתור הסגירה משאיר את DriverUpdater פעילה: " />
+                                <Run Text="לחיצה על X משאירה עכשיו את האפליקציה באזור ההתראות של Windows במקום לסגור אותה. אפשר לשנות זאת בהגדרות, בלשונית Application." />
                             </TextBlock>
                         </StackPanel>
                     </Border>
