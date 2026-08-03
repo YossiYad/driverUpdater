@@ -92,7 +92,7 @@
     <sys:String x:Key="Settings.Ai.ResponseLanguage">AI response language</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage.English">English</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage.Hebrew">Hebrew</sys:String>
-    <sys:String x:Key="Settings.Ai.ResponseLanguageHint">Ask AI and driver verification responses will be written in this language.</sys:String>
+    <sys:String x:Key="Settings.Ai.ResponseLanguageHint">Ask AI and driver verification responses will be written in this language, and the suggested question chips above the chat switch to match.</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKey">API key</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKeys">Gemini API keys</sys:String>
     <sys:String x:Key="Settings.Ai.GeminiDescription">Used only when you choose Scan with AI or Ask AI.</sys:String>

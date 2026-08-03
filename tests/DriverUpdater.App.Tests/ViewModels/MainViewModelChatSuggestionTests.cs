@@ -5,8 +5,10 @@ using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.App.Tests.ViewModels;
 
@@ -111,6 +113,26 @@ public class MainViewModelChatSuggestionTests
     }
 
     [WpfFact]
+    public void Chips_are_drawn_from_the_Hebrew_pool_when_the_AI_response_language_is_Hebrew()
+    {
+        var vm = new MainViewModel(
+            new FakeScanService(),
+            Array.Empty<IUpdateSource>(),
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverChatCompleter: new StubTextCompleter("ok"),
+            aiSettings: new StubOptionsMonitor<AiSettings>(new AiSettings { ResponseLanguage = AppLanguage.Hebrew }));
+
+        var hebrewPool = ChatSuggestionCatalog.For(AppLanguage.Hebrew);
+        vm.ChatSuggestions.Should().OnlyContain(suggestion => hebrewPool.Contains(suggestion));
+    }
+
+    [WpfFact]
     public void Chips_are_kept_readable_for_three_full_ticks()
     {
         // The chip fade-out in MainWindow.xaml is timed against this; if the interval moves the
@@ -145,6 +167,14 @@ public class MainViewModelChatSuggestionTests
             LastPrompt = prompt;
             return Task.FromResult<string?>(Reply);
         }
+    }
+
+    private sealed class StubOptionsMonitor<T> : IOptionsMonitor<T>
+    {
+        public StubOptionsMonitor(T value) => CurrentValue = value;
+        public T CurrentValue { get; }
+        public T Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
     private sealed class FakeScanService : IDriverScanService

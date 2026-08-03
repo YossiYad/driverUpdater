@@ -34,6 +34,16 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private AppLanguage _selectedLanguage = AppLanguage.SystemDefault;
     [ObservableProperty] private AppLanguage _selectedAiResponseLanguage = AppLanguage.English;
 
+    /// <summary>Backs the Hebrew/English toggle switch; the settings model still stores an AppLanguage.</summary>
+    public bool IsAiResponseLanguageHebrew
+    {
+        get => SelectedAiResponseLanguage == AppLanguage.Hebrew;
+        set => SelectedAiResponseLanguage = value ? AppLanguage.Hebrew : AppLanguage.English;
+    }
+
+    partial void OnSelectedAiResponseLanguageChanged(AppLanguage value) =>
+        OnPropertyChanged(nameof(IsAiResponseLanguageHebrew));
+
     [ObservableProperty] private bool _enableWindowsUpdate = true;
     [ObservableProperty] private bool _enableMicrosoftCatalog = true;
     [ObservableProperty] private bool _enableOemHints = true;
