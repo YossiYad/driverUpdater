@@ -237,6 +237,11 @@ public partial class MainViewModel : ObservableObject
         };
 
         ResetChatSuggestions();
+
+        SetChatLanguageToggleWithoutApplying(
+            (_aiSettings?.CurrentValue.ResponseLanguage ?? AppLanguage.English) == AppLanguage.Hebrew);
+        _aiSettings?.OnChange(settings => _dispatcher.BeginInvoke(() =>
+            SetChatLanguageToggleWithoutApplying(settings.ResponseLanguage == AppLanguage.Hebrew)));
     }
 
     // ----- AI chat about the scanned drivers -----
@@ -589,6 +594,68 @@ public partial class MainViewModel : ObservableObject
         StatusText = "The AI settings change was declined.";
         ApplyChatSettingsCommand.NotifyCanExecuteChanged();
         DeclineChatSettingsCommand.NotifyCanExecuteChanged();
+    }
+
+    // ----- Quick Hebrew/English toggle next to the chat header -----
+
+    private bool _syncingChatLanguageToggle;
+
+    [ObservableProperty] private bool _isAiResponseLanguageHebrew;
+
+    [ObservableProperty] private bool _isChangingChatLanguage;
+
+    partial void OnIsAiResponseLanguageHebrewChanged(bool value)
+    {
+        if (_syncingChatLanguageToggle)
+        {
+            return;
+        }
+
+        _ = ApplyChatLanguageToggleAsync(value);
+    }
+
+    private async Task ApplyChatLanguageToggleAsync(bool wantsHebrew)
+    {
+        if (_chatSettingsApplier is null
+            || !ChatSettingCatalog.TryResolve("ai.language", wantsHebrew ? "hebrew" : "english", out var change))
+        {
+            SetChatLanguageToggleWithoutApplying(!wantsHebrew);
+            return;
+        }
+
+        IsChangingChatLanguage = true;
+        try
+        {
+            var result = await _chatSettingsApplier.ApplyAsync([change]).ConfigureAwait(true);
+            if (result.Succeeded)
+            {
+                StatusText = wantsHebrew
+                    ? "AI chat will answer in Hebrew."
+                    : "AI chat will answer in English.";
+            }
+            else
+            {
+                StatusText = $"Could not change the AI chat language: {result.Warning ?? "unknown error"}";
+                SetChatLanguageToggleWithoutApplying(!wantsHebrew);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Toggling the AI chat language failed");
+            StatusText = $"Could not change the AI chat language: {ex.Message}";
+            SetChatLanguageToggleWithoutApplying(!wantsHebrew);
+        }
+        finally
+        {
+            IsChangingChatLanguage = false;
+        }
+    }
+
+    private void SetChatLanguageToggleWithoutApplying(bool isHebrew)
+    {
+        _syncingChatLanguageToggle = true;
+        IsAiResponseLanguageHebrew = isHebrew;
+        _syncingChatLanguageToggle = false;
     }
 
     // ----- Drifting conversation starters -----

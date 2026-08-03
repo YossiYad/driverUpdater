@@ -93,7 +93,7 @@
     <sys:String x:Key="Settings.Ai.ResponseLanguage">שפת תשובת AI</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage.English">אנגלית</sys:String>
     <sys:String x:Key="Settings.Ai.ResponseLanguage.Hebrew">עברית</sys:String>
-    <sys:String x:Key="Settings.Ai.ResponseLanguageHint">תשובות Ask AI ובדיקות הנהגים ייכתבו בשפה הזו.</sys:String>
+    <sys:String x:Key="Settings.Ai.ResponseLanguageHint">תשובות Ask AI ובדיקות הנהגים ייכתבו בשפה הזו, וגם צ'יפים של שאלות מוצעות מעל הצ'אט יתחלפו בהתאם.</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKey">מפתח API</sys:String>
     <sys:String x:Key="Settings.Ai.ApiKeys">מפתחות API של Gemini</sys:String>
     <sys:String x:Key="Settings.Ai.GeminiDescription">משמש רק בבחירה בסריקה עם AI או בשימוש ב-Ask AI.</sys:String>

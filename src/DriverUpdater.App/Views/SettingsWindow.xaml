@@ -15,6 +15,59 @@
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
         Loaded="OnLoaded">
+    <Window.Resources>
+        <Style x:Key="AiResponseLanguageToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="104" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="#FF231C3A"
+                                BorderBrush="#FF4C3A80"
+                                BorderThickness="1"
+                                CornerRadius="15"
+                                Padding="2">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Knob"
+                                        Grid.Column="0"
+                                        CornerRadius="13"
+                                        Background="#FF8B5CF6" />
+                                <TextBlock x:Name="EngLabel"
+                                           Grid.Column="0"
+                                           Text="ENG"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="White" />
+                                <TextBlock x:Name="HebLabel"
+                                           Grid.Column="1"
+                                           Text="HEB"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#FFB9AEDD" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Knob" Property="Grid.Column" Value="1" />
+                                <Setter TargetName="EngLabel" Property="Foreground" Value="#FFB9AEDD" />
+                                <Setter TargetName="HebLabel" Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -418,19 +471,14 @@
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="240" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0"
                                        VerticalAlignment="Center"
                                        Text="{DynamicResource Settings.Ai.ResponseLanguage}" />
-                            <ComboBox Grid.Column="1"
-                                      SelectedValuePath="Tag"
-                                      SelectedValue="{Binding SelectedAiResponseLanguage}">
-                                <ComboBoxItem Content="{DynamicResource Settings.Ai.ResponseLanguage.English}"
-                                              Tag="{x:Static models:AppLanguage.English}" />
-                                <ComboBoxItem Content="{DynamicResource Settings.Ai.ResponseLanguage.Hebrew}"
-                                              Tag="{x:Static models:AppLanguage.Hebrew}" />
-                            </ComboBox>
+                            <ToggleButton Grid.Column="1"
+                                          Style="{StaticResource AiResponseLanguageToggleStyle}"
+                                          IsChecked="{Binding IsAiResponseLanguageHebrew}" />
                         </Grid>
                         <TextBlock Margin="120,0,0,12"
                                    Opacity="0.7"

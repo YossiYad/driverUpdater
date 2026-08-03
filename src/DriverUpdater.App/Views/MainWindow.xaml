@@ -5,6 +5,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:DriverUpdater.App.ViewModels"
+        xmlns:views="clr-namespace:DriverUpdater.App.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="{DynamicResource App.Title}"
@@ -54,6 +55,61 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="AiButtonRoot" Property="Background" Value="#FF3E2D70" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AiResponseLanguageToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="76" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="#FF231C3A"
+                                BorderBrush="#FF4C3A80"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="2">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Knob"
+                                        Grid.Column="0"
+                                        CornerRadius="10"
+                                        Background="#FF8B5CF6" />
+                                <TextBlock x:Name="EngLabel"
+                                           Grid.Column="0"
+                                           Text="ENG"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="White" />
+                                <TextBlock x:Name="HebLabel"
+                                           Grid.Column="1"
+                                           Text="HEB"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#FFB9AEDD" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Knob" Property="Grid.Column" Value="1" />
+                                <Setter TargetName="EngLabel" Property="Foreground" Value="#FFB9AEDD" />
+                                <Setter TargetName="HebLabel" Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -613,16 +669,27 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <ContentControl Content="{StaticResource AiSparkleIcon}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <TextBlock Text="Ask AI about your drivers" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ProgressBar Width="60" Height="4" Margin="10,0,0,0" VerticalAlignment="Center"
-                                     IsIndeterminate="True"
-                                     Visibility="{Binding IsDriverChatting, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Margin="10,0,0,0" Padding="8,2" Content="Clear" FontSize="11"
-                                Command="{Binding ClearDriverChatCommand}"
-                                Visibility="{Binding HasDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    </StackPanel>
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <ContentControl Content="{StaticResource AiSparkleIcon}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <TextBlock Text="Ask AI about your drivers" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <ProgressBar Width="60" Height="4" Margin="10,0,0,0" VerticalAlignment="Center"
+                                         IsIndeterminate="True"
+                                         Visibility="{Binding IsDriverChatting, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Margin="10,0,0,0" Padding="8,2" Content="Clear" FontSize="11"
+                                    Command="{Binding ClearDriverChatCommand}"
+                                    Visibility="{Binding HasDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      Style="{StaticResource AiResponseLanguageToggleStyle}"
+                                      IsChecked="{Binding IsAiResponseLanguageHebrew}"
+                                      ToolTip="AI response language" />
+                    </Grid>
 
                     <Border Grid.Row="1"
                             Visibility="{Binding HasNoDriverChat, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -661,7 +728,7 @@
                                                     </Style>
                                                 </TextBlock.Style>
                                             </TextBlock>
-                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310">
+                                            <TextBlock views:ChatMarkdownText.Source="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="310">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Style.Triggers>
