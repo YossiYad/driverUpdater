@@ -105,6 +105,14 @@
                                         <DoubleAnimation Storyboard.TargetName="ChipDrift"
                                                          Storyboard.TargetProperty="X"
                                                          From="-10" To="10" Duration="0:0:24" />
+                                        <!-- A faded-out chip is still hit-testable, so the click
+                                             surface is switched off while it is unreadable. -->
+                                        <BooleanAnimationUsingKeyFrames Storyboard.TargetName="ChipRoot"
+                                                                        Storyboard.TargetProperty="IsHitTestVisible">
+                                            <DiscreteBooleanKeyFrame Value="False" KeyTime="0:0:0" />
+                                            <DiscreteBooleanKeyFrame Value="True" KeyTime="0:0:0.8" />
+                                            <DiscreteBooleanKeyFrame Value="False" KeyTime="0:0:23.2" />
+                                        </BooleanAnimationUsingKeyFrames>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>

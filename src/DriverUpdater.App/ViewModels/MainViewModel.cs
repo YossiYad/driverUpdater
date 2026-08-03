@@ -640,7 +640,13 @@ public partial class MainViewModel : ObservableObject
 
         var slot = _suggestionSlot % ChatSuggestions.Count;
         _suggestionSlot = (slot + 1) % ChatSuggestions.Count;
-        ChatSuggestions[slot] = next;
+
+        // Assigning over the slot would keep the same ItemsControl container alive, so the chip
+        // template's Loaded trigger never fires again and the new text stays stuck on the last
+        // frame of the previous chip's fade-out - invisible, but still clickable. Removing and
+        // inserting forces a fresh container that starts the fade from zero.
+        ChatSuggestions.RemoveAt(slot);
+        ChatSuggestions.Insert(slot, next);
     }
 
     private ChatSuggestion? PickSuggestion()
