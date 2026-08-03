@@ -545,14 +545,20 @@ public class SettingsViewModelTests
     [WpfFact]
     public async Task SaveAsync_reports_failure_when_scheduler_fails()
     {
-        var store = new FakeStore(new AppSettings());
+        var store = new FakeStore(new AppSettings
+        {
+            Schedule = new ScheduleSettings { Mode = ScheduleMode.Manual }
+        });
         var scheduler = new FakeScheduler { Failure = ResultError.From("SCHEDULE_FAILED", "denied") };
         var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
 
+        await vm.LoadAsync();
+        vm.ScheduleMode = ScheduleMode.ScanOnly;
+
         await vm.SaveAsync();
 
-        vm.StatusText.Should().Contain("schedule update failed");
-        store.Saved.Should().NotBeNull();
+        vm.StatusText.Should().Contain("schedule was left unchanged");
+        store.Saved!.Schedule.Mode.Should().Be(ScheduleMode.Manual);
     }
 
     [WpfFact]

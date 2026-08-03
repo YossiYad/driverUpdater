@@ -13,6 +13,25 @@ namespace DriverUpdater.Services.Tests.Scanning;
 public class ScheduledScanRunnerTests
 {
     [Fact]
+    public async Task RunAsync_preserves_cache_when_inventory_scan_returns_no_drivers()
+    {
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(
+            DateTimeOffset.UtcNow,
+            Array.Empty<CachedDriverEntry>()));
+        var source = new FakeUpdateSource(UpdateSource.WindowsUpdate);
+        var runner = NewRunner(
+            Array.Empty<DriverInfo>(),
+            new[] { source },
+            new ThrowingInstallPipeline(),
+            cache);
+
+        await runner.RunAsync(installUpdates: true);
+
+        source.SearchInvocations.Should().Be(0);
+        cache.Saved.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task RunAsync_scan_only_matches_candidates_and_saves_cache_without_installing()
     {
         var driverA = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));

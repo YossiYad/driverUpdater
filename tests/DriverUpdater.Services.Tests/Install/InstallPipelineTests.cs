@@ -48,6 +48,26 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_holds_the_cross_process_gate_during_an_install()
+    {
+        var gate = new RecordingInstallExecutionGate();
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") },
+            NullLogger<InstallPipeline>.Instance,
+            executionGate: gate);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        gate.AcquireCalls.Should().Be(1);
+        gate.LeaseDisposed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_full_happy_path_runs_restore_then_backup_then_install()
     {
         var rp = new FakeRestorePointService();
@@ -1362,6 +1382,27 @@ public class InstallPipelineTests
         new FakeBackupService(),
         new FakeWuApiClient(),
         NullLogger<InstallPipeline>.Instance);
+
+    private sealed class RecordingInstallExecutionGate : IInstallExecutionGate
+    {
+        public int AcquireCalls { get; private set; }
+        public bool LeaseDisposed { get; private set; }
+
+        public ValueTask<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken = default)
+        {
+            AcquireCalls++;
+            return ValueTask.FromResult<IAsyncDisposable>(new CallbackLease(() => LeaseDisposed = true));
+        }
+
+        private sealed class CallbackLease(Action onDispose) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                onDispose();
+                return ValueTask.CompletedTask;
+            }
+        }
+    }
 
     private sealed class TempDir : IDisposable
     {

@@ -63,10 +63,13 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
         _logger.LogInformation("Scheduled scan found {Count} drivers", states.Count);
 
-        if (states.Count > 0)
+        if (states.Count == 0)
         {
-            await QueryUpdateSourcesAsync(states, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("Scheduled scan returned no drivers; preserving the previous cache");
+            return;
         }
+
+        await QueryUpdateSourcesAsync(states, cancellationToken).ConfigureAwait(false);
 
         var outdated = states.Count(s => s.Candidate is not null);
         _logger.LogInformation("Scheduled scan matched {Count} update(s)", outdated);

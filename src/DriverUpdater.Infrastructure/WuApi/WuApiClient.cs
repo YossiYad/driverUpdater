@@ -101,9 +101,15 @@ public sealed class WuApiClient : IWuApiClient
             Track(tracked, dlResult);
 
             int dlResultCode = (int)dlResult.ResultCode;
-            if (dlResultCode != 2 && dlResultCode != 3)
+            dynamic dlUpdateResult = dlResult.GetUpdateResult(0);
+            Track(tracked, dlUpdateResult);
+            int dlUpdateResultCode = (int)dlUpdateResult.ResultCode;
+            int dlUpdateHResult = (int)dlUpdateResult.HResult;
+            if (!IsSuccessfulUpdateResult(dlResultCode, dlUpdateResultCode))
             {
-                return ResultError.From("WU_DOWNLOAD_FAILED", $"Download result code {dlResultCode} for '{title}'.");
+                return ResultError.From(
+                    "WU_DOWNLOAD_FAILED",
+                    $"Download result code {dlResultCode}, update result code {dlUpdateResultCode}, HRESULT 0x{dlUpdateHResult:X8} for '{title}'.");
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -116,13 +122,16 @@ public sealed class WuApiClient : IWuApiClient
             Track(tracked, instResult);
 
             int instResultCode = (int)instResult.ResultCode;
-            int hResult = (int)instResult.HResult;
-            bool rebootRequired = (bool)instResult.RebootRequired;
+            dynamic instUpdateResult = instResult.GetUpdateResult(0);
+            Track(tracked, instUpdateResult);
+            int instUpdateResultCode = (int)instUpdateResult.ResultCode;
+            int hResult = (int)instUpdateResult.HResult;
+            bool rebootRequired = (bool)instResult.RebootRequired || (bool)instUpdateResult.RebootRequired;
 
-            if (instResultCode != 2 && instResultCode != 3)
+            if (!IsSuccessfulUpdateResult(instResultCode, instUpdateResultCode))
             {
                 return ResultError.From("WU_INSTALL_FAILED",
-                    $"Install result code {instResultCode}, HRESULT 0x{hResult:X8} for '{title}'.");
+                    $"Install result code {instResultCode}, update result code {instUpdateResultCode}, HRESULT 0x{hResult:X8} for '{title}'.");
             }
 
             return new WuInstallResult(hResult, rebootRequired, title);
@@ -142,6 +151,9 @@ public sealed class WuApiClient : IWuApiClient
             }
         }
     }
+
+    internal static bool IsSuccessfulUpdateResult(int batchResultCode, int updateResultCode) =>
+        batchResultCode is 2 or 3 && updateResultCode == 2;
 
     private IReadOnlyList<WuDriverUpdateRecord> Search(CancellationToken cancellationToken)
     {

@@ -12,6 +12,7 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
 
     private readonly ILogger<JsonDriverCacheStore> _logger;
     private readonly string? _legacyCachePath;
+    private static readonly TimeSpan WriteLockRetryDelay = TimeSpan.FromMilliseconds(50);
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
         WriteIndented = true,
@@ -72,7 +73,13 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 4096,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
             var snapshot = await JsonSerializer.DeserializeAsync<DriverCacheSnapshot>(stream, _serializerOptions, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation(
                 "Loaded driver cache from {Path}: {Count} entries, captured at {CapturedAt}",
@@ -100,12 +107,23 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
             Directory.CreateDirectory(directory);
         }
 
-        var tempPath = CachePath + ".tmp";
-        await using (var stream = File.Create(tempPath))
+        await using var writeLock = await AcquireWriteLockAsync(cancellationToken).ConfigureAwait(false);
+        var tempPath = CachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, snapshot, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            await using (var stream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, snapshot, _serializerOptions, cancellationToken).ConfigureAwait(false);
+            }
+            File.Move(tempPath, CachePath, overwrite: true);
         }
-        File.Move(tempPath, CachePath, overwrite: true);
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
 
         _logger.LogInformation(
             "Saved driver cache at {Path}: {DriverCount} drivers, {UpdateCount} cached update result(s)",
@@ -117,6 +135,7 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
     public async Task<int> ClearAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Driver cache clear requested for {Path}", CachePath);
+        await using var writeLock = await AcquireWriteLockAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await LoadAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -150,5 +169,34 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
             deletedFileCount);
         Cleared?.Invoke(this, EventArgs.Empty);
         return cachedUpdateCount;
+    }
+
+    private async ValueTask<FileStream> AcquireWriteLockAsync(CancellationToken cancellationToken)
+    {
+        var lockPath = CachePath + ".lock";
+        var directory = Path.GetDirectoryName(lockPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(WriteLockRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 }

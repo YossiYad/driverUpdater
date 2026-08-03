@@ -34,6 +34,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly IArchiveExtractor? _archiveExtractor;
+    private readonly IInstallExecutionGate? _executionGate;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -51,7 +52,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IInstalledDriverProbe? installedDriverProbe = null,
         IFileSignatureVerifier? fileSignatureVerifier = null,
-        IArchiveExtractor? archiveExtractor = null)
+        IArchiveExtractor? archiveExtractor = null,
+        IInstallExecutionGate? executionGate = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -69,6 +71,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
         _archiveExtractor = archiveExtractor;
+        _executionGate = executionGate;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -98,6 +101,10 @@ public sealed class InstallPipeline : IInstallPipeline
                 recordingProgress.Report(operation);
                 return operation;
             }
+
+            await using var executionLease = _executionGate is null
+                ? null
+                : await _executionGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
 
             // Resolve vendor-page rows before touching the system: rows that end up merely
             // opening a browser page must not cost a restore point and a driver backup

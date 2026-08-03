@@ -86,7 +86,7 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to register scheduled task");
+            _logger.LogError(ex, "Failed to apply scheduled task configuration");
             return SystemTask.FromResult(Result<ScheduledTaskInfo?>.Failure(ResultError.From("SCHEDULE_FAILED", ex)));
         }
     }
@@ -146,27 +146,20 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
 
     private void Remove()
     {
-        try
+        using var service = new TaskService();
+        var folder = service.RootFolder.SubFolders.FirstOrDefault(f => f.Name == TaskFolderName);
+        if (folder is null)
         {
-            using var service = new TaskService();
-            var folder = service.RootFolder.SubFolders.FirstOrDefault(f => f.Name == TaskFolderName);
-            if (folder is null)
-            {
-                return;
-            }
-            if (folder.GetTasks().Any(t => t.Name == TaskName))
-            {
-                folder.DeleteTask(TaskName, exceptionOnNotExists: false);
-                _logger.LogInformation("Removed scheduled task {Folder}\\{Task}", TaskFolderName, TaskName);
-            }
-            if (folder.GetTasks().Count == 0)
-            {
-                service.RootFolder.DeleteFolder(TaskFolderName, exceptionOnNotExists: false);
-            }
+            return;
         }
-        catch (Exception ex)
+        if (folder.GetTasks().Any(t => t.Name == TaskName))
         {
-            _logger.LogWarning(ex, "Could not remove scheduled task");
+            folder.DeleteTask(TaskName, exceptionOnNotExists: false);
+            _logger.LogInformation("Removed scheduled task {Folder}\\{Task}", TaskFolderName, TaskName);
+        }
+        if (folder.GetTasks().Count == 0)
+        {
+            service.RootFolder.DeleteFolder(TaskFolderName, exceptionOnNotExists: false);
         }
     }
 

@@ -136,6 +136,7 @@ public partial class SettingsViewModel : ObservableObject
     private OnboardingSettings _loadedOnboarding = new();
     private BackupSettings _loadedBackup = new();
     private HistorySettings _loadedHistory = new();
+    private ScheduleSettings _loadedSchedule = new();
 
     /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
     public bool CanCheckForUpdates => _appUpdater is not null;
@@ -460,9 +461,23 @@ public partial class SettingsViewModel : ObservableObject
 
             if (scheduleResult.IsFailure)
             {
-                StatusText = $"Saved settings, but schedule update failed: {scheduleResult.Error.Message}";
+                settings.Schedule = CopySchedule(_loadedSchedule);
+                try
+                {
+                    await _settingsStore.SaveAsync(settings, cancellationToken).ConfigureAwait(true);
+                    StatusText = $"Settings saved, but the schedule was left unchanged: {scheduleResult.Error.Message}";
+                }
+                catch (Exception rollbackException)
+                {
+                    _logger.LogError(
+                        rollbackException,
+                        "Failed to restore the saved schedule after Windows rejected the schedule update");
+                    StatusText = $"Schedule update failed and its saved setting could not be restored: {scheduleResult.Error.Message}";
+                }
                 return;
             }
+
+            _loadedSchedule = CopySchedule(settings.Schedule);
 
             _localizationService?.ApplyLanguage(SelectedLanguage);
 
@@ -665,6 +680,7 @@ public partial class SettingsViewModel : ObservableObject
         _loadedUpdater = settings.Updater;
         _loadedBackup = settings.Backup;
         _loadedHistory = settings.History ?? new HistorySettings();
+        _loadedSchedule = CopySchedule(settings.Schedule);
         _loadedOnboarding = settings.Onboarding ?? new OnboardingSettings();
         ShowGuideOnStartup = _loadedOnboarding.ShowOnStartup;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
@@ -726,6 +742,16 @@ public partial class SettingsViewModel : ObservableObject
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         };
     }
+
+    private static ScheduleSettings CopySchedule(ScheduleSettings source) => new()
+    {
+        Mode = source.Mode,
+        Cadence = source.Cadence,
+        TimeOfDay = source.TimeOfDay,
+        DayOfWeek = source.DayOfWeek,
+        AutoUpdateScope = source.AutoUpdateScope,
+        AiRiskTolerance = source.AiRiskTolerance
+    };
 
     private void SetGeminiApiKeys(IReadOnlyList<string> keys)
     {
