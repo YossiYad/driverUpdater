@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
 using DriverUpdater.App.Ai;
 using DriverUpdater.App.Tests.Stubs;
@@ -52,6 +53,23 @@ public class MainViewModelChatSuggestionTests
 
         vm.ChatSuggestions[1].Should().NotBe(before[1]);
         vm.ChatSuggestions[2].Should().Be(before[2]);
+    }
+
+    [WpfFact]
+    public void A_swapped_chip_is_removed_and_reinserted_so_its_fade_restarts()
+    {
+        // An indexer assignment raises Replace, and WPF keeps the same ItemsControl container for
+        // it, so the chip would carry over the finished fade-out and never become visible again.
+        var vm = NewVm(new StubTextCompleter("ok"));
+        vm.AdvanceChatSuggestions();
+        vm.AdvanceChatSuggestions();
+
+        var actions = new List<NotifyCollectionChangedAction>();
+        ((INotifyCollectionChanged)vm.ChatSuggestions).CollectionChanged += (_, e) => actions.Add(e.Action);
+
+        vm.AdvanceChatSuggestions();
+
+        actions.Should().Equal(NotifyCollectionChangedAction.Remove, NotifyCollectionChangedAction.Add);
     }
 
     [WpfFact]
