@@ -38,15 +38,40 @@ public class DriverInfoTests
     public void Changing_a_single_field_produces_a_different_record()
     {
         var original = NewSample();
-        var modified = original with { CurrentVersion = new Version(2, 0, 0, 0) };
+        var variants = new[]
+        {
+            original with { DeviceId = "different" },
+            original with { HardwareId = "different" },
+            original with { DeviceName = "different" },
+            original with { Category = DriverCategory.Audio },
+            original with { Provider = "different" },
+            original with { Manufacturer = "different" },
+            original with { CurrentVersion = new Version(2, 0, 0, 0) },
+            original with { CurrentDate = new DateOnly(2025, 1, 1) },
+            original with { InfName = "different.inf" },
+            original with { InfPath = "C:\\different.inf" },
+            original with { IsSigned = false },
+            original with { DeviceClass = "different" },
+            original with { HardwareIds = new[] { "different" } }
+        };
 
-        modified.Should().NotBe(original);
-        modified.CurrentVersion.Should().Be(new Version(2, 0, 0, 0));
+        variants.Should().OnlyContain(variant => variant != original);
     }
 
-    private static DriverInfo NewSample() => new(
+    [Theory]
+    [InlineData("PCI\\VEN_8086", 1)]
+    [InlineData("", 0)]
+    [InlineData(" ", 0)]
+    public void HardwareIds_contains_only_a_nonblank_primary_hardware_id(string hardwareId, int expectedCount)
+    {
+        var driver = NewSample(hardwareId);
+
+        driver.HardwareIds.Should().HaveCount(expectedCount);
+    }
+
+    private static DriverInfo NewSample(string hardwareId = "PCI\\VEN_8086&DEV_1234&REV_01") => new(
         DeviceId: "PCI\\VEN_8086&DEV_1234",
-        HardwareId: "PCI\\VEN_8086&DEV_1234&REV_01",
+        HardwareId: hardwareId,
         DeviceName: "Sample Display Adapter",
         Category: DriverCategory.Display,
         Provider: "Intel",

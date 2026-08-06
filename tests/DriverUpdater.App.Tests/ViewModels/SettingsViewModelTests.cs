@@ -231,6 +231,69 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task A_successful_save_raises_the_event_that_closes_the_window()
+    {
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        var closed = 0;
+        vm.SaveCompleted += (_, _) => closed++;
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        closed.Should().Be(1);
+        vm.StatusText.Should().Contain("Settings saved");
+    }
+
+    [WpfFact]
+    public async Task A_save_that_windows_rejected_leaves_the_window_open()
+    {
+        var scheduler = new FakeScheduler
+        {
+            Failure = new ResultError("schedule.failed", "Access denied")
+        };
+        var vm = new SettingsViewModel(
+            new FakeStore(new AppSettings()),
+            scheduler,
+            NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        var closed = 0;
+        vm.SaveCompleted += (_, _) => closed++;
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        closed.Should().Be(0, "the reason the schedule was not applied has to stay readable");
+        vm.StatusText.Should().Contain("schedule was left unchanged");
+    }
+
+    [WpfFact]
+    public async Task The_excluded_driver_button_reports_how_many_drivers_are_left_alone()
+    {
+        var store = new FakeStore(new AppSettings());
+        var exclusions = new FakeDriverUpdateExclusionStore(@"ID\gpu", @"ID\nic");
+        var opener = new RecordingExcludedDriverSelectionWindowOpener();
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance,
+            driverUpdateExclusionStore: exclusions,
+            excludedDriverSelectionWindowOpener: opener);
+
+        await vm.LoadAsync();
+
+        vm.ExcludedDriverCount.Should().Be(2);
+        vm.ExcludedDriverCountText.Should().Contain("2");
+
+        exclusions.DeviceIds = new[] { @"ID\gpu" };
+        await vm.ChooseExcludedDriversCommand.ExecuteAsync(null);
+
+        opener.OpenCount.Should().Be(1);
+        vm.ExcludedDriverCount.Should().Be(1, "the count refreshes when the picker closes");
+    }
+
+    [WpfFact]
     public async Task LoadAsync_reads_log_cleanup_settings()
     {
         var store = new FakeStore(new AppSettings
@@ -545,14 +608,20 @@ public class SettingsViewModelTests
     [WpfFact]
     public async Task SaveAsync_reports_failure_when_scheduler_fails()
     {
-        var store = new FakeStore(new AppSettings());
+        var store = new FakeStore(new AppSettings
+        {
+            Schedule = new ScheduleSettings { Mode = ScheduleMode.Manual }
+        });
         var scheduler = new FakeScheduler { Failure = ResultError.From("SCHEDULE_FAILED", "denied") };
         var vm = new SettingsViewModel(store, scheduler, NullLogger<SettingsViewModel>.Instance);
 
+        await vm.LoadAsync();
+        vm.ScheduleMode = ScheduleMode.ScanOnly;
+
         await vm.SaveAsync();
 
-        vm.StatusText.Should().Contain("schedule update failed");
-        store.Saved.Should().NotBeNull();
+        vm.StatusText.Should().Contain("schedule was left unchanged");
+        store.Saved!.Schedule.Mode.Should().Be(ScheduleMode.Manual);
     }
 
     [WpfFact]
@@ -768,6 +837,29 @@ public class SettingsViewModelTests
     }
 
     private sealed class RecordingAutoUpdateSelectionWindowOpener : IAutoUpdateSelectionWindowOpener
+    {
+        public int OpenCount { get; private set; }
+
+        public void Open(object? owner = null) => OpenCount++;
+    }
+
+    private sealed class FakeDriverUpdateExclusionStore : IDriverUpdateExclusionStore
+    {
+        public FakeDriverUpdateExclusionStore(params string[] deviceIds) => DeviceIds = deviceIds;
+
+        public IReadOnlyList<string> DeviceIds { get; set; }
+
+        public Task<DriverUpdateExclusions> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new DriverUpdateExclusions(DeviceIds));
+
+        public Task SaveAsync(DriverUpdateExclusions exclusions, CancellationToken cancellationToken = default)
+        {
+            DeviceIds = exclusions.DeviceIds;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingExcludedDriverSelectionWindowOpener : IExcludedDriverSelectionWindowOpener
     {
         public int OpenCount { get; private set; }
 

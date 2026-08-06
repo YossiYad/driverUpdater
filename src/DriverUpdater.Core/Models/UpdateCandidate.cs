@@ -15,7 +15,8 @@ public sealed record UpdateCandidate(
     UpdateConfidence Confidence = UpdateConfidence.Confirmed,
     AiVerdict? AiVerification = null,
     UpdateRebootBehavior RebootBehavior = UpdateRebootBehavior.Unknown,
-    string? VersionLabel = null)
+    string? VersionLabel = null,
+    string? InstalledVersionLabel = null)
 {
     // The version a human should see. Several vendors brand their release differently from the
     // driver version Windows ends up reporting (NVIDIA ships "610.88" as INF 32.0.16.1088), and

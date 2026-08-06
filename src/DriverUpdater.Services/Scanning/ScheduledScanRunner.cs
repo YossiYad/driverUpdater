@@ -21,6 +21,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
     private readonly IOptionsMonitor<UpdaterSettings> _updaterSettings;
     private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
     private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
+    private readonly IDriverUpdateExclusionStore? _exclusionStore;
     private readonly IAiAutoUpdateAdvisor? _aiAdvisor;
     private readonly ILogger<ScheduledScanRunner> _logger;
 
@@ -33,7 +34,8 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         ILogger<ScheduledScanRunner> logger,
         IOptionsMonitor<ScheduleSettings>? scheduleSettings = null,
         IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
-        IAiAutoUpdateAdvisor? aiAdvisor = null)
+        IAiAutoUpdateAdvisor? aiAdvisor = null,
+        IDriverUpdateExclusionStore? exclusionStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -48,6 +50,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         _updaterSettings = updaterSettings;
         _scheduleSettings = scheduleSettings;
         _autoUpdateSelectionStore = autoUpdateSelectionStore;
+        _exclusionStore = exclusionStore;
         _aiAdvisor = aiAdvisor;
         _logger = logger;
     }
@@ -63,19 +66,33 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
         _logger.LogInformation("Scheduled scan found {Count} drivers", states.Count);
 
-        if (states.Count > 0)
+        if (states.Count == 0)
         {
-            await QueryUpdateSourcesAsync(states, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("Scheduled scan returned no drivers; preserving the previous cache");
+            return;
         }
 
-        var outdated = states.Count(s => s.Candidate is not null);
-        _logger.LogInformation("Scheduled scan matched {Count} update(s)", outdated);
+        var (exclusions, exclusionsAvailable) =
+            await ResolveExclusionsAsync(cancellationToken).ConfigureAwait(false);
+        MarkExcluded(states, exclusions);
 
-        if (installUpdates && outdated > 0)
+        await QueryUpdateSourcesAsync(states, cancellationToken).ConfigureAwait(false);
+
+        // Excluded devices are left out of the count on purpose: their candidate is kept only
+        // so the next interactive session can show what was found, never to be installed.
+        var outdated = states.Count(s => s.Candidate is not null && !s.IsExcluded);
+        _logger.LogInformation("Scheduled scan matched {Count} installable update(s)", outdated);
+
+        if (installUpdates && outdated > 0 && exclusionsAvailable)
         {
             var scope = await ResolveInstallScopeAsync(cancellationToken).ConfigureAwait(false);
             var aiApprovals = await ResolveAiApprovalsAsync(states, cancellationToken).ConfigureAwait(false);
             await InstallAsync(states, scope, aiApprovals, cancellationToken).ConfigureAwait(false);
+        }
+        else if (installUpdates && outdated > 0)
+        {
+            _logger.LogError(
+                "Scheduled installs skipped because the excluded-driver list could not be read");
         }
 
         await CarryOverUnmatchedCacheEntriesAsync(states, cancellationToken).ConfigureAwait(false);
@@ -122,7 +139,9 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                         && DriverUpdateMatcher.ShouldReplace(state.Candidate, candidate))
                     {
                         state.Candidate = candidate;
-                        state.Status = DriverStatus.Outdated;
+                        // An excluded device keeps the found version so the next interactive
+                        // session can show it, but its status must not claim it is pending.
+                        state.Status = state.IsExcluded ? DriverStatus.Excluded : DriverStatus.Outdated;
                     }
                 }
             }
@@ -134,6 +153,51 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
             {
                 _logger.LogError(ex, "Scheduled scan source {Source} failed", source.DisplayName);
             }
+        }
+    }
+
+    // A scheduled run must fail closed when the exclusion list cannot be read. Treating a read
+    // failure as an empty list would install updates for devices the user explicitly protected.
+    private async Task<(DriverUpdateExclusions Exclusions, bool Available)> ResolveExclusionsAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_exclusionStore is null)
+        {
+            return (DriverUpdateExclusions.Empty, true);
+        }
+
+        try
+        {
+            var exclusions = await _exclusionStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (exclusions.DeviceIds.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Scheduled run ignores {Count} device(s) excluded from updates", exclusions.DeviceIds.Count);
+            }
+            return (exclusions, true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not read the excluded-driver list; scheduled installs are blocked");
+            return (DriverUpdateExclusions.Empty, false);
+        }
+    }
+
+    private static void MarkExcluded(List<DriverState> states, DriverUpdateExclusions exclusions)
+    {
+        if (exclusions.DeviceIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var state in states.Where(s => exclusions.Contains(s.Driver.DeviceId)))
+        {
+            state.IsExcluded = true;
+            state.Status = DriverStatus.Excluded;
         }
     }
 
@@ -192,7 +256,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         }
 
         var items = states
-            .Where(s => s.Candidate is not null && IsInstallable(s.Candidate.InstallKind))
+            .Where(s => !s.IsExcluded && s.Candidate is not null && IsInstallable(s.Candidate.InstallKind))
             .GroupBy(s => s.Candidate!.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
             .Select(g => new AiUpdateReviewItem(g.First().Driver, g.First().Candidate!))
             .ToArray();
@@ -275,6 +339,13 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
             cancellationToken.ThrowIfCancellationRequested();
             var candidate = state.Candidate;
             if (candidate is null || !IsInstallable(candidate.InstallKind))
+            {
+                continue;
+            }
+            // The device is on the user's exclusion list. Nothing should have attached a
+            // candidate to it, but the guard stays here so a carried-over or shared-installer
+            // path can never install for a device the user opted out of.
+            if (state.IsExcluded)
             {
                 continue;
             }
@@ -418,7 +489,7 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
                 && pending.IsNewerThan(state.Driver))
             {
                 state.Candidate = pending;
-                state.Status = DriverStatus.Outdated;
+                state.Status = state.IsExcluded ? DriverStatus.Excluded : DriverStatus.Outdated;
                 carriedOver++;
             }
         }
@@ -498,5 +569,6 @@ public sealed class ScheduledScanRunner : IScheduledScanRunner
         public DriverInfo Driver { get; }
         public UpdateCandidate? Candidate { get; set; }
         public DriverStatus Status { get; set; } = DriverStatus.Unknown;
+        public bool IsExcluded { get; set; }
     }
 }

@@ -212,6 +212,40 @@ public class DriverRowViewModelTests
     }
 
     [Fact]
+    public void Version_summary_compares_vendor_versions_when_both_labels_are_known()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate() with
+            {
+                NewVersion = new Version(32, 0, 23033, 1002),
+                VersionLabel = "26.7.1",
+                InstalledVersionLabel = "26.3.1"
+            }
+        };
+
+        row.CurrentVersionText.Should().Be("26.3.1");
+        row.VersionSummaryText.Should().Be("26.3.1  to  26.7.1");
+        row.DriverDetailsTooltip.Should().Contain("Installed package version: 26.3.1");
+        row.DriverDetailsTooltip.Should().Contain("Windows driver version: 1.2.3.4");
+    }
+
+    [Fact]
+    public void Version_summary_does_not_compare_different_numbering_schemes()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate() with
+            {
+                NewVersion = new Version(2026, 7, 29, 0),
+                VersionLabel = "Vendor package 26.7.1"
+            }
+        };
+
+        row.VersionSummaryText.Should().Be("Package update Vendor package 26.7.1");
+    }
+
+    [Fact]
     public void CanAskAi_requires_only_that_ai_is_not_currently_checking()
     {
         var row = new DriverRowViewModel(NewSampleDriver());
@@ -426,6 +460,25 @@ public class DriverRowViewModelTests
         notified.Should().Contain(nameof(DriverRowViewModel.Status));
         notified.Should().Contain(nameof(DriverRowViewModel.CanUpdate));
         notified.Should().Contain(nameof(DriverRowViewModel.StatusText));
+    }
+
+    [Fact]
+    public void An_excluded_row_offers_no_update_even_while_it_holds_a_candidate()
+    {
+        var row = new DriverRowViewModel(NewSampleDriver())
+        {
+            AvailableUpdate = NewCandidate(),
+            Status = DriverStatus.Outdated
+        };
+
+        row.CanUpdate.Should().BeTrue();
+
+        row.IsExcluded = true;
+
+        row.HasAvailableUpdate.Should().BeFalse();
+        row.CanUpdate.Should().BeFalse();
+        row.StatusText.Should().Be("Excluded");
+        row.ShowUpdateAction.Should().BeFalse("the grid shows the excluded badge instead of the button");
     }
 
     private static DriverInfo NewSampleDriver() => new(

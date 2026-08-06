@@ -34,6 +34,7 @@ public sealed class InstallPipeline : IInstallPipeline
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly IArchiveExtractor? _archiveExtractor;
+    private readonly IInstallExecutionGate? _executionGate;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
 
@@ -51,7 +52,8 @@ public sealed class InstallPipeline : IInstallPipeline
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IInstalledDriverProbe? installedDriverProbe = null,
         IFileSignatureVerifier? fileSignatureVerifier = null,
-        IArchiveExtractor? archiveExtractor = null)
+        IArchiveExtractor? archiveExtractor = null,
+        IInstallExecutionGate? executionGate = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
         ArgumentNullException.ThrowIfNull(backupService);
@@ -69,6 +71,7 @@ public sealed class InstallPipeline : IInstallPipeline
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
         _archiveExtractor = archiveExtractor;
+        _executionGate = executionGate;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
     }
@@ -98,6 +101,10 @@ public sealed class InstallPipeline : IInstallPipeline
                 recordingProgress.Report(operation);
                 return operation;
             }
+
+            await using var executionLease = _executionGate is null
+                ? null
+                : await _executionGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
 
             // Resolve vendor-page rows before touching the system: rows that end up merely
             // opening a browser page must not cost a restore point and a driver backup
@@ -1136,7 +1143,7 @@ public sealed class InstallPipeline : IInstallPipeline
             || log.Contains("MsiSystemRebootPending property. Its value is '1'", StringComparison.OrdinalIgnoreCase)
             || log.Contains("MsiSystemRebootPending = 1", StringComparison.OrdinalIgnoreCase));
 
-    private static string? BuildAmdChipsetSuccessMessage(
+    internal static string? BuildAmdChipsetSuccessMessage(
         string? existingMessage,
         int exitCode,
         bool logConfirmedSuccess,
@@ -1178,7 +1185,9 @@ public sealed class InstallPipeline : IInstallPipeline
         AddDevicePublisherToken(driver.Provider, expected);
         AddDevicePublisherToken(driver.Manufacturer, expected);
 
-        return expected.Any(token => publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
+        return expected.Any(token =>
+            !string.IsNullOrWhiteSpace(token)
+            && publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void AddKnownPublisherTokens(string source, string host, List<string> expected)
@@ -1211,12 +1220,12 @@ public sealed class InstallPipeline : IInstallPipeline
             expected.Add("HP Inc");
             expected.Add("Hewlett-Packard");
         }
-        if (ContainsEither(source, host, "gigabyte") || source.Contains(":gigabyte:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "gigabyte"))
         {
             expected.Add("GIGA-BYTE");
             expected.Add("GIGABYTE");
         }
-        if (ContainsEither(source, host, "asus") || source.Contains(":asus:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "asus"))
         {
             expected.Add("ASUSTeK");
             expected.Add("ASUS");
@@ -1227,7 +1236,7 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             expected.Add("MICRO-STAR");
         }
-        if (ContainsEither(source, host, "asrock") || source.Contains(":asrock:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "asrock"))
         {
             expected.Add("ASRock");
         }

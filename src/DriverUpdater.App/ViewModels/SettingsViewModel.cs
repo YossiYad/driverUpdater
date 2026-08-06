@@ -22,6 +22,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IApplicationStartupService? _applicationStartupService;
     private readonly IAutoUpdateSelectionStore? _autoUpdateSelectionStore;
     private readonly IAutoUpdateSelectionWindowOpener? _autoUpdateSelectionWindowOpener;
+    private readonly IDriverUpdateExclusionStore? _driverUpdateExclusionStore;
+    private readonly IExcludedDriverSelectionWindowOpener? _excludedDriverSelectionWindowOpener;
     private readonly ILogger<SettingsViewModel> _logger;
 
     public IReadOnlyList<ScheduleCadence> AvailableCadences { get; } = Enum.GetValues<ScheduleCadence>().ToArray();
@@ -136,6 +138,7 @@ public partial class SettingsViewModel : ObservableObject
     private OnboardingSettings _loadedOnboarding = new();
     private BackupSettings _loadedBackup = new();
     private HistorySettings _loadedHistory = new();
+    private ScheduleSettings _loadedSchedule = new();
 
     /// <summary>True when app self-updating is wired up (Velopack), so the button is worth showing.</summary>
     public bool CanCheckForUpdates => _appUpdater is not null;
@@ -281,6 +284,48 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>How many drivers are excluded from updating altogether, for the picker button.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExcludedDriverCountText))]
+    private int _excludedDriverCount;
+
+    public string ExcludedDriverCountText => ExcludedDriverCount switch
+    {
+        0 => "No driver is excluded. Every update found is offered as usual.",
+        1 => "1 driver is never updated, even when a newer version is found.",
+        _ => $"{ExcludedDriverCount} drivers are never updated, even when a newer version is found."
+    };
+
+    /// <summary>Opens the list of drivers the app must never update.</summary>
+    [RelayCommand]
+    private async Task ChooseExcludedDriversAsync(CancellationToken cancellationToken = default)
+    {
+        _excludedDriverSelectionWindowOpener?.Open();
+        await RefreshExcludedDriverCountAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task RefreshExcludedDriverCountAsync(CancellationToken cancellationToken = default)
+    {
+        if (_driverUpdateExclusionStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var exclusions = await _driverUpdateExclusionStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            ExcludedDriverCount = exclusions.DeviceIds.Count;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read how many drivers are excluded from updating");
+        }
+    }
+
     /// <summary>AI-driven automatic updates install nothing while no provider is configured.</summary>
     public bool ShowAiProviderMissingWarning =>
         ShowAiAutoUpdateOptions && SelectedAiProvider == AiProvider.Off;
@@ -288,6 +333,13 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsGeminiSelected => SelectedAiProvider == AiProvider.Gemini;
 
     public bool IsOllamaSelected => SelectedAiProvider == AiProvider.Ollama;
+
+    /// <summary>
+    /// Raised after a save that fully succeeded, so the window can close itself. A save that
+    /// only partly went through (Windows rejected the schedule) does not raise it: the reason
+    /// is in <see cref="StatusText"/> and the window has to stay open for it to be read.
+    /// </summary>
+    public event EventHandler? SaveCompleted;
 
     public bool CanStartMinimized =>
         StartWithWindows && CloseBehavior == WindowCloseBehavior.KeepRunningInBackground;
@@ -304,7 +356,9 @@ public partial class SettingsViewModel : ObservableObject
         ApplicationBehaviorState? applicationBehaviorState = null,
         IApplicationStartupService? applicationStartupService = null,
         IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
-        IAutoUpdateSelectionWindowOpener? autoUpdateSelectionWindowOpener = null)
+        IAutoUpdateSelectionWindowOpener? autoUpdateSelectionWindowOpener = null,
+        IDriverUpdateExclusionStore? driverUpdateExclusionStore = null,
+        IExcludedDriverSelectionWindowOpener? excludedDriverSelectionWindowOpener = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(schedulerService);
@@ -320,6 +374,8 @@ public partial class SettingsViewModel : ObservableObject
         _applicationStartupService = applicationStartupService;
         _autoUpdateSelectionStore = autoUpdateSelectionStore;
         _autoUpdateSelectionWindowOpener = autoUpdateSelectionWindowOpener;
+        _driverUpdateExclusionStore = driverUpdateExclusionStore;
+        _excludedDriverSelectionWindowOpener = excludedDriverSelectionWindowOpener;
         _logger = logger;
     }
 
@@ -394,6 +450,7 @@ public partial class SettingsViewModel : ObservableObject
             var settings = await _settingsStore.LoadAsync(cancellationToken).ConfigureAwait(true);
             ApplyFromSettings(settings);
             await RefreshSelectedDriverCountAsync(cancellationToken).ConfigureAwait(true);
+            await RefreshExcludedDriverCountAsync(cancellationToken).ConfigureAwait(true);
             StatusText = $"Loaded from {_settingsStore.SettingsPath}";
         }
         catch (Exception ex)
@@ -460,15 +517,34 @@ public partial class SettingsViewModel : ObservableObject
 
             if (scheduleResult.IsFailure)
             {
-                StatusText = $"Saved settings, but schedule update failed: {scheduleResult.Error.Message}";
+                settings.Schedule = CopySchedule(_loadedSchedule);
+                try
+                {
+                    await _settingsStore.SaveAsync(settings, cancellationToken).ConfigureAwait(true);
+                    StatusText = $"Settings saved, but the schedule was left unchanged: {scheduleResult.Error.Message}";
+                }
+                catch (Exception rollbackException)
+                {
+                    _logger.LogError(
+                        rollbackException,
+                        "Failed to restore the saved schedule after Windows rejected the schedule update");
+                    StatusText = $"Schedule update failed and its saved setting could not be restored: {scheduleResult.Error.Message}";
+                }
                 return;
             }
+
+            _loadedSchedule = CopySchedule(settings.Schedule);
 
             _localizationService?.ApplyLanguage(SelectedLanguage);
 
             StatusText = deletedLogFiles > 0
                 ? $"Settings saved. Removed {deletedLogFiles} old log file(s).{startupWarning}"
                 : $"Settings saved.{startupWarning}";
+
+            if (string.IsNullOrEmpty(startupWarning))
+            {
+                SaveCompleted?.Invoke(this, EventArgs.Empty);
+            }
         }
         catch (Exception ex)
         {
@@ -665,6 +741,7 @@ public partial class SettingsViewModel : ObservableObject
         _loadedUpdater = settings.Updater;
         _loadedBackup = settings.Backup;
         _loadedHistory = settings.History ?? new HistorySettings();
+        _loadedSchedule = CopySchedule(settings.Schedule);
         _loadedOnboarding = settings.Onboarding ?? new OnboardingSettings();
         ShowGuideOnStartup = _loadedOnboarding.ShowOnStartup;
         EnableWindowsUpdate = settings.Updater.WindowsUpdateEnabled;
@@ -726,6 +803,16 @@ public partial class SettingsViewModel : ObservableObject
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         };
     }
+
+    private static ScheduleSettings CopySchedule(ScheduleSettings source) => new()
+    {
+        Mode = source.Mode,
+        Cadence = source.Cadence,
+        TimeOfDay = source.TimeOfDay,
+        DayOfWeek = source.DayOfWeek,
+        AutoUpdateScope = source.AutoUpdateScope,
+        AiRiskTolerance = source.AiRiskTolerance
+    };
 
     private void SetGeminiApiKeys(IReadOnlyList<string> keys)
     {

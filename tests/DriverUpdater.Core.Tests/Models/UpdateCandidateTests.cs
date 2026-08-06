@@ -68,6 +68,48 @@ public class UpdateCandidateTests
     }
 
     [Fact]
+    public void IsNewerThan_rejects_date_based_candidate_released_on_the_installed_date()
+    {
+        var date = new DateOnly(2026, 5, 14);
+        var candidate = NewCandidate(new Version(2026, 5, 14, 0), date);
+        var current = SampleDriver(new Version(32, 0, 23027, 2005)) with { CurrentDate = date };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("2025.5.14.0", 2026, 5, 14)]
+    [InlineData("2026.4.14.0", 2026, 5, 14)]
+    [InlineData("2026.5.13.0", 2026, 5, 14)]
+    [InlineData("2026.5.14.1", 2026, 5, 14)]
+    public void IsNewerThan_does_not_use_date_comparison_when_version_does_not_encode_the_date(
+        string version,
+        int year,
+        int month,
+        int day)
+    {
+        var candidate = NewCandidate(Version.Parse(version), new DateOnly(year, month, day));
+        var current = SampleDriver(new Version(3000, 0, 0, 0)) with
+        {
+            CurrentDate = new DateOnly(2025, 1, 1)
+        };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_treats_three_component_date_version_as_date_based()
+    {
+        var candidate = NewCandidate(new Version(2026, 5, 14), new DateOnly(2026, 5, 14));
+        var current = SampleDriver(new Version(3000, 0, 0, 0)) with
+        {
+            CurrentDate = new DateOnly(2025, 1, 1)
+        };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
     public void IsNewerThan_rejects_date_based_candidate_when_current_driver_date_is_newer()
     {
         var candidate = NewCandidate(new Version(2026, 5, 14, 0), new DateOnly(2026, 5, 14));
@@ -104,6 +146,41 @@ public class UpdateCandidateTests
         // Both sides are date-year versioned (NewDate matches NewVersion) - newer wins.
         var candidate = NewCandidate(new Version(2024, 3, 15, 0), new DateOnly(2024, 3, 15));
         var current = SampleDriver(new Version(2022, 11, 1, 0)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("2000.1.1.0")]
+    [InlineData("2100.12.31.0")]
+    public void IsNewerThan_recognizes_inclusive_calendar_version_boundaries(string version)
+    {
+        var candidate = NewCandidate(Version.Parse(version), new DateOnly(2026, 1, 1));
+        var current = SampleDriver(new Version(10, 0, 10000, 1)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("1999.1.1.0")]
+    [InlineData("2101.1.1.0")]
+    [InlineData("2026.0.1.0")]
+    [InlineData("2026.13.1.0")]
+    [InlineData("2026.1.0.0")]
+    [InlineData("2026.1.32.0")]
+    public void IsNewerThan_does_not_treat_out_of_range_components_as_a_calendar_version(string version)
+    {
+        var candidate = NewCandidate(Version.Parse(version), new DateOnly(2026, 1, 1));
+        var current = SampleDriver(new Version(10, 0, 10000, 1)) with { CurrentDate = null };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNewerThan_does_not_apply_the_low_major_guard_at_major_100()
+    {
+        var candidate = NewCandidate(new Version(2026, 1, 1, 0), new DateOnly(2026, 1, 1));
+        var current = SampleDriver(new Version(100, 0, 0, 0)) with { CurrentDate = null };
 
         candidate.IsNewerThan(current).Should().BeTrue();
     }
@@ -161,6 +238,7 @@ public class UpdateCandidateTests
     [InlineData("2021.12.5.0", 2021, 12, 5, "10.0.26100.8521")]   // Generic PnP Monitor
     [InlineData("2021.12.29.0", 2021, 12, 29, "10.0.26100.8521")]   // USB Composite Device
     [InlineData("2023.3.19.0", 2023, 3, 19, "10.0.26100.1150")]   // Microsoft Input Config
+    [InlineData("2018.5.31.0", 2018, 5, 31, "10.0.10000.1")]   // inclusive inbox build boundary
     public void IsNewerThan_refuses_calendar_package_over_inbox_driver_with_placeholder_date(
         string candidateVersion, int year, int month, int day, string installedVersion)
     {

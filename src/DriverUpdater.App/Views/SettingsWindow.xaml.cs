@@ -22,7 +22,11 @@ public partial class SettingsWindow : FluentWindow
         InitializeComponent();
         _viewModel = viewModel;
         DataContext = viewModel;
+        _viewModel.SaveCompleted += OnSaveCompleted;
+        Closed += (_, _) => _viewModel.SaveCompleted -= OnSaveCompleted;
     }
+
+    private void OnSaveCompleted(object? sender, EventArgs e) => Close();
 
     public void SelectAiTab() => SettingsTabs.SelectedIndex = AiTabIndex;
 

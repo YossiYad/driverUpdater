@@ -1,3 +1,4 @@
+using System.Globalization;
 using DriverUpdater.App.Services;
 using DriverUpdater.Core.Models;
 using FluentAssertions;
@@ -14,10 +15,24 @@ public class LocalizationServiceTests
         LocalizationService.ResolveLanguage(requested).Should().Be(expected);
     }
 
-    [Fact]
-    public void ResolveLanguage_with_system_default_returns_known_value()
+    [Theory]
+    [InlineData("he-IL", AppLanguage.Hebrew)]
+    [InlineData("en-US", AppLanguage.English)]
+    [InlineData("ar-SA", AppLanguage.English)]
+    public void ResolveLanguage_with_system_default_uses_the_UI_culture(
+        string cultureName,
+        AppLanguage expected)
     {
-        var resolved = LocalizationService.ResolveLanguage(AppLanguage.SystemDefault);
-        resolved.Should().BeOneOf(AppLanguage.English, AppLanguage.Hebrew);
+        var original = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+
+            LocalizationService.ResolveLanguage(AppLanguage.SystemDefault).Should().Be(expected);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = original;
+        }
     }
 }

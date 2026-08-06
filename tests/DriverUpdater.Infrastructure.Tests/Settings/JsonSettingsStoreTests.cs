@@ -141,7 +141,7 @@ public class JsonSettingsStoreTests : IDisposable
     public async Task Concurrent_saves_are_serialized_and_leave_valid_json()
     {
         var store = NewStore();
-        var saves = Enumerable.Range(1, 20)
+        var saves = Enumerable.Range(101, 20)
             .Select(retentionDays => store.SaveAsync(new AppSettings
             {
                 Backup = new BackupSettings { RetentionDays = retentionDays }
@@ -150,7 +150,7 @@ public class JsonSettingsStoreTests : IDisposable
         await Task.WhenAll(saves);
 
         var loaded = await store.LoadAsync();
-        loaded.Backup.RetentionDays.Should().BeInRange(1, 20);
+        loaded.Backup.RetentionDays.Should().BeInRange(101, 120);
     }
 
     private JsonSettingsStore NewStore() =>

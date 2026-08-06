@@ -230,7 +230,7 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
     }
 
     [Fact]
-    public async Task A_zip_that_contains_a_setup_program_is_extracted_and_the_installer_is_located()
+    public void A_zip_that_contains_a_setup_program_is_extracted_and_the_installer_is_located()
     {
         var zipPath = _workspace.Path("driver.zip");
         Directory.CreateDirectory(Path.GetDirectoryName(zipPath)!);
@@ -254,7 +254,6 @@ public sealed class VendorInstallerEndToEndTests : IDisposable
         error.Should().BeEmpty();
         located.Should().NotBeNull();
         Path.GetFileName(located!).Should().Be("Setup.exe", "the shallowest recognised installer wins");
-        await Task.CompletedTask;
     }
 
     [Fact]

@@ -134,6 +134,24 @@ public class JsonDriverCacheStoreTests : IDisposable
         (await store.LoadAsync()).Should().BeNull();
     }
 
+    [Fact]
+    public async Task Concurrent_stores_serialize_writes_and_leave_valid_json()
+    {
+        var stores = new[] { NewStore(), NewStore() };
+        var driver = NewDriver("Display", "TEST_HWID", DriverCategory.Display);
+        var writes = Enumerable.Range(0, 20).Select(index => stores[index % stores.Length].SaveAsync(
+            new DriverCacheSnapshot(
+                DateTimeOffset.UtcNow.AddSeconds(index),
+                new[] { new CachedDriverEntry(driver, DriverStatus.UpToDate, null) })));
+
+        await Task.WhenAll(writes);
+
+        var loaded = await NewStore().LoadAsync();
+        loaded.Should().NotBeNull();
+        loaded!.Entries.Should().ContainSingle();
+        Directory.GetFiles(Path.GetDirectoryName(_path)!, "*.tmp").Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("DESKTOP-AB12", "driver-cache.DESKTOP-AB12.json")]
     [InlineData("PC:with*bad|chars", "driver-cache.PC_with_bad_chars.json")]

@@ -62,6 +62,22 @@ public class AmdGraphicsSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_carries_the_installed_and_available_Adrenalin_versions_for_display()
+    {
+        var source = NewSource("""
+            <p>Revision Number</p><p>Adrenalin 26.7.1 (WHQL Recommended)</p>
+            <p>Release Date</p><p>2026-07-29</p>
+            <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.7.1-win11.exe">Download</a>
+            """, installedAmdSoftwareVersion: "26.3.1");
+
+        var results = await source.SearchAsync(new[] { NewAmdDriver(new DateOnly(2026, 3, 9)) }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].InstalledVersionLabel.Should().Be("26.3.1");
+        results[0].VersionLabel.Should().Be("26.7.1");
+    }
+
+    [Fact]
     public void TryResolveSupportPage_builds_model_specific_rx_urls()
     {
         var driver = NewAmdDriver(new DateOnly(2026, 2, 18)) with
@@ -89,6 +105,27 @@ public class AmdGraphicsSourceTests
         release.ReleaseDate.Should().Be(new DateOnly(2026, 5, 14));
         release.SizeBytes.Should().Be(857735168);
         release.DirectInstallerUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public void BuildCandidate_keeps_the_public_Adrenalin_version_when_an_inf_version_is_available()
+    {
+        var driver = NewAmdDriver(new DateOnly(2026, 3, 9));
+        var release = new AmdGraphicsSource.AmdReleaseInfo(
+            "26.7.1",
+            new DateOnly(2026, 7, 29),
+            null,
+            DriverVersion: new Version(32, 0, 23033, 1002));
+
+        var candidate = AmdGraphicsSource.BuildCandidate(
+            driver,
+            new Uri(AmdGraphicsSource.AmdSupportUrl),
+            release,
+            "26.3.1");
+
+        candidate.NewVersion.Should().Be(new Version(32, 0, 23033, 1002));
+        candidate.InstalledVersionLabel.Should().Be("26.3.1");
+        candidate.VersionLabel.Should().Be("26.7.1");
     }
 
     [Fact]

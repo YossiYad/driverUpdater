@@ -10,5 +10,6 @@ public enum DriverStatus
     NotUpdated,
     ManualActionRequired,
     RestartRequired,
-    VerificationInconclusive
+    VerificationInconclusive,
+    Excluded
 }

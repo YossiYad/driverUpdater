@@ -2,6 +2,7 @@ using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Options;
 using DriverUpdater.Infrastructure.Cache;
 using DriverUpdater.Infrastructure.Catalog;
+using DriverUpdater.Infrastructure.Concurrency;
 using DriverUpdater.Infrastructure.History;
 using DriverUpdater.Infrastructure.PnPUtil;
 using DriverUpdater.Infrastructure.Powershell;
@@ -24,6 +25,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IWmiQueryRunner, WmiQueryRunner>();
+        services.AddSingleton<IInstallExecutionGate, FileInstallExecutionGate>();
         services.AddSingleton<IWuApiClient, WuApiClient>();
         services.AddSingleton<IPnPUtilRunner, PnPUtilRunner>();
         services.AddSingleton<IPowerShellInvoker, PowerShellInvoker>();
@@ -38,6 +40,8 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
         services.AddSingleton<IAutoUpdateSelectionStore>(sp =>
             new JsonAutoUpdateSelectionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonAutoUpdateSelectionStore>>()));
+        services.AddSingleton<IDriverUpdateExclusionStore>(sp =>
+            new JsonDriverUpdateExclusionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverUpdateExclusionStore>>()));
         services.AddSingleton<IDriverCacheStore>(sp =>
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>

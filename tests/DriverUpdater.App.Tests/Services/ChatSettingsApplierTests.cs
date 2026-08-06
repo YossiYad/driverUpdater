@@ -72,13 +72,21 @@ public class ChatSettingsApplierTests
     [Fact]
     public async Task A_failing_schedule_update_is_reported_as_a_warning_not_a_failure()
     {
+        var store = new FakeSettingsStore
+        {
+            Current = new AppSettings
+            {
+                Schedule = new ScheduleSettings { Mode = ScheduleMode.Manual }
+            }
+        };
         var scheduler = new FakeScheduler { Fail = true };
-        var applier = NewApplier(new FakeSettingsStore(), scheduler);
+        var applier = NewApplier(store, scheduler);
 
         var result = await applier.ApplyAsync(Changes(("schedule", "scan-only")));
 
         result.Succeeded.Should().BeTrue();
         result.Warning.Should().Contain("access denied");
+        store.Saved!.Schedule.Mode.Should().Be(ScheduleMode.Manual);
     }
 
     [Fact]

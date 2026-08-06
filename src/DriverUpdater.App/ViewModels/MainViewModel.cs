@@ -49,6 +49,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISupportWindowOpener? _supportWindowOpener;
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IChatSettingsApplier? _chatSettingsApplier;
+    private readonly IDriverUpdateExclusionStore? _exclusionStore;
     private readonly Dispatcher _dispatcher;
 
     // Devices opted in to unattended updating. Mirrors the auto-update selection store so a row
@@ -70,6 +71,10 @@ public partial class MainViewModel : ObservableObject
     // any catalog candidate for it. Reboot-required installs are never recorded, so legitimate
     // pending updates (Intel PMT, Iris Xe) are unaffected.
     private Dictionary<string, HashSet<string?>> _ineffectiveDeviceInstalled = new(StringComparer.OrdinalIgnoreCase);
+
+    // Devices the user excluded from updating altogether. Mirrors the exclusion store so a row
+    // created mid-scan can be marked without another disk read.
+    private HashSet<string> _excludedDeviceIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<MainViewModel> _logger;
 
     public ObservableCollection<DriverRowViewModel> Drivers { get; } = new();
@@ -109,6 +114,10 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
     private int _updatesFoundCount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    private int _excludedUpdatesFoundCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
@@ -152,12 +161,20 @@ public partial class MainViewModel : ObservableObject
 
     public bool HasOem => DetectedOem is not null;
 
+    private string ExcludedUpdatesProgressSuffix => ExcludedUpdatesFoundCount switch
+    {
+        0 => string.Empty,
+        1 => ", 1 excluded update",
+        _ => $", {ExcludedUpdatesFoundCount} excluded updates"
+    };
+
     public string ProgressText => IsScanning
         ? $"Scanning... {ScannedCount} drivers found"
         : ScannedCount > 0
             ? IsShowingCachedDrivers
-                ? $"{ScannedCount} cached drivers (scan to refresh)"
+                ? $"{ScannedCount} cached drivers{ExcludedUpdatesProgressSuffix} (scan to refresh)"
                 : $"{ScannedCount} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available"
+                  + ExcludedUpdatesProgressSuffix
                   + (UpdatesFoundCount > 0 ? $" ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely)" : string.Empty)
             : string.Empty;
 
@@ -185,7 +202,8 @@ public partial class MainViewModel : ObservableObject
         IOptionsMonitor<AiSettings>? aiSettings = null,
         IAiScanConfirmation? aiScanConfirmation = null,
         IVendorPageInstallerResolver? vendorPageResolver = null,
-        IChatSettingsApplier? chatSettingsApplier = null)
+        IChatSettingsApplier? chatSettingsApplier = null,
+        IDriverUpdateExclusionStore? exclusionStore = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -219,6 +237,7 @@ public partial class MainViewModel : ObservableObject
         _supportWindowOpener = supportWindowOpener;
         _vendorPageResolver = vendorPageResolver;
         _chatSettingsApplier = chatSettingsApplier;
+        _exclusionStore = exclusionStore;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -923,9 +942,18 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            if (!await LoadExcludedDriversAsync(cancellationToken).ConfigureAwait(true))
+            {
+                return;
+            }
+
             var staleDropped = 0;
             foreach (var entry in snapshot.Entries)
             {
+                // An excluded device keeps its cached result on show - the point is to see what
+                // was found - but the row is marked so nothing offers to install it.
+                var excluded = IsExcluded(entry.Driver);
+
                 // A cache written by an older build can hold an AvailableUpdate that our current
                 // version comparison no longer considers an upgrade (e.g. a calendar-versioned
                 // downgrade of a Windows inbox driver). Re-validate on load so the user cannot
@@ -939,9 +967,12 @@ public partial class MainViewModel : ObservableObject
 
                 var row = new DriverRowViewModel(entry.Driver)
                 {
-                    Status = cachedUpdate is null
-                        ? entry.Status == DriverStatus.Outdated ? DriverStatus.UpToDate : entry.Status
-                        : DriverStatus.VerificationInconclusive,
+                    IsExcluded = excluded,
+                    Status = excluded
+                        ? DriverStatus.Excluded
+                        : cachedUpdate is null
+                            ? entry.Status == DriverStatus.Outdated ? DriverStatus.UpToDate : entry.Status
+                            : DriverStatus.VerificationInconclusive,
                     AvailableUpdate = cachedUpdate,
                     IsUpdateFromCache = cachedUpdate is not null,
                     IsScannedThisRun = false
@@ -1041,6 +1072,7 @@ public partial class MainViewModel : ObservableObject
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
         UpdatesFoundCount = 0;
+        ExcludedUpdatesFoundCount = 0;
         ConfirmedUpdatesCount = 0;
         VendorChecksCount = 0;
         _driverCacheClearPending = false;
@@ -1093,6 +1125,7 @@ public partial class MainViewModel : ObservableObject
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
         UpdatesFoundCount = 0;
+        ExcludedUpdatesFoundCount = 0;
         ConfirmedUpdatesCount = 0;
         VendorChecksCount = 0;
         StatusText = "Scanning drivers via WMI...";
@@ -1120,7 +1153,10 @@ public partial class MainViewModel : ObservableObject
                 elapsed,
                 Drivers.Count);
 
-            await QueryUpdateSourcesAsync(cancellationToken);
+            if (!await QueryUpdateSourcesAsync(cancellationToken))
+            {
+                return;
+            }
             if (DiscardScanIfCacheWasCleared())
             {
                 return;
@@ -1294,7 +1330,7 @@ public partial class MainViewModel : ObservableObject
                 // them permanently stuck: the next scan restored them from cache again.
                 row.AvailableUpdate = pending;
                 row.IsUpdateFromCache = true;
-                row.Status = DriverStatus.Outdated;
+                row.Status = row.IsExcluded ? DriverStatus.Excluded : DriverStatus.Outdated;
                 restored++;
                 _logger.LogDebug(
                     "Cache reconciliation restored fallback for {Device}: {SourceUpdateId} {Version}",
@@ -1340,16 +1376,21 @@ public partial class MainViewModel : ObservableObject
         candidate.Confidence == UpdateConfidence.Confirmed
         && candidate.InstallKind != UpdateInstallKind.VendorPage;
 
-    private async Task QueryUpdateSourcesAsync(CancellationToken cancellationToken)
+    private async Task<bool> QueryUpdateSourcesAsync(CancellationToken cancellationToken)
     {
         if (Drivers.Count == 0)
         {
-            return;
+            return true;
         }
 
         _skipAiSearchRequested = false;
 
         await LoadIneffectiveLedgerAsync(cancellationToken).ConfigureAwait(true);
+        if (!await LoadExcludedDriversAsync(cancellationToken).ConfigureAwait(true))
+        {
+            return false;
+        }
+        ApplyExclusionsToRows();
 
         var index = BuildHardwareIdIndex();
         var driverSnapshots = Drivers
@@ -1388,7 +1429,9 @@ public partial class MainViewModel : ObservableObject
                         }
                         row.AvailableUpdate = candidate;
                         row.IsUpdateFromCache = false;
-                        row.Status = DriverStatus.Outdated;
+                        // An excluded device keeps the found version on show, but its status
+                        // must keep saying the update is not going to be applied.
+                        row.Status = row.IsExcluded ? DriverStatus.Excluded : DriverStatus.Outdated;
                         accepted++;
                         RefreshUpdateCounts();
                     }
@@ -1414,6 +1457,7 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
+        return true;
     }
 
     private async Task RunAiPostScanAsync(CancellationToken cancellationToken)
@@ -1430,6 +1474,82 @@ public partial class MainViewModel : ObservableObject
             rowsReviewedAsCandidates,
             cancellationToken).ConfigureAwait(true);
 
+    }
+
+    // The devices the user excluded from updating. Read before every scan and whenever the
+    // Settings window closes, so a driver ticked there stops being offered without a restart.
+    private async Task<bool> LoadExcludedDriversAsync(CancellationToken cancellationToken)
+    {
+        if (_exclusionStore is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            var exclusions = await _exclusionStore.LoadAsync(cancellationToken).ConfigureAwait(true);
+            _excludedDeviceIds = new HashSet<string>(exclusions.DeviceIds, StringComparer.OrdinalIgnoreCase);
+            if (_excludedDeviceIds.Count > 0)
+            {
+                _logger.LogInformation(
+                    "{Count} device(s) are excluded from updating; no update is offered for them",
+                    _excludedDeviceIds.Count);
+            }
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load the excluded-driver list; driver updates are blocked");
+            StatusText = "Could not read the excluded-driver list. Driver updates are blocked until it is available.";
+            return false;
+        }
+    }
+
+    private bool IsExcluded(DriverInfo driver) => _excludedDeviceIds.Contains(driver.DeviceId);
+
+    // Applies the current exclusion list to the rows already on screen, so a driver ticked in
+    // Settings stops being offered right away and one that was unticked is offered again
+    // without waiting for the next scan. The found version stays on the row either way: an
+    // excluded device still shows what is out there, it just never installs it.
+    private void ApplyExclusionsToRows()
+    {
+        var suppressed = 0;
+        foreach (var row in Drivers)
+        {
+            var excluded = IsExcluded(row.Driver);
+            if (row.IsExcluded == excluded)
+            {
+                continue;
+            }
+
+            row.IsExcluded = excluded;
+            if (excluded)
+            {
+                row.Status = DriverStatus.Excluded;
+                if (row.AvailableUpdate is not null)
+                {
+                    suppressed++;
+                }
+            }
+            else if (row.Status == DriverStatus.Excluded)
+            {
+                row.Status = row.AvailableUpdate is null ? DriverStatus.Unknown : DriverStatus.Outdated;
+            }
+        }
+
+        if (suppressed > 0)
+        {
+            _logger.LogInformation(
+                "{Count} found update(s) are shown but will not be installed: their device is excluded from updating",
+                suppressed);
+        }
+
+        RefreshUpdateCounts();
+        DriversView.Refresh();
     }
 
     private static string IneffectiveKey(string deviceId, string targetVersion) => deviceId + "|" + targetVersion;
@@ -1812,6 +1932,7 @@ public partial class MainViewModel : ObservableObject
 
         var targets = Drivers
             .Where(r => r.IsScannedThisRun)
+            .Where(r => !r.IsExcluded)
             .Where(r => !alreadyReviewed.Contains(r))
             .Where(r => !onlyRowsWithoutUpdates || !r.HasAvailableUpdate)
             .ToArray();
@@ -2385,6 +2506,7 @@ public partial class MainViewModel : ObservableObject
     private void RefreshUpdateCounts()
     {
         UpdatesFoundCount = Drivers.Count(d => d.HasAvailableUpdate);
+        ExcludedUpdatesFoundCount = Drivers.Count(d => d.IsExcluded && d.AvailableUpdate is not null);
         ConfirmedUpdatesCount = Drivers.Count(d =>
             d.HasAvailableUpdate && d.AvailableUpdate?.Confidence == UpdateConfidence.Confirmed);
         VendorChecksCount = Drivers.Count(d =>
@@ -2516,7 +2638,7 @@ public partial class MainViewModel : ObservableObject
 
     private void FinalizeScanStatuses()
     {
-        foreach (var row in Drivers.Where(d => d.IsScannedThisRun && d.AvailableUpdate is null))
+        foreach (var row in Drivers.Where(d => d.IsScannedThisRun && d.AvailableUpdate is null && !d.IsExcluded))
         {
             if (row.Status == DriverStatus.Unknown)
             {
@@ -2539,9 +2661,16 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void OpenSettings()
+    private async Task OpenSettingsAsync(CancellationToken cancellationToken)
     {
+        // Modal, so this returns once the user is done. Re-reading the exclusion list here is
+        // what makes a driver ticked in Settings disappear from the grid straight away.
         _settingsWindowOpener.Open();
+        if (!await LoadExcludedDriversAsync(cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
+        ApplyExclusionsToRows();
     }
 
     [RelayCommand]
@@ -3024,6 +3153,7 @@ public partial class MainViewModel : ObservableObject
                         NewVersion = row.AvailableUpdate.NewVersion,
                         NewDate = row.AvailableUpdate.NewDate,
                         VersionLabel = row.AvailableUpdate.VersionLabel,
+                        InstalledVersionLabel = row.AvailableUpdate.InstalledVersionLabel,
                         Confidence = row.AvailableUpdate.Confidence,
                         AiVerification = row.AvailableUpdate.AiVerification
                     }
@@ -3130,8 +3260,10 @@ public partial class MainViewModel : ObservableObject
     private bool MatchesUpdateFilter(DriverRowViewModel row) => UpdateFilter switch
     {
         DriverUpdateFilter.AllDrivers => true,
-        DriverUpdateFilter.UpdatesAvailable => row.HasAvailableUpdate,
-        DriverUpdateFilter.NoUpdateAvailable => !row.HasAvailableUpdate,
+        // An excluded device with a found version belongs under "Updates available": the
+        // filter is about what a scan turned up, not about what the app is going to install.
+        DriverUpdateFilter.UpdatesAvailable => row.ShowsUpdateInfo,
+        DriverUpdateFilter.NoUpdateAvailable => !row.ShowsUpdateInfo,
         _ => true
     };
 }
