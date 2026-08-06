@@ -174,7 +174,9 @@ public partial class MainViewModel : ObservableObject
         ? $"Scanning... {ScannedCount} drivers found"
         : ScannedCount > 0
             ? IsShowingCachedDrivers
-                ? $"{ScannedCount} cached drivers{ExcludedUpdatesProgressSuffix} (scan to refresh)"
+                ? $"{ScannedCount} cached drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available"
+                  + ExcludedUpdatesProgressSuffix
+                  + " (scan to refresh)"
                 : $"{ScannedCount} drivers, {UpdatesFoundCount} update{(UpdatesFoundCount == 1 ? string.Empty : "s")} available"
                   + ExcludedUpdatesProgressSuffix
                   + (UpdatesFoundCount > 0 ? $" ({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely)" : string.Empty)

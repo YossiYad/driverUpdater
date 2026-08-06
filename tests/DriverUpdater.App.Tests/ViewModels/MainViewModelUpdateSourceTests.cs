@@ -853,7 +853,7 @@ public class MainViewModelUpdateSourceTests
         vm.Drivers[1].AvailableUpdate.Should().BeNull();
         vm.UpdatesFoundCount.Should().Be(0);
         vm.ScannedCount.Should().Be(2);
-        vm.ProgressText.Should().Be("2 cached drivers (scan to refresh)");
+        vm.ProgressText.Should().Be("2 cached drivers, 0 updates available (scan to refresh)");
         vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
 
         vm.UpdateFilter = DriverUpdateFilter.UpdatesAvailable;
