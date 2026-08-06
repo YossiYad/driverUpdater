@@ -88,7 +88,9 @@ public partial class MainViewModel : ObservableObject
     [
         new(DriverUpdateFilter.AllDrivers, "All drivers"),
         new(DriverUpdateFilter.UpdatesAvailable, "Updates available"),
-        new(DriverUpdateFilter.NoUpdateAvailable, "No update available")
+        new(DriverUpdateFilter.NoUpdateAvailable, "No update available"),
+        new(DriverUpdateFilter.ExcludedDrivers, "Excluded from updates"),
+        new(DriverUpdateFilter.ExcludedWithUpdates, "Excluded with updates")
     ];
 
     [ObservableProperty]
@@ -3264,6 +3266,8 @@ public partial class MainViewModel : ObservableObject
         // filter is about what a scan turned up, not about what the app is going to install.
         DriverUpdateFilter.UpdatesAvailable => row.ShowsUpdateInfo,
         DriverUpdateFilter.NoUpdateAvailable => !row.ShowsUpdateInfo,
+        DriverUpdateFilter.ExcludedDrivers => row.IsExcluded,
+        DriverUpdateFilter.ExcludedWithUpdates => row.HasSuppressedUpdate,
         _ => true
     };
 }

@@ -4,5 +4,7 @@ public enum DriverUpdateFilter
 {
     AllDrivers = 0,
     UpdatesAvailable,
-    NoUpdateAvailable
+    NoUpdateAvailable,
+    ExcludedDrivers,
+    ExcludedWithUpdates
 }
