@@ -44,6 +44,17 @@ creates a clean self-contained publish, verifies the assembly version, packages 
 with Velopack, and wraps the Setup in an elevated repair launcher. Passing a version is
 optional, but if supplied it must match the project version.
 
+Publish the GitHub release after the build with a Markdown release-notes file:
+
+```
+build\publish-release.ps1 -NotesFile path\to\release-notes.md
+```
+
+The publish script uploads only the installer and Velopack update assets needed by the
+app: Setup, full package, delta package when produced, `RELEASES`, and `releases.win.json`.
+It intentionally does not upload the portable ZIP or `assets.win.json`. GitHub still shows
+Source code archives because it adds them automatically for tag releases.
+
 Distribute the produced `DriverUpdater-win-Setup.exe` from `build/output/`. Because the build is not code-signed, the first launch shows a "Windows protected your PC" SmartScreen prompt; recipients click "More info" then "Run anyway". Subsequent versions auto-update from the configured GitHub repository or web feed if the user has opted in via Settings.
 
 ### Upgrading an older installation
