@@ -50,6 +50,97 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_shows_the_found_version_for_an_excluded_driver_but_never_offers_it()
+    {
+        var excluded = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var other = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var candidates = new[]
+        {
+            NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0)),
+            NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0))
+        };
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { excluded, other }),
+            new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            exclusionStore: new StubExclusionStore(excluded.DeviceId));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var excludedRow = vm.Drivers.Single(r => r.DeviceName == "Intel Display");
+        excludedRow.IsExcluded.Should().BeTrue();
+        excludedRow.Status.Should().Be(DriverStatus.Excluded);
+        excludedRow.AvailableUpdate.Should().NotBeNull("the found version stays visible in the grid");
+        excludedRow.AvailableVersionText.Should().Be("2.0.0.0");
+        excludedRow.HasSuppressedUpdate.Should().BeTrue();
+        excludedRow.CanUpdate.Should().BeFalse("nothing may install an update for an excluded device");
+        excludedRow.HasAvailableUpdate.Should().BeFalse();
+        excludedRow.ShowUpdateAction.Should().BeFalse();
+
+        vm.Drivers.Single(r => r.DeviceName == "Realtek Audio").AvailableUpdate.Should().NotBeNull();
+        vm.UpdatesFoundCount.Should().Be(1, "the header counts what can actually be installed");
+        vm.ExcludedUpdatesFoundCount.Should().Be(1, "excluded updates have their own visible count");
+        vm.ProgressText.Should().Contain("1 excluded update");
+    }
+
+    [WpfFact]
+    public async Task Update_all_skips_an_excluded_driver_that_has_a_found_version()
+    {
+        var excluded = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline();
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { excluded }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            pipeline,
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            exclusionStore: new StubExclusionStore(excluded.DeviceId));
+
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        pipeline.Operations.Should().BeEmpty();
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_blocks_updates_when_the_exclusion_list_cannot_be_read()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+
+        var vm = new MainViewModel(
+            new FakeScanService(new[] { driver }),
+            new[] { (IUpdateSource)new FakeUpdateSource(new[] { candidate }) },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            exclusionStore: new UnreadableExclusionStore());
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle().Which.AvailableUpdate.Should().BeNull();
+        vm.UpdatesFoundCount.Should().Be(0);
+        vm.StatusText.Should().Contain("Driver updates are blocked");
+    }
+
+    [WpfFact]
     public async Task ScanAsync_ignores_candidate_with_unmatched_hardware_id()
     {
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
@@ -1452,6 +1543,29 @@ public class MainViewModelUpdateSourceTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance);
+
+    private sealed class StubExclusionStore : IDriverUpdateExclusionStore
+    {
+        private readonly DriverUpdateExclusions _exclusions;
+
+        public StubExclusionStore(params string[] deviceIds) =>
+            _exclusions = new DriverUpdateExclusions(deviceIds);
+
+        public Task<DriverUpdateExclusions> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_exclusions);
+
+        public Task SaveAsync(DriverUpdateExclusions exclusions, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class UnreadableExclusionStore : IDriverUpdateExclusionStore
+    {
+        public Task<DriverUpdateExclusions> LoadAsync(CancellationToken cancellationToken = default) =>
+            throw new System.IO.IOException("access denied");
+
+        public Task SaveAsync(DriverUpdateExclusions exclusions, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
 
     private sealed class FakeScanService : IDriverScanService
     {

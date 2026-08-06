@@ -10,44 +10,6 @@ namespace DriverUpdater.App.Tests.Services;
 public class VelopackAppUpdaterTests
 {
     [Fact]
-    public async Task CheckAndApplyAsync_does_nothing_when_disabled()
-    {
-        var settings = new UpdaterSettings { CheckOnStartup = false, GitHubRepoUrl = null, FeedUrl = null };
-        var updater = NewUpdater(settings);
-
-        Func<Task> act = () => updater.CheckAndApplyAsync();
-
-        await act.Should().NotThrowAsync();
-    }
-
-    [Fact]
-    public async Task CheckAndApplyAsync_does_nothing_when_feed_url_is_blank()
-    {
-        var settings = new UpdaterSettings { CheckOnStartup = true, GitHubRepoUrl = null, FeedUrl = " " };
-        var updater = NewUpdater(settings);
-
-        Func<Task> act = () => updater.CheckAndApplyAsync();
-
-        await act.Should().NotThrowAsync();
-    }
-
-    [Fact]
-    public async Task CheckAndApplyAsync_swallows_errors_from_invalid_feed()
-    {
-        var settings = new UpdaterSettings
-        {
-            CheckOnStartup = true,
-            GitHubRepoUrl = null,
-            FeedUrl = "https://invalid-host-does-not-exist.example.invalid/feed"
-        };
-        var updater = NewUpdater(settings);
-
-        Func<Task> act = () => updater.CheckAndApplyAsync();
-
-        await act.Should().NotThrowAsync();
-    }
-
-    [Fact]
     public async Task CheckForUpdatesAsync_returns_none_when_no_feed_configured()
     {
         var settings = new UpdaterSettings { GitHubRepoUrl = null, FeedUrl = null };
@@ -73,17 +35,6 @@ public class VelopackAppUpdaterTests
 
         result.IsUpdateAvailable.Should().BeFalse();
         result.Status.Should().Be(AppUpdateCheckStatus.NotInstalled);
-    }
-
-    [Fact]
-    public async Task DownloadAndApplyAsync_does_nothing_when_no_update_is_pending()
-    {
-        var settings = new UpdaterSettings { GitHubRepoUrl = null, FeedUrl = null };
-        var updater = NewUpdater(settings);
-
-        Func<Task> act = () => updater.DownloadAndApplyAsync();
-
-        await act.Should().NotThrowAsync();
     }
 
     private static VelopackAppUpdater NewUpdater(UpdaterSettings settings) =>

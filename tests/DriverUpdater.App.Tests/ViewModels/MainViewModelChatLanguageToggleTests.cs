@@ -30,7 +30,7 @@ public class MainViewModelChatLanguageToggleTests
         var vm = NewVm(applier, new MutableOptionsMonitor<AiSettings>(new AiSettings()));
 
         vm.IsAiResponseLanguageHebrew = true;
-        await WaitForIdleAsync();
+        await applier.ApplyCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         applier.Applied.Should().ContainSingle();
         applier.Applied![0].Key.Should().Be("ai.language");
@@ -46,7 +46,7 @@ public class MainViewModelChatLanguageToggleTests
             new AiSettings { ResponseLanguage = AppLanguage.Hebrew }));
 
         vm.IsAiResponseLanguageHebrew = false;
-        await WaitForIdleAsync();
+        await applier.ApplyCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         applier.Applied.Should().ContainSingle();
         applier.Applied![0].Value.Should().Be("english");
@@ -59,7 +59,7 @@ public class MainViewModelChatLanguageToggleTests
         var vm = NewVm(applier, new MutableOptionsMonitor<AiSettings>(new AiSettings()));
 
         vm.IsAiResponseLanguageHebrew = true;
-        await WaitForIdleAsync();
+        await applier.ApplyCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         vm.IsAiResponseLanguageHebrew.Should().BeFalse();
         vm.StatusText.Should().Contain("settings.json is locked");
@@ -97,16 +97,6 @@ public class MainViewModelChatLanguageToggleTests
             System.Windows.Threading.DispatcherPriority.ContextIdle,
             new Action(() => frame.Continue = false));
         System.Windows.Threading.Dispatcher.PushFrame(frame);
-    }
-
-    private static async Task WaitForIdleAsync()
-    {
-        // The toggle applies fire-and-forget from the property setter; give the continuation a
-        // turn to run before asserting on its outcome.
-        for (var i = 0; i < 20; i++)
-        {
-            await Task.Delay(10);
-        }
     }
 
     private static MainViewModel NewVm(IChatSettingsApplier? applier, IOptionsMonitor<AiSettings> aiSettings) =>
@@ -150,6 +140,8 @@ public class MainViewModelChatLanguageToggleTests
     {
         public IReadOnlyList<ChatSettingChange>? Applied { get; private set; }
         public string? Failure { get; init; }
+        public TaskCompletionSource<ChatSettingsApplyResult> ApplyCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new AppSettings());
@@ -158,13 +150,19 @@ public class MainViewModelChatLanguageToggleTests
             IReadOnlyList<ChatSettingChange> changes,
             CancellationToken cancellationToken = default)
         {
+            ChatSettingsApplyResult result;
             if (Failure is not null)
             {
-                return Task.FromResult(ChatSettingsApplyResult.Failure(Failure));
+                result = ChatSettingsApplyResult.Failure(Failure);
+            }
+            else
+            {
+                Applied = changes;
+                result = ChatSettingsApplyResult.Success();
             }
 
-            Applied = changes;
-            return Task.FromResult(ChatSettingsApplyResult.Success());
+            ApplyCompleted.TrySetResult(result);
+            return Task.FromResult(result);
         }
     }
 

@@ -163,10 +163,15 @@ public sealed class WindowsTaskSchedulerService : ISchedulerService
         }
     }
 
-    internal static Trigger BuildTrigger(ScheduleCadence cadence, TimeOnly timeOfDay, DayOfWeek dayOfWeek)
+    internal static Trigger BuildTrigger(
+        ScheduleCadence cadence,
+        TimeOnly timeOfDay,
+        DayOfWeek dayOfWeek,
+        DateTime? now = null)
     {
-        var startBoundary = DateTime.Today.Add(timeOfDay.ToTimeSpan());
-        if (startBoundary <= DateTime.Now)
+        var current = now ?? DateTime.Now;
+        var startBoundary = current.Date.Add(timeOfDay.ToTimeSpan());
+        if (startBoundary <= current)
         {
             startBoundary = startBoundary.AddDays(1);
         }

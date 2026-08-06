@@ -27,6 +27,14 @@ public class ResultTests
     }
 
     [Fact]
+    public void Failure_rejects_a_null_error()
+    {
+        var act = () => Result<int>.Failure((ResultError)null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
     public void Accessing_value_on_failure_throws()
     {
         var result = Result<int>.Failure("E", "msg");
@@ -88,6 +96,16 @@ public class ResultTests
     }
 
     [Fact]
+    public void Map_rejects_a_null_projection()
+    {
+        var result = Result<int>.Success(3);
+
+        var act = () => result.Map<string>(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
     public void Bind_chains_results_on_success()
     {
         var result = Result<int>.Success(5)
@@ -112,6 +130,16 @@ public class ResultTests
     }
 
     [Fact]
+    public void Bind_rejects_a_null_continuation()
+    {
+        var result = Result<int>.Success(3);
+
+        var act = () => result.Bind<string>(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
     public void Match_calls_success_branch_for_success()
     {
         var result = Result<int>.Success(7);
@@ -129,6 +157,26 @@ public class ResultTests
         var output = result.Match(v => $"ok:{v}", e => $"err:{e.Code}");
 
         output.Should().Be("err:E42");
+    }
+
+    [Fact]
+    public void Match_rejects_a_null_success_branch()
+    {
+        var result = Result<int>.Success(7);
+
+        var act = () => result.Match<string>(null!, error => error.Code);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Match_rejects_a_null_failure_branch()
+    {
+        var result = Result<int>.Success(7);
+
+        var act = () => result.Match(value => value.ToString(), null!);
+
+        act.Should().Throw<ArgumentNullException>();
     }
 
     [Fact]

@@ -30,6 +30,21 @@ public class InstallPipelineTests
         wu.DownloadAndInstallInvocations.Should().Be(0);
     }
 
+    [Theory]
+    [InlineData(true, "2. Download")]
+    [InlineData(false, "1. Download")]
+    public void BuildDryRunSummary_honors_the_backup_option_and_keeps_step_numbers_contiguous(
+        bool includeBackup,
+        string expectedDownloadStep)
+    {
+        var summary = InstallPipeline.BuildDryRunSummary(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: includeBackup));
+
+        summary.Contains("Back up current driver", StringComparison.Ordinal).Should().Be(includeBackup);
+        summary.Should().Contain(expectedDownloadStep);
+    }
+
     [Fact]
     public async Task ExecuteAsync_skips_restore_point_when_option_disabled()
     {
@@ -108,6 +123,10 @@ public class InstallPipelineTests
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         history.Writes.Should().NotBeEmpty();
+        history.Writes.Select(write => write.Status).Should().Equal(
+            UpdateStatus.Downloading,
+            UpdateStatus.Installing,
+            UpdateStatus.Succeeded);
         history.Writes[^1].Status.Should().Be(result.Status);
         history.Writes[^1].IsTerminal.Should().BeTrue();
         history.MaximumConcurrentWrites.Should().Be(1);
@@ -223,6 +242,21 @@ public class InstallPipelineTests
 
         await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
         clock.Advance(InstallPipeline.RestorePointReuseWindow + TimeSpan.FromMinutes(1));
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+
+        rp.Invocations.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_creates_a_fresh_restore_point_at_the_exact_reuse_window_boundary()
+    {
+        var rp = new FakeRestorePointService();
+        var wu = new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") };
+        var clock = new MutableClock(new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero));
+        var pipeline = new InstallPipeline(rp, new FakeBackupService(), wu, NullLogger<InstallPipeline>.Instance, clock: clock);
+
+        await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
+        clock.Advance(InstallPipeline.RestorePointReuseWindow);
         await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(BackupCurrentDriver: false));
 
         rp.Invocations.Should().Be(2);
@@ -417,6 +451,53 @@ public class InstallPipelineTests
         var result = await pipeline.ExecuteAsync(NewOperation(), new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         result.Status.Should().Be(UpdateStatus.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExecuteAsync_verifies_an_upgrade_when_readback_has_only_version_or_date(bool versionIsMissing)
+    {
+        var state = versionIsMissing
+            ? new InstalledDriverState(null, new DateOnly(2025, 1, 1))
+            : new InstalledDriverState(new Version(2, 0), null);
+        var probe = new FakeInstalledDriverProbe { State = state };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") },
+            NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.VerifiedState.Should().Be(state);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExecuteAsync_reports_conflict_when_only_version_or_date_moves_back(bool versionMovesBack)
+    {
+        var state = versionMovesBack
+            ? new InstalledDriverState(new Version(0, 9), new DateOnly(2024, 1, 1))
+            : new InstalledDriverState(new Version(1, 0), new DateOnly(2023, 12, 1));
+        var probe = new FakeInstalledDriverProbe { State = state };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient { InstallResult = new WuInstallResult(0, false, "ok") },
+            NullLogger<InstallPipeline>.Instance,
+            installedDriverProbe: probe);
+
+        var result = await pipeline.ExecuteAsync(
+            NewOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
     }
 
     [Fact]
@@ -657,6 +738,9 @@ public class InstallPipelineTests
     [InlineData("Configuration completed successfully. Reconfiguration success or error status: 0.", true)]
     [InlineData("Configuration completed successfully. MainEngineThread is returning 0", true)]
     [InlineData("Configuration failed. Reconfiguration success or error status: 1603.", false)]
+    [InlineData("Configuration completed successfully.", false)]
+    [InlineData("Reconfiguration success or error status: 0.", false)]
+    [InlineData("", false)]
     public void IsSuccessfulAmdChipsetLog_requires_explicit_success_and_zero_status(string log, bool expected)
     {
         InstallPipeline.IsSuccessfulAmdChipsetLog(log).Should().Be(expected);
@@ -671,6 +755,85 @@ public class InstallPipelineTests
     public void AmdChipsetLogRequiresReboot_recognizes_positive_reboot_evidence(string log, bool expected)
     {
         InstallPipeline.AmdChipsetLogRequiresReboot(log).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null, false, false, null)]
+    [InlineData("Installer completed.", false, false, "Installer completed.")]
+    [InlineData(null, false, true, "Reboot required to complete installation.")]
+    [InlineData(null, true, false, "AMD chipset package completed successfully.")]
+    public void BuildAmdChipsetSuccessMessage_combines_only_the_evidence_that_is_present(
+        string? existingMessage,
+        bool logConfirmedSuccess,
+        bool rebootRequired,
+        string? expectedFragment)
+    {
+        var message = InstallPipeline.BuildAmdChipsetSuccessMessage(
+            existingMessage,
+            exitCode: 2,
+            logConfirmedSuccess,
+            rebootRequired);
+
+        if (expectedFragment is null)
+        {
+            message.Should().BeNull();
+        }
+        else
+        {
+            message.Should().Contain(expectedFragment);
+        }
+    }
+
+    [Theory]
+    [InlineData("4D-5A", true)]
+    [InlineData("4D-00", false)]
+    [InlineData("00-5A", false)]
+    [InlineData("4D", false)]
+    public void HasPortableExecutableMagic_requires_the_complete_MZ_header(string bytes, bool expected)
+    {
+        using var temp = new TempDir();
+        var path = Path.Combine(temp.Path, "candidate.exe");
+        File.WriteAllBytes(path, bytes.Split('-').Select(value => Convert.ToByte(value, 16)).ToArray());
+
+        InstallPipeline.HasPortableExecutableMagic(path).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("vendor-installer:nvidia:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "NVIDIA Corporation", true)]
+    [InlineData("vendor-installer:generic:1", "https://downloads.nvidia.com/a.exe", "Microsoft", "Microsoft", "NVIDIA Corporation", true)]
+    [InlineData("vendor-installer:amd:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Advanced Micro Devices, Inc.", true)]
+    [InlineData("vendor-installer:intel:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Intel Corporation", true)]
+    [InlineData("vendor-installer:dell:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Dell Inc.", true)]
+    [InlineData("vendor-installer:lenovo:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Lenovo Group", true)]
+    [InlineData("vendor-installer:hp-image-assistant:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "HP Inc.", true)]
+    [InlineData("vendor-installer:gigabyte:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "GIGA-BYTE Technology", true)]
+    [InlineData("vendor-installer:asus:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "ASUSTeK Computer", true)]
+    [InlineData("vendor-installer:msi:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "MICRO-STAR International", true)]
+    [InlineData("vendor-installer:generic:1", "https://drivers.msi.com/a.exe", "Microsoft", "Microsoft", "MICRO-STAR International", true)]
+    [InlineData("vendor-installer:asrock:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "ASRock Inc.", true)]
+    [InlineData("vendor-installer:realtek:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Realtek Semiconductor Corp.", true)]
+    [InlineData("vendor-installer:logi:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Logitech Europe", true)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "Contoso Devices", "Microsoft", "Contoso Devices Ltd.", true)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "Microsoft", "Fabrikam Hardware", "Fabrikam Hardware LLC", true)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "Microsoft", "Microsoft Corporation", "Microsoft Corporation", false)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "", "", "Contoso", false)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "Standard system devices", "Microsoft", "Standard system devices", false)]
+    [InlineData("vendor-installer:generic:1", "https://example.com/a.exe", "(Standard system devices)", "Microsoft", "(Standard system devices)", false)]
+    [InlineData("vendor-installer:nvidia:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "Unknown Publisher", false)]
+    [InlineData("vendor-installer:nvidia:1", "https://example.com/a.exe", "Microsoft", "Microsoft", "", false)]
+    public void IsExpectedPublisher_accepts_only_a_publisher_tied_to_the_source_or_device(
+        string sourceUpdateId,
+        string downloadUrl,
+        string provider,
+        string manufacturer,
+        string publisher,
+        bool expected)
+    {
+        var operation = NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri(downloadUrl));
+        var candidate = operation.Candidate with { SourceUpdateId = sourceUpdateId };
+        var driver = operation.TargetSnapshot with { Provider = provider, Manufacturer = manufacturer };
+
+        InstallPipeline.IsExpectedPublisher(candidate, driver, publisher).Should().Be(expected);
     }
 
     [Fact]
@@ -1310,6 +1473,65 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public void LocateInstallerInTree_prefers_msi_when_msi_and_generic_exe_are_both_present()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "vendor.msi"), "stub");
+        File.WriteAllText(Path.Combine(temp.Path, "Other.exe"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().EndWith("vendor.msi");
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_prefers_named_install_exe_over_msi()
+    {
+        using var temp = new TempDir();
+        File.WriteAllText(Path.Combine(temp.Path, "Install.exe"), "stub");
+        File.WriteAllText(Path.Combine(temp.Path, "vendor.msi"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().EndWith("Install.exe");
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_prefers_the_shallowest_msi()
+    {
+        using var temp = new TempDir();
+        var rootMsi = Path.Combine(temp.Path, "root.msi");
+        var nested = Path.Combine(temp.Path, "nested");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(rootMsi, "stub");
+        File.WriteAllText(Path.Combine(nested, "nested.msi"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().Be(rootMsi);
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_prefers_the_shallowest_matching_setup_file()
+    {
+        using var temp = new TempDir();
+        var rootSetup = Path.Combine(temp.Path, "Setup.exe");
+        var nested = Path.Combine(temp.Path, "nested");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(rootSetup, "stub");
+        File.WriteAllText(Path.Combine(nested, "Setup.exe"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().Be(rootSetup);
+    }
+
+    [Fact]
+    public void LocateInstallerInTree_prefers_the_shallowest_generic_exe()
+    {
+        using var temp = new TempDir();
+        var rootExe = Path.Combine(temp.Path, "Root.exe");
+        var nested = Path.Combine(temp.Path, "nested");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(rootExe, "stub");
+        File.WriteAllText(Path.Combine(nested, "Nested.exe"), "stub");
+
+        InstallPipeline.LocateInstallerInTree(temp.Path).Should().Be(rootExe);
+    }
+
+    [Fact]
     public void LocateInstallerInTree_returns_null_when_no_installer_found()
     {
         using var temp = new TempDir();
@@ -1419,6 +1641,11 @@ public class InstallPipelineTests
     [InlineData("vendor-installer:nullsoft:foo", "C:\\Temp\\setup.exe", "/S")]
     [InlineData("vendor-installer:amd-chipset:8.05.04.516", "C:\\Temp\\chipset.exe", "-INSTALL")]
     [InlineData("vendor-installer:inno:bar", "C:\\Temp\\bar.exe", "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART")]
+    [InlineData("vendor-installer:msi-wrapper:foo", "C:\\Temp\\wrapper.exe", "/quiet /norestart /log \"C:\\Temp\\wrapper.log\"")]
+    [InlineData("vendor-installer:intel-graphics:32.0", "C:\\Temp\\intel.exe", "--overwrite -s")]
+    [InlineData("vendor-installer:installshield:foo", "C:\\Temp\\setup.exe", "/s")]
+    [InlineData("vendor-installer:oem-tool:dell-command-update:2", "C:\\Temp\\dcu.exe", "/applyUpdates -silent -updateType=driver,firmware -reboot=disable")]
+    [InlineData("vendor-installer:oem-tool:lenovo-system-update:2", "C:\\Temp\\lsu.exe", "/CM -search A -action INSTALL -noicon -noreboot")]
     public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
     {
         var candidate = new UpdateCandidate(
@@ -1439,6 +1666,30 @@ public class InstallPipelineTests
         ok.Should().BeTrue();
         fileName.Should().Be(installerPath);
         arguments.Should().Be(expectedArgs);
+        skipReason.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TryBuildVendorInstallerCommand_maps_hp_image_assistant_to_noninteractive_install()
+    {
+        var operation = NewOperation(UpdateSource.Oem, UpdateInstallKind.VendorInstaller, new Uri("file:///C:/Temp/hpia.exe"));
+        var candidate = operation.Candidate with
+        {
+            SourceUpdateId = "vendor-installer:oem-tool:hp-image-assistant:2"
+        };
+
+        var ok = InstallPipeline.TryBuildVendorInstallerCommand(
+            candidate,
+            "C:\\Temp\\hpia.exe",
+            out var fileName,
+            out var arguments,
+            out var skipReason);
+
+        ok.Should().BeTrue();
+        fileName.Should().Be("C:\\Temp\\hpia.exe");
+        arguments.Should().Contain("/Operation:Analyze")
+            .And.Contain("/Action:Install")
+            .And.Contain("/Noninteractive");
         skipReason.Should().BeEmpty();
     }
 }

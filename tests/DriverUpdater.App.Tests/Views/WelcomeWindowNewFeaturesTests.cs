@@ -61,11 +61,35 @@ public class WelcomeWindowNewFeaturesTests
             .Elements(Presentation + "Border")
             .Single(border => border.Attribute("Style")?.Value == "{StaticResource WelcomeNewCardStyle}");
 
+        var expectedHeadings = panelName == "EnglishPanel"
+            ? new[]
+            {
+                "Ask the AI to change your settings: ",
+                "Ask what is turned on right now: ",
+                "Conversation starters: ",
+                "One list of schedule types in Settings > Schedule: ",
+                "The AI can decide what a scheduled run installs: ",
+                "Your own list of drivers: ",
+                "Drivers you never want touched: ",
+                "The close button keeps DriverUpdater running: "
+            }
+            : new[]
+            {
+                "אפשר לבקש מה־AI לשנות הגדרות: ",
+                "אפשר לשאול מה מוגדר כרגע: ",
+                "כפתורי פתיחת שיחה: ",
+                "רשימה אחת של סוגי תזמון בהגדרות, בלשונית Schedule: ",
+                "ה־AI מחליט מה יותקן בסריקה המתוזמנת: ",
+                "רשימת מנהלי ההתקנים שלכם: ",
+                "מנהלי התקנים שלא רוצים לעדכן בכלל: ",
+                "כפתור הסגירה משאיר את DriverUpdater פעילה: "
+            };
+
         card.Descendants(Presentation + "Run")
-            .Count(run => run.Attribute("FontWeight")?.Value == "SemiBold")
-            .Should().Be(7,
-                "AI settings control, asking what is on, conversation starters, the schedule list, "
-                + "the AI schedule, the driver picker, close to tray");
+            .Where(run => run.Attribute("FontWeight")?.Value == "SemiBold")
+            .Select(run => run.Attribute("Text")?.Value)
+            .Should().Equal(expectedHeadings,
+                "each language must describe the actual release features, not merely contain the right count");
     }
 
     [Theory]

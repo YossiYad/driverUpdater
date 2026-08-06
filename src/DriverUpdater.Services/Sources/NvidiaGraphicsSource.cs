@@ -124,7 +124,20 @@ public sealed class NvidiaGraphicsSource : IUpdateSource
             SourceUpdateId: $"vendor-installer:nvidia:{release.Version}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorInstaller,
-            VersionLabel: release.Version);
+            VersionLabel: release.Version,
+            InstalledVersionLabel: ToNvidiaPackageVersion(driver.CurrentVersion));
+
+    internal static string? ToNvidiaPackageVersion(Version? windowsDriverVersion)
+    {
+        if (windowsDriverVersion is not { Build: >= 10 and <= 19, Revision: >= 0 and <= 9999 } version)
+        {
+            return null;
+        }
+
+        var packageMajor = (version.Build % 10 * 100) + (version.Revision / 100);
+        var packageMinor = version.Revision % 100;
+        return $"{packageMajor}.{packageMinor:D2}";
+    }
 
     internal static bool IsSupportedNvidiaGpu(DriverInfo driver)
     {

@@ -8,6 +8,25 @@ namespace DriverUpdater.Services.Tests.Sources;
 
 public class NvidiaGraphicsSourceTests
 {
+    [Theory]
+    [InlineData("32.0.16.1088", "610.88")]
+    [InlineData("31.0.15.6094", "560.94")]
+    [InlineData("27.21.14.5671", "456.71")]
+    public void ToNvidiaPackageVersion_converts_the_windows_inf_version_to_the_public_driver_version(
+        string windowsVersion,
+        string expected)
+    {
+        NvidiaGraphicsSource.ToNvidiaPackageVersion(new Version(windowsVersion)).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("32.0.101.7085")]
+    [InlineData("1.2.3.4")]
+    public void ToNvidiaPackageVersion_rejects_versions_outside_the_nvidia_inf_scheme(string windowsVersion)
+    {
+        NvidiaGraphicsSource.ToNvidiaPackageVersion(new Version(windowsVersion)).Should().BeNull();
+    }
+
     private const string SampleJson = """
         {
           "Success": "1",
@@ -38,7 +57,7 @@ public class NvidiaGraphicsSourceTests
         results[0].SourceUpdateId.Should().Be("vendor-installer:nvidia:610.47");
         results[0].DownloadUrl.AbsoluteUri.Should().Be("https://us.download.nvidia.com/Windows/610.47/610.47-desktop-win10-win11-64bit-international-dch-whql.exe");
         results[0].NewDate.Should().Be(new DateOnly(2026, 5, 26));
-        results[0].SizeBytes.Should().BeGreaterThan(900_000_000); // ~978 MB
+        results[0].SizeBytes.Should().Be(1_026_000_158);
     }
 
     [Fact]
@@ -126,7 +145,7 @@ public class NvidiaGraphicsSourceTests
         release.Version.Should().Be("610.47");
         release.ReleaseDate.Should().Be(new DateOnly(2026, 5, 26));
         release.DownloadUrl.Host.Should().Be("us.download.nvidia.com");
-        release.SizeBytes.Should().BeInRange(900_000_000, 1_100_000_000);
+        release.SizeBytes.Should().Be(1_026_000_158);
     }
 
     [Fact]

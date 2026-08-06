@@ -76,7 +76,10 @@ public class MainWindowHeaderTests
             .Where(button => button.Attribute("Style")?.Value == "{StaticResource HeaderIconButtonStyle}")
             .Where(button => button.Attribute("ToolTip")?.Value?.StartsWith("{DynamicResource Toolbar.", StringComparison.Ordinal) == true)
             .ToArray();
-        iconButtons.Should().HaveCount(3);
+        iconButtons.Select(button => button.Attribute("Command")?.Value).Should().Equal(
+            "{Binding OpenHistoryCommand}",
+            "{Binding OpenLogsCommand}",
+            "{Binding OpenSettingsCommand}");
         iconButtons.Select(button =>
                 button.Element(presentation + "TextBlock")?.Attribute("FontFamily")?.Value)
             .Should().OnlyContain(fontFamily => fontFamily == "Segoe MDL2 Assets");

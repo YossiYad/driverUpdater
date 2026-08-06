@@ -40,6 +40,8 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonSettingsStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>()));
         services.AddSingleton<IAutoUpdateSelectionStore>(sp =>
             new JsonAutoUpdateSelectionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonAutoUpdateSelectionStore>>()));
+        services.AddSingleton<IDriverUpdateExclusionStore>(sp =>
+            new JsonDriverUpdateExclusionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverUpdateExclusionStore>>()));
         services.AddSingleton<IDriverCacheStore>(sp =>
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>

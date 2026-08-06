@@ -47,6 +47,12 @@ public class AppCompositionTests
         // Settings > Schedule > "Choose the drivers..." is the only way to edit that selection.
         provider.GetRequiredService<IAutoUpdateSelectionWindowOpener>().Should().NotBeNull();
         provider.GetRequiredService<AutoUpdateSelectionViewModel>().Should().NotBeNull();
+        // Optional on both MainViewModel and ScheduledScanRunner: without the registration a
+        // driver the user excluded would silently start being updated again.
+        provider.GetRequiredService<IDriverUpdateExclusionStore>().Should().NotBeNull();
+        // Settings > Sources > "Choose the drivers to leave alone..." is the only way to edit it.
+        provider.GetRequiredService<IExcludedDriverSelectionWindowOpener>().Should().NotBeNull();
+        provider.GetRequiredService<ExcludedDriverSelectionViewModel>().Should().NotBeNull();
         // Optional on ScheduledScanRunner: without it, an AI-recommended schedule would quietly
         // install nothing instead of asking the AI what to install.
         provider.GetRequiredService<IAiAutoUpdateAdvisor>().Should().NotBeNull();

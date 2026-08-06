@@ -130,6 +130,24 @@
 
                     <Separator Margin="0,8,0,14" />
                     <TextBlock FontWeight="SemiBold"
+                               Text="Drivers to leave alone" />
+                    <TextBlock Margin="0,6,0,10"
+                               Opacity="0.7"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="Pick devices DriverUpdater must never update. A newer version found for an excluded device is still shown in the main window, marked Not updated, so you can see what is out there without installing it. Nothing installs it - not the Update button, not a scheduled run. Untick a driver to start updating it again." />
+                    <Button Padding="14,7"
+                            HorizontalAlignment="Left"
+                            Content="Choose the drivers to leave alone..."
+                            Command="{Binding ChooseExcludedDriversCommand}" />
+                    <TextBlock Margin="0,6,0,0"
+                               Opacity="0.75"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="{Binding ExcludedDriverCountText}" />
+
+                    <Separator Margin="0,14,0,14" />
+                    <TextBlock FontWeight="SemiBold"
                                Text="Driver update cache" />
                     <TextBlock Margin="0,6,0,10"
                                Opacity="0.7"

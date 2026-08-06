@@ -1143,7 +1143,7 @@ public sealed class InstallPipeline : IInstallPipeline
             || log.Contains("MsiSystemRebootPending property. Its value is '1'", StringComparison.OrdinalIgnoreCase)
             || log.Contains("MsiSystemRebootPending = 1", StringComparison.OrdinalIgnoreCase));
 
-    private static string? BuildAmdChipsetSuccessMessage(
+    internal static string? BuildAmdChipsetSuccessMessage(
         string? existingMessage,
         int exitCode,
         bool logConfirmedSuccess,
@@ -1185,7 +1185,9 @@ public sealed class InstallPipeline : IInstallPipeline
         AddDevicePublisherToken(driver.Provider, expected);
         AddDevicePublisherToken(driver.Manufacturer, expected);
 
-        return expected.Any(token => publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
+        return expected.Any(token =>
+            !string.IsNullOrWhiteSpace(token)
+            && publisher.Contains(token, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void AddKnownPublisherTokens(string source, string host, List<string> expected)
@@ -1218,12 +1220,12 @@ public sealed class InstallPipeline : IInstallPipeline
             expected.Add("HP Inc");
             expected.Add("Hewlett-Packard");
         }
-        if (ContainsEither(source, host, "gigabyte") || source.Contains(":gigabyte:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "gigabyte"))
         {
             expected.Add("GIGA-BYTE");
             expected.Add("GIGABYTE");
         }
-        if (ContainsEither(source, host, "asus") || source.Contains(":asus:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "asus"))
         {
             expected.Add("ASUSTeK");
             expected.Add("ASUS");
@@ -1234,7 +1236,7 @@ public sealed class InstallPipeline : IInstallPipeline
         {
             expected.Add("MICRO-STAR");
         }
-        if (ContainsEither(source, host, "asrock") || source.Contains(":asrock:", StringComparison.OrdinalIgnoreCase))
+        if (ContainsEither(source, host, "asrock"))
         {
             expected.Add("ASRock");
         }

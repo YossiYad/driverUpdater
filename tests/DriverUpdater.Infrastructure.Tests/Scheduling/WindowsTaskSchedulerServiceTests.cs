@@ -38,10 +38,27 @@ public class WindowsTaskSchedulerServiceTests
     [Fact]
     public void BuildTrigger_pushes_start_boundary_to_tomorrow_when_time_already_passed()
     {
-        var pastTime = TimeOnly.FromDateTime(DateTime.Now).AddHours(-1);
-        var trigger = WindowsTaskSchedulerService.BuildTrigger(ScheduleCadence.Daily, pastTime, DayOfWeek.Monday);
+        var now = new DateTime(2026, 8, 7, 14, 0, 0, DateTimeKind.Local);
+        var trigger = WindowsTaskSchedulerService.BuildTrigger(
+            ScheduleCadence.Daily,
+            new TimeOnly(13, 0),
+            DayOfWeek.Monday,
+            now);
 
-        trigger.StartBoundary.Should().BeAfter(DateTime.Now);
+        trigger.StartBoundary.Should().Be(new DateTime(2026, 8, 8, 13, 0, 0, DateTimeKind.Local));
+    }
+
+    [Fact]
+    public void BuildTrigger_keeps_start_boundary_today_when_time_has_not_passed()
+    {
+        var now = new DateTime(2026, 8, 7, 14, 0, 0, DateTimeKind.Local);
+        var trigger = WindowsTaskSchedulerService.BuildTrigger(
+            ScheduleCadence.Daily,
+            new TimeOnly(15, 0),
+            DayOfWeek.Monday,
+            now);
+
+        trigger.StartBoundary.Should().Be(new DateTime(2026, 8, 7, 15, 0, 0, DateTimeKind.Local));
     }
 
     [Theory]

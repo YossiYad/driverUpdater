@@ -38,11 +38,12 @@ public class ScheduledScanRunnerTests
         var driverB = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driverA, driverB },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache);
 
         await runner.RunAsync(installUpdates: false);
@@ -52,6 +53,7 @@ public class ScheduledScanRunnerTests
         entries.Should().ContainSingle(e => e.Driver.DeviceName == "Intel Display"
             && e.AvailableUpdate != null && e.Status == DriverStatus.Outdated);
         entries.Should().ContainSingle(e => e.Driver.DeviceName == "Realtek Audio" && e.AvailableUpdate == null);
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -185,16 +187,94 @@ public class ScheduledScanRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_never_installs_or_offers_an_update_for_an_excluded_driver()
+    {
+        var excluded = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var other = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var excludedCandidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var otherCandidate = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+        var cache = new StubDriverCacheStore();
+
+        var runner = NewRunner(
+            new[] { excluded, other },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, excludedCandidate, otherCandidate) },
+            pipeline,
+            cache,
+            exclusionStore: new StubExclusionStore(excluded.DeviceId));
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().ContainSingle()
+            .Which.Candidate.SourceUpdateId.Should().Be(otherCandidate.SourceUpdateId);
+
+        var entries = cache.Saved[0].Entries;
+        entries.Should().ContainSingle(e => e.Driver.DeviceName == "Intel Display"
+            && e.Status == DriverStatus.Excluded
+            && e.AvailableUpdate == excludedCandidate,
+            "the found version is kept so the grid can show it, flagged as never installed");
+    }
+
+    [Fact]
+    public async Task RunAsync_keeps_a_cached_update_visible_for_an_excluded_driver_without_installing_it()
+    {
+        var excluded = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var cachedCandidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(3, 0, 0, 0));
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            new[] { new CachedDriverEntry(excluded, DriverStatus.Outdated, cachedCandidate) }));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+
+        var runner = NewRunner(
+            new[] { excluded },
+            Array.Empty<IUpdateSource>(),
+            pipeline,
+            cache,
+            exclusionStore: new StubExclusionStore(excluded.DeviceId));
+
+        await runner.RunAsync(installUpdates: true);
+
+        var entry = cache.Saved[0].Entries.Single();
+        entry.AvailableUpdate.Should().Be(cachedCandidate);
+        entry.Status.Should().Be(DriverStatus.Excluded);
+        pipeline.Operations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_blocks_all_installs_when_the_exclusion_list_cannot_be_read()
+    {
+        var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
+        var cache = new StubDriverCacheStore();
+        var runner = NewRunner(
+            new[] { driver },
+            new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
+            pipeline,
+            cache,
+            exclusionStore: new UnreadableExclusionStore());
+
+        await runner.RunAsync(installUpdates: true);
+
+        pipeline.Operations.Should().BeEmpty(
+            "an unattended run cannot assume that no drivers are excluded after a read failure");
+        cache.Saved.Should().ContainSingle();
+        cache.Saved[0].Entries.Should().ContainSingle()
+            .Which.AvailableUpdate.Should().Be(candidate);
+    }
+
+    [Fact]
     public async Task RunAsync_installs_nothing_when_the_selected_scope_has_no_drivers()
     {
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
             autoUpdateSelectionStore: new StubAutoUpdateSelectionStore());
@@ -202,6 +282,7 @@ public class ScheduledScanRunnerTests
         await runner.RunAsync(installUpdates: true);
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull();
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -210,11 +291,12 @@ public class ScheduledScanRunnerTests
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.SelectedDrivers },
             autoUpdateSelectionStore: new ThrowingAutoUpdateSelectionStore());
@@ -223,6 +305,7 @@ public class ScheduledScanRunnerTests
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
             "an unreadable selection must not be treated as opting every driver in");
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -283,11 +366,12 @@ public class ScheduledScanRunnerTests
         var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AiRecommended },
             aiAdvisor: new StubAiAutoUpdateAdvisor());
@@ -298,6 +382,7 @@ public class ScheduledScanRunnerTests
         saved.Should().NotBeNull();
         saved!.AiVerification.Should().NotBeNull("the next interactive session shows why the run skipped it");
         saved.AiVerification!.Risk.Should().Be(AiRiskLevel.HighRisk);
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -306,11 +391,12 @@ public class ScheduledScanRunnerTests
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AiRecommended },
             aiAdvisor: new StubAiAutoUpdateAdvisor(candidate.SourceUpdateId) { Configured = false });
@@ -319,6 +405,7 @@ public class ScheduledScanRunnerTests
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
             "an update the user asked the AI to vet must never be installed unvetted");
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -327,17 +414,19 @@ public class ScheduledScanRunnerTests
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AiRecommended });
 
         await runner.RunAsync(installUpdates: true);
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull();
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -346,11 +435,12 @@ public class ScheduledScanRunnerTests
         var driver = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
         var candidate = NewCandidate("PCI\\VEN_8086&DEV_4682", new Version(2, 0, 0, 0));
         var cache = new StubDriverCacheStore();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
 
         var runner = NewRunner(
             new[] { driver },
             new[] { new FakeUpdateSource(UpdateSource.WindowsUpdate, candidate) },
-            new ThrowingInstallPipeline(),
+            pipeline,
             cache,
             schedule: new ScheduleSettings { AutoUpdateScope = AutoUpdateScope.AiRecommended },
             aiAdvisor: new ThrowingAiAutoUpdateAdvisor());
@@ -359,6 +449,7 @@ public class ScheduledScanRunnerTests
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
             "a failed AI review must not fall back to installing everything");
+        pipeline.Operations.Should().BeEmpty();
     }
 
     [Fact]
@@ -518,7 +609,7 @@ public class ScheduledScanRunnerTests
             new Version(2026, 5, 28, 0),
             UpdateInstallKind.VendorPage,
             UpdateConfidence.Advisory);
-        var pipeline = new ThrowingInstallPipeline();
+        var pipeline = new RecordingInstallPipeline(UpdateStatus.Succeeded);
         var cache = new StubDriverCacheStore();
 
         var runner = NewRunner(
@@ -531,20 +622,26 @@ public class ScheduledScanRunnerTests
 
         cache.Saved[0].Entries.Single().AvailableUpdate.Should().NotBeNull(
             "a fresh vendor lead may be resolved by the interactive app but is never auto-installed as a page");
+        pipeline.Operations.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task RunAsync_does_not_carry_unverified_vendor_leads_from_cache()
+    [Theory]
+    [InlineData(UpdateInstallKind.VendorPage, UpdateConfidence.Advisory)]
+    [InlineData(UpdateInstallKind.VendorPage, UpdateConfidence.Confirmed)]
+    [InlineData(UpdateInstallKind.VendorInstaller, UpdateConfidence.Advisory)]
+    public async Task RunAsync_carries_only_confirmed_directly_installable_candidates_from_cache(
+        UpdateInstallKind installKind,
+        UpdateConfidence confidence)
     {
         var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_1220", new Version(1, 0, 0, 0));
-        var advisory = NewCandidate(
+        var cachedCandidate = NewCandidate(
             driver.HardwareId,
             new Version(2026, 7, 29, 0),
-            UpdateInstallKind.VendorPage,
-            UpdateConfidence.Advisory);
+            installKind,
+            confidence);
         var cache = new StubDriverCacheStore(new DriverCacheSnapshot(DateTimeOffset.UtcNow, new[]
         {
-            new CachedDriverEntry(driver, DriverStatus.Outdated, advisory)
+            new CachedDriverEntry(driver, DriverStatus.Outdated, cachedCandidate)
         }));
         var runner = NewRunner(
             new[] { driver },
@@ -586,7 +683,8 @@ public class ScheduledScanRunnerTests
         UpdaterSettings? settings = null,
         ScheduleSettings? schedule = null,
         IAutoUpdateSelectionStore? autoUpdateSelectionStore = null,
-        IAiAutoUpdateAdvisor? aiAdvisor = null) =>
+        IAiAutoUpdateAdvisor? aiAdvisor = null,
+        IDriverUpdateExclusionStore? exclusionStore = null) =>
         new(
             new FakeScanService(drivers),
             sources,
@@ -596,7 +694,8 @@ public class ScheduledScanRunnerTests
             NullLogger<ScheduledScanRunner>.Instance,
             new StubOptionsMonitor<ScheduleSettings>(schedule ?? new ScheduleSettings()),
             autoUpdateSelectionStore,
-            aiAdvisor);
+            aiAdvisor,
+            exclusionStore);
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",
@@ -788,6 +887,29 @@ public class ScheduledScanRunnerTests
             AiAutoUpdateRiskTolerance riskTolerance,
             CancellationToken cancellationToken = default) =>
             throw new HttpRequestException("the AI provider is unreachable");
+    }
+
+    private sealed class StubExclusionStore : IDriverUpdateExclusionStore
+    {
+        private readonly DriverUpdateExclusions _exclusions;
+
+        public StubExclusionStore(params string[] deviceIds) =>
+            _exclusions = new DriverUpdateExclusions(deviceIds);
+
+        public Task<DriverUpdateExclusions> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_exclusions);
+
+        public Task SaveAsync(DriverUpdateExclusions exclusions, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class UnreadableExclusionStore : IDriverUpdateExclusionStore
+    {
+        public Task<DriverUpdateExclusions> LoadAsync(CancellationToken cancellationToken = default) =>
+            throw new IOException("access denied");
+
+        public Task SaveAsync(DriverUpdateExclusions exclusions, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class StubDriverCacheStore : IDriverCacheStore

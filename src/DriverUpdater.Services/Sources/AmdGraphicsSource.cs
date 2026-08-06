@@ -55,8 +55,8 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             yield break;
         }
 
-        var installedAmdSoftwareVersion = TryParseVersion(
-            _installedSoftware.GetVersion(AmdSoftwareDisplayName));
+        var installedAmdSoftwareVersionLabel = _installedSoftware.GetVersion(AmdSoftwareDisplayName);
+        var installedAmdSoftwareVersion = TryParseVersion(installedAmdSoftwareVersionLabel);
         if (installedAmdSoftwareVersion is not null)
         {
             _logger.LogInformation(
@@ -164,7 +164,11 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 continue;
             }
 
-            var candidate = BuildCandidate(driver, supportUri, release.Value);
+            var candidate = BuildCandidate(
+                driver,
+                supportUri,
+                release.Value,
+                installedAmdSoftwareVersionLabel);
             _logger.LogInformation(
                 "AMD: yielding {InstallKind} candidate for {Device} -> {Url}",
                 candidate.InstallKind, driver.DeviceName, candidate.DownloadUrl);
@@ -178,7 +182,11 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
         return uri;
     }
 
-    internal static UpdateCandidate BuildCandidate(DriverInfo driver, Uri supportUri, AmdReleaseInfo release)
+    internal static UpdateCandidate BuildCandidate(
+        DriverInfo driver,
+        Uri supportUri,
+        AmdReleaseInfo release,
+        string? installedVersionLabel = null)
     {
         if (release.DirectInstallerUrl is { } installerUrl && !IsWebStub(installerUrl))
         {
@@ -194,7 +202,8 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
                 SourceUpdateId: $"vendor-installer:nullsoft:amd-radeon:{release.Revision}",
                 SupersededIds: Array.Empty<string>(),
                 InstallKind: UpdateInstallKind.VendorInstaller,
-                VersionLabel: LabelFor(release));
+                VersionLabel: LabelFor(release),
+                InstalledVersionLabel: installedVersionLabel);
         }
 
         return new UpdateCandidate(
@@ -209,15 +218,14 @@ public sealed partial class AmdGraphicsSource : IUpdateSource
             SourceUpdateId: $"{supportUri}#{release.Revision}",
             SupersededIds: Array.Empty<string>(),
             InstallKind: UpdateInstallKind.VendorPage,
-            VersionLabel: LabelFor(release));
+            VersionLabel: LabelFor(release),
+            InstalledVersionLabel: installedVersionLabel);
     }
 
     // Adrenalin releases are branded by revision ("25.8.1"). When AMD does not also publish the
     // INF driver version, NewVersion is only a date stand-in, so show the branded revision.
     private static string? LabelFor(AmdReleaseInfo release) =>
-        release.DriverVersion is null && !string.IsNullOrWhiteSpace(release.Revision)
-            ? release.Revision
-            : null;
+        string.IsNullOrWhiteSpace(release.Revision) ? null : release.Revision;
 
     // The Adrenalin "minimal setup" / "_web" stub is a tiny downloader that always opens
     // its own GUI. /S does not actually run silent. Demote it to VendorPage so the in-app

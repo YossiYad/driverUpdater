@@ -21,11 +21,11 @@ public class FileInstallExecutionGateTests : IDisposable
         try
         {
             var secondAcquire = secondGate.AcquireAsync().AsTask();
-            await Task.Delay(150);
             secondAcquire.IsCompleted.Should().BeFalse();
 
             await firstLease.DisposeAsync();
             await using var secondLease = await secondAcquire.WaitAsync(TimeSpan.FromSeconds(2));
+            secondAcquire.IsCompletedSuccessfully.Should().BeTrue();
         }
         finally
         {

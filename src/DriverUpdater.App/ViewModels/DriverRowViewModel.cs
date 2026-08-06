@@ -18,6 +18,7 @@ public partial class DriverRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AvailableVersionText))]
+    [NotifyPropertyChangedFor(nameof(CurrentVersionText))]
     [NotifyPropertyChangedFor(nameof(AvailableDateText))]
     [NotifyPropertyChangedFor(nameof(SourceText))]
     [NotifyPropertyChangedFor(nameof(UpdateActionText))]
@@ -29,6 +30,8 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
+    [NotifyPropertyChangedFor(nameof(HasSuppressedUpdate))]
+    [NotifyPropertyChangedFor(nameof(ShowsUpdateInfo))]
     [NotifyPropertyChangedFor(nameof(CanUpdate))]
     [NotifyPropertyChangedFor(nameof(IsVendorPageOnly))]
     [NotifyPropertyChangedFor(nameof(CanAskAi))]
@@ -46,12 +49,41 @@ public partial class DriverRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ConfidenceText))]
     [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
     [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
+    [NotifyPropertyChangedFor(nameof(HasSuppressedUpdate))]
+    [NotifyPropertyChangedFor(nameof(ShowsUpdateInfo))]
     [NotifyPropertyChangedFor(nameof(IsAwaitingRescan))]
     [NotifyPropertyChangedFor(nameof(HasAiVerdict))]
     [NotifyPropertyChangedFor(nameof(AiRiskText))]
     [NotifyPropertyChangedFor(nameof(AiRecommendationText))]
     [NotifyPropertyChangedFor(nameof(AiRiskTooltip))]
     private bool _isUpdateFromCache;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUpdate))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(HasAvailableUpdate))]
+    [NotifyPropertyChangedFor(nameof(HasSuppressedUpdate))]
+    [NotifyPropertyChangedFor(nameof(ShowsUpdateInfo))]
+    [NotifyPropertyChangedFor(nameof(DriverDetailsTooltip))]
+    [NotifyPropertyChangedFor(nameof(ShowUpdateAction))]
+    private bool _isExcluded;
+
+    /// <summary>
+    /// False for an excluded device, so the grid swaps its Update button for the badge that
+    /// says the device is deliberately left alone. The row itself stays in the list, version
+    /// columns included: the point is to see what was found and see that it is not applied.
+    /// </summary>
+    public bool ShowUpdateAction => !IsExcluded;
+
+    /// <summary>
+    /// An update was found for a device the user excluded. It is shown in the version columns
+    /// and never installed, which is why it deliberately does not count as
+    /// <see cref="HasAvailableUpdate"/>.
+    /// </summary>
+    public bool HasSuppressedUpdate => IsExcluded && AvailableUpdate is not null && !IsAwaitingRescan;
+
+    /// <summary>True when the row has a found version to show, installable or not.</summary>
+    public bool ShowsUpdateInfo => HasAvailableUpdate || HasSuppressedUpdate;
 
     [ObservableProperty]
     private UpdateOperation? _lastOperation;
@@ -83,7 +115,11 @@ public partial class DriverRowViewModel : ObservableObject
     public DriverCategory Category => Driver.Category;
     public string DeviceClass => Driver.DeviceClass;
     public string HardwareId => Driver.HardwareId;
-    public string? CurrentVersionText => Driver.CurrentVersion?.ToString();
+    public string? CurrentVersionText =>
+        !string.IsNullOrWhiteSpace(AvailableUpdate?.InstalledVersionLabel)
+            ? AvailableUpdate.InstalledVersionLabel
+            : Driver.CurrentVersion?.ToString();
+    public string? WindowsDriverVersionText => Driver.CurrentVersion?.ToString();
     public string? CurrentDateText => Driver.CurrentDate?.ToString("yyyy-MM-dd");
     public bool IsSigned => Driver.IsSigned;
     public string? AvailableVersionText =>
@@ -126,7 +162,9 @@ public partial class DriverRowViewModel : ObservableObject
         _ => string.Empty
     };
 
-    public string StatusText => IsAwaitingRescan ? "Cached result, re-scan required" : Status switch
+    public string StatusText => IsExcluded
+        ? "Excluded"
+        : IsAwaitingRescan ? "Cached result, re-scan required" : Status switch
     {
         DriverStatus.Unknown => "Checking...",
         DriverStatus.UpToDate => "Up to date",
@@ -137,12 +175,32 @@ public partial class DriverRowViewModel : ObservableObject
         DriverStatus.ManualActionRequired => "No verified in-app package",
         DriverStatus.RestartRequired => "Restart required",
         DriverStatus.VerificationInconclusive => "Could not verify",
+        DriverStatus.Excluded => "Excluded",
         _ => Status.ToString()
     };
 
-    public string VersionSummaryText => string.IsNullOrWhiteSpace(AvailableVersionText)
-        ? CurrentVersionText ?? "Unknown"
-        : $"{CurrentVersionText ?? "Unknown"}  to  {AvailableVersionText}";
+    public string VersionSummaryText
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(AvailableVersionText))
+            {
+                return CurrentVersionText ?? "Unknown";
+            }
+
+            if (!string.IsNullOrWhiteSpace(AvailableUpdate?.InstalledVersionLabel))
+            {
+                return $"{CurrentVersionText}  to  {AvailableVersionText}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(AvailableUpdate?.VersionLabel))
+            {
+                return $"Package update {AvailableVersionText}";
+            }
+
+            return $"{CurrentVersionText ?? "Unknown"}  to  {AvailableVersionText}";
+        }
+    }
 
     public string DriverDetailsTooltip
     {
@@ -151,10 +209,24 @@ public partial class DriverRowViewModel : ObservableObject
             var details = new List<string>
             {
                 $"Category: {Category}",
-                $"Provider: {Provider}",
-                $"Installed version: {CurrentVersionText ?? "Unknown"}",
-                $"Installed date: {CurrentDateText ?? "Unknown"}"
+                $"Provider: {Provider}"
             };
+
+            if (!string.IsNullOrWhiteSpace(AvailableUpdate?.InstalledVersionLabel))
+            {
+                details.Add($"Installed package version: {CurrentVersionText}");
+                details.Add($"Windows driver version: {WindowsDriverVersionText ?? "Unknown"}");
+            }
+            else
+            {
+                details.Add($"Installed Windows driver version: {WindowsDriverVersionText ?? "Unknown"}");
+            }
+            details.Add($"Installed date: {CurrentDateText ?? "Unknown"}");
+
+            if (IsExcluded)
+            {
+                details.Add("Excluded from updates in Settings > Sources.");
+            }
 
             if (AvailableUpdate is not null)
             {
@@ -261,7 +333,7 @@ public partial class DriverRowViewModel : ObservableObject
     // whether a source happened to re-emit it this run does not change that.
     public bool IsAwaitingRescan => IsUpdateFromCache && !IsScannedThisRun;
 
-    public bool HasAvailableUpdate => AvailableUpdate is not null && !IsAwaitingRescan;
+    public bool HasAvailableUpdate => AvailableUpdate is not null && !IsAwaitingRescan && !IsExcluded;
 
     // Any row holding an offered update can be updated, whatever DriverStatus it currently
     // carries. Gating this on Outdated stranded every row whose status moved on for another
