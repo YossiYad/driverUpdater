@@ -53,6 +53,7 @@ public class MainViewModelUpdateSourceTests
     public async Task ScanAsync_shows_the_found_version_for_an_excluded_driver_but_never_offers_it()
     {
         var excluded = NewDriver("Intel Display", "PCI\\VEN_8086&DEV_4682", new Version(1, 0, 0, 0));
+        var excludedWithoutUpdate = NewDriver("Current Display", "PCI\\VEN_1234&DEV_0001", new Version(1, 0, 0, 0));
         var other = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
         var candidates = new[]
         {
@@ -61,7 +62,7 @@ public class MainViewModelUpdateSourceTests
         };
 
         var vm = new MainViewModel(
-            new FakeScanService(new[] { excluded, other }),
+            new FakeScanService(new[] { excluded, excludedWithoutUpdate, other }),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
             new NullOemDetectionService(),
             new NullInstallPipeline(),
@@ -70,7 +71,7 @@ public class MainViewModelUpdateSourceTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            exclusionStore: new StubExclusionStore(excluded.DeviceId));
+            exclusionStore: new StubExclusionStore(excluded.DeviceId, excludedWithoutUpdate.DeviceId));
 
         await vm.ScanCommand.ExecuteAsync(null);
 
@@ -88,6 +89,14 @@ public class MainViewModelUpdateSourceTests
         vm.UpdatesFoundCount.Should().Be(1, "the header counts what can actually be installed");
         vm.ExcludedUpdatesFoundCount.Should().Be(1, "excluded updates have their own visible count");
         vm.ProgressText.Should().Contain("1 excluded update");
+
+        vm.UpdateFilter = DriverUpdateFilter.ExcludedDrivers;
+        vm.DriversView.Cast<DriverRowViewModel>().Select(r => r.DeviceName).Should().BeEquivalentTo(
+            "Intel Display",
+            "Current Display");
+
+        vm.UpdateFilter = DriverUpdateFilter.ExcludedWithUpdates;
+        vm.DriversView.Cast<DriverRowViewModel>().Should().ContainSingle(r => r.DeviceName == "Intel Display");
     }
 
     [WpfFact]
@@ -844,7 +853,7 @@ public class MainViewModelUpdateSourceTests
         vm.Drivers[1].AvailableUpdate.Should().BeNull();
         vm.UpdatesFoundCount.Should().Be(0);
         vm.ScannedCount.Should().Be(2);
-        vm.ProgressText.Should().Be("2 cached drivers (scan to refresh)");
+        vm.ProgressText.Should().Be("2 cached drivers, 0 updates available (scan to refresh)");
         vm.UpdateAllCommand.CanExecute(null).Should().BeFalse();
 
         vm.UpdateFilter = DriverUpdateFilter.UpdatesAvailable;

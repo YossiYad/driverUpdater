@@ -73,7 +73,9 @@ public class MainViewModelTests
         vm.AvailableUpdateFilters.Select(f => f.Label).Should().Equal(
             "All drivers",
             "Updates available",
-            "No update available");
+            "No update available",
+            "Excluded from updates",
+            "Excluded with updates");
     }
 
     private static MainViewModel NewVm(params DriverInfo[] drivers) =>
