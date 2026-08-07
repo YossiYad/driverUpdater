@@ -54,9 +54,9 @@ public static class LogSummaryPromptBuilder
     /// <summary>
     /// Formats the log entries into a plain-text slice suitable for embedding in an AI prompt,
     /// keeping the most recent entries when the buffer exceeds the model context budget.
-    /// Shared with <see cref="LogChatPromptBuilder"/>.
+    /// Shared with <see cref="LogChatPromptBuilder"/> and the main-window driver chat.
     /// </summary>
-    internal static string FormatEntries(IReadOnlyList<LogEntry> entries)
+    internal static string FormatEntries(IReadOnlyList<LogEntry> entries, int maxChars = MaxLogChars)
     {
         var buffer = new StringBuilder();
         foreach (var entry in entries)
@@ -75,13 +75,13 @@ public static class LogSummaryPromptBuilder
         }
 
         var text = buffer.ToString();
-        if (text.Length <= MaxLogChars)
+        if (text.Length <= maxChars)
         {
             return text;
         }
 
-        var tail = text[^MaxLogChars..];
-        return $"... (older entries omitted, showing the last {MaxLogChars} characters)\n{tail}";
+        var tail = text[^maxChars..];
+        return $"... (older entries omitted, showing the last {maxChars} characters)\n{tail}";
     }
 
     private static readonly string[] Severity = { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };

@@ -51,7 +51,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IChatSettingsApplier? _chatSettingsApplier;
     private readonly IDriverUpdateExclusionStore? _exclusionStore;
+    private readonly InMemoryLogSink? _logSink;
     private readonly Dispatcher _dispatcher;
+
+    // True while RunUpdatesAsync is installing/verifying. Lets the driver chat tell the AI that
+    // the log tail reflects a live update run rather than a finished one.
+    private int _activeUpdateRuns;
 
     // Devices opted in to unattended updating. Mirrors the auto-update selection store so a row
     // created mid-scan can be initialised without another disk read.
@@ -208,7 +213,8 @@ public partial class MainViewModel : ObservableObject
         IAiScanConfirmation? aiScanConfirmation = null,
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IChatSettingsApplier? chatSettingsApplier = null,
-        IDriverUpdateExclusionStore? exclusionStore = null)
+        IDriverUpdateExclusionStore? exclusionStore = null,
+        InMemoryLogSink? logSink = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -243,6 +249,7 @@ public partial class MainViewModel : ObservableObject
         _vendorPageResolver = vendorPageResolver;
         _chatSettingsApplier = chatSettingsApplier;
         _exclusionStore = exclusionStore;
+        _logSink = logSink;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -396,7 +403,9 @@ public partial class MainViewModel : ObservableObject
                 question,
                 responseLanguage,
                 allowInstallActions,
-                currentSettings);
+                currentSettings,
+                recentLogs: _logSink?.Snapshot(),
+                updateRunInProgress: _activeUpdateRuns > 0);
             var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(answer))
             {
@@ -2795,6 +2804,25 @@ public partial class MainViewModel : ObservableObject
     public event EventHandler<DriverRowViewModel>? ScrollToRowRequested;
 
     private async Task RunUpdatesAsync(
+        IEnumerable<DriverRowViewModel> requested,
+        bool dryRun,
+        bool includeVendorPages,
+        CancellationToken cancellationToken)
+    {
+        // Track the live run so the driver chat can tell the AI that the log tail reflects an
+        // update that is still in progress (e.g. "why is the update taking so long?").
+        _activeUpdateRuns++;
+        try
+        {
+            await RunUpdatesCoreAsync(requested, dryRun, includeVendorPages, cancellationToken).ConfigureAwait(true);
+        }
+        finally
+        {
+            _activeUpdateRuns--;
+        }
+    }
+
+    private async Task RunUpdatesCoreAsync(
         IEnumerable<DriverRowViewModel> requested,
         bool dryRun,
         bool includeVendorPages,

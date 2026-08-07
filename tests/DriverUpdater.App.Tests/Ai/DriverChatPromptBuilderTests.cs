@@ -73,6 +73,61 @@ public class DriverChatPromptBuilderTests
     }
 
     [Fact]
+    public void Build_includes_recent_logs_with_instructions_when_provided()
+    {
+        var logs = new[]
+        {
+            new LogEntry(new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero), "Information", "MainViewModel",
+                "Update run: starting Intel Iris Xe Graphics (current version=1.0, target version=2.0, source=MicrosoftCatalog, kind=PnPUtilPackage, url=)", null),
+            new LogEntry(new DateTimeOffset(2026, 8, 7, 12, 3, 0, TimeSpan.Zero), "Error", "InstallPipeline",
+                "Download failed: timeout", null)
+        };
+
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "Why is the update taking so long?",
+            recentLogs: logs);
+
+        prompt.Should().Contain("RECENT APPLICATION LOGS");
+        prompt.Should().Contain("Update run: starting Intel Iris Xe Graphics");
+        prompt.Should().Contain("Download failed: timeout");
+        prompt.Should().Contain("compare");
+        prompt.Should().Contain("the timestamps");
+        prompt.Should().NotContain("IN PROGRESS right now");
+    }
+
+    [Fact]
+    public void Build_flags_a_live_update_run_when_one_is_in_progress()
+    {
+        var logs = new[]
+        {
+            new LogEntry(DateTimeOffset.Now, "Information", "MainViewModel", "Update run: starting Realtek Audio", null)
+        };
+
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "What is happening?",
+            recentLogs: logs,
+            updateRunInProgress: true);
+
+        prompt.Should().Contain("An update/install run is IN PROGRESS right now");
+    }
+
+    [Fact]
+    public void Build_omits_the_log_section_when_no_logs_are_provided()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "What should I update?",
+            recentLogs: Array.Empty<LogEntry>());
+
+        prompt.Should().NotContain("RECENT APPLICATION LOGS");
+    }
+
+    [Fact]
     public void Build_throws_on_blank_question()
     {
         var act = () => DriverChatPromptBuilder.Build(
