@@ -336,7 +336,11 @@ public sealed partial class AmdChipsetSource : IUpdateSource
     [GeneratedRegex(@"File Size\s*</[^>]+>\s*<[^>]+>\s*(?<size>\d+(?:\.\d+)?)\s*MB", RegexOptions.IgnoreCase)]
     private static partial Regex FileSizePattern();
 
-    [GeneratedRegex(@"(?<url>https://drivers\.amd\.com/drivers/amd_chipset_software_[\d.]+\.exe)", RegexOptions.IgnoreCase)]
+    // AMD used amd_chipset_software_<version>.exe through the 8.05 releases, then
+    // shortened the official chipset package name to amd_software_<version>.exe.
+    // Keep both forms so a vendor-side filename change does not turn a verified
+    // release into an unresolved vendor-page advisory.
+    [GeneratedRegex(@"(?<url>https://drivers\.amd\.com/drivers/(?:amd_chipset_software|amd_software)_[\d.]+\.exe)", RegexOptions.IgnoreCase)]
     private static partial Regex DirectInstallerUrlPattern();
 
     [GeneratedRegex(@"<[^>]+>")]

@@ -53,6 +53,26 @@ public class AmdChipsetSourceTests
     }
 
     [Fact]
+    public async Task SearchAsync_yields_vendor_installer_for_current_amd_software_filename()
+    {
+        var html = SampleB850Html
+            .Replace("8.05.04.516", "8.07.16.1035", StringComparison.Ordinal)
+            .Replace("amd_chipset_software_", "amd_software_", StringComparison.Ordinal);
+        var source = NewSource(html, ("am5", "b850"));
+        var driver = NewAmdChipsetDriver(
+            "AMD I2C Controller",
+            new DateOnly(2025, 9, 9),
+            new Version(1, 2, 0, 100));
+
+        var results = await source.SearchAsync(new[] { driver }).ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        results[0].SourceUpdateId.Should().Be("vendor-installer:amd-chipset:8.07.16.1035");
+        results[0].DownloadUrl.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe");
+    }
+
+    [Fact]
     public async Task SearchAsync_falls_back_to_vendor_page_when_parser_fails()
     {
         var source = NewSource("<html><body>nothing parseable here</body></html>", ("am5", "b850"));

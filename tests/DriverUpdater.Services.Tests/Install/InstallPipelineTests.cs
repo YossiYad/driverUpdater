@@ -735,6 +735,23 @@ public class InstallPipelineTests
     }
 
     [Theory]
+    [InlineData("vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028", true)]
+    [InlineData("vendor-installer:winget:install:SteelSeries.GG:116.0.0", true)]
+    [InlineData("vendor-installer:vigem:github:ai-latest:ROOT\\VIGEMBUS", false)]
+    public void UsesPackageLevelVerification_defers_only_shared_or_software_package_checks(
+        string sourceUpdateId,
+        bool expected)
+    {
+        var candidate = NewOperation(
+                UpdateSource.Oem,
+                UpdateInstallKind.VendorInstaller,
+                new Uri("https://vendor.example.com/installer.exe"))
+            .Candidate with { SourceUpdateId = sourceUpdateId };
+
+        InstallPipeline.UsesPackageLevelVerification(candidate).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("Configuration completed successfully. Reconfiguration success or error status: 0.", true)]
     [InlineData("Configuration completed successfully. MainEngineThread is returning 0", true)]
     [InlineData("Configuration failed. Reconfiguration success or error status: 1603.", false)]
@@ -1646,6 +1663,9 @@ public class InstallPipelineTests
     [InlineData("vendor-installer:installshield:foo", "C:\\Temp\\setup.exe", "/s")]
     [InlineData("vendor-installer:oem-tool:dell-command-update:2", "C:\\Temp\\dcu.exe", "/applyUpdates -silent -updateType=driver,firmware -reboot=disable")]
     [InlineData("vendor-installer:oem-tool:lenovo-system-update:2", "C:\\Temp\\lsu.exe", "/CM -search A -action INSTALL -noicon -noreboot")]
+    [InlineData("vendor-installer:vigem:github:ai-latest:ROOT\\VIGEMBUS", "C:\\Temp\\ViGEmBus_Setup.exe", "/exenoui /qn /norestart")]
+    [InlineData("vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028", "C:\\Temp\\winget.exe", "upgrade --id \"Logitech.GHUB\" --exact --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --include-unknown")]
+    [InlineData("vendor-installer:winget:install:SteelSeries.GG:116.0.0", "C:\\Temp\\winget.exe", "install --id \"SteelSeries.GG\" --exact --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity")]
     public void TryBuildVendorInstallerCommand_maps_known_prefixes_to_silent_args(string sourceUpdateId, string installerPath, string expectedArgs)
     {
         var candidate = new UpdateCandidate(

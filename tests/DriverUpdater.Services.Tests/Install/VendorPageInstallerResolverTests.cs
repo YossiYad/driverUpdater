@@ -66,6 +66,22 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
+    public void TryFindInstallerLink_accepts_current_amd_chipset_filename()
+    {
+        const string html = "<a href=\"https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe\">chipset</a>";
+
+        var ok = VendorPageInstallerResolver.TryFindInstallerLink(
+            new Uri("https://www.amd.com/en/support/downloads/drivers.html/chipsets/am5/b850.html"),
+            html,
+            out var url,
+            out var kind);
+
+        ok.Should().BeTrue();
+        url.AbsoluteUri.Should().Be("https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe");
+        kind.Should().Be("amd-chipset");
+    }
+
+    [Fact]
     public void TryFindInstallerLink_accepts_unknown_exe_for_inf_extraction()
     {
         const string html = "<a href=\"https://vendor.example.com/setup.exe\">setup</a>";
@@ -110,6 +126,64 @@ public class VendorPageInstallerResolverTests
         ok.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("https://github.com/ViGEm/ViGEmBus/releases", "https://api.github.com/repos/ViGEm/ViGEmBus/releases/latest")]
+    [InlineData("https://github.com/ViGEm/ViGEmBus/releases/latest", "https://api.github.com/repos/ViGEm/ViGEmBus/releases/latest")]
+    [InlineData("https://github.com/ViGEm/ViGEmBus/releases/tag/v1.22.0", "https://api.github.com/repos/ViGEm/ViGEmBus/releases/tags/v1.22.0")]
+    public void TryBuildGitHubReleaseApiUri_maps_release_pages(string page, string expected)
+    {
+        var ok = VendorPageInstallerResolver.TryBuildGitHubReleaseApiUri(new Uri(page), out var apiUri);
+
+        ok.Should().BeTrue();
+        apiUri.AbsoluteUri.Should().Be(expected);
+    }
+
+    [Fact]
+    public void TryBuildGitHubReleaseApiUri_rejects_non_github_pages()
+    {
+        VendorPageInstallerResolver.TryBuildGitHubReleaseApiUri(
+                new Uri("https://vendor.example.com/releases/latest"),
+                out _)
+            .Should()
+            .BeFalse();
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_uses_github_release_assets_and_keeps_ai_lead_advisory()
+    {
+        const string json = """
+            {
+              "assets": [
+                {
+                  "name": "Source_code.zip",
+                  "browser_download_url": "https://github.com/ViGEm/ViGEmBus/archive/refs/tags/v1.22.0.zip"
+                },
+                {
+                  "name": "ViGEmBus_1.22.0_x64_x64.exe",
+                  "browser_download_url": "https://github.com/ViGEm/ViGEmBus/releases/download/v1.22.0/ViGEmBus_1.22.0_x64_x64.exe"
+                }
+              ]
+            }
+            """;
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(json),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+        var candidate = NewVendorPageCandidate() with
+        {
+            DownloadUrl = new Uri("https://github.com/ViGEm/ViGEmBus/releases/latest"),
+            SourceUpdateId = "ai-latest:ROOT\\VIGEMBUS\\0000",
+            ForHardwareId = "ROOT\\VIGEMBUS\\0000"
+        };
+
+        var resolution = await resolver.TryResolveAsync(candidate);
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
+        resolution.Candidate!.DownloadUrl.AbsoluteUri.Should().Be(
+            "https://github.com/ViGEm/ViGEmBus/releases/download/v1.22.0/ViGEmBus_1.22.0_x64_x64.exe");
+        resolution.Candidate.SourceUpdateId.Should().StartWith("vendor-installer:vigem:github:");
+        resolution.Candidate.Confidence.Should().Be(UpdateConfidence.Advisory);
+    }
+
     [Fact]
     public void TryClassifyExe_rejects_amd_adrenalin_installers()
     {
@@ -121,8 +195,13 @@ public class VendorPageInstallerResolverTests
 
     [Theory]
     [InlineData("PCI\\VEN_1002&DEV_747E", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", true)]
+    [InlineData("ROOT\\AMDRadeonGraphics", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", true)]
+    [InlineData("SWD\\DRIVERENUM\\AMD&1234", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", true)]
     [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/minimalsetup.exe", "exe-extract", false)]
     [InlineData("PCI\\VEN_1022&DEV_790B", "https://drivers.amd.com/amd_chipset_software_8.1.exe", "amd-chipset", true)]
+    [InlineData("ACPI\\AMDI0010", "https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe", "amd-chipset", true)]
+    [InlineData("ROOT\\AMDRYZENMASTERDRIVER", "https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe", "amd-chipset", true)]
+    [InlineData("PCI\\VEN_8086&DEV_1234", "https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe", "amd-chipset", false)]
     [InlineData("PCI\\VEN_10DE&DEV_2684", "https://download.nvidia.com/driver.exe", "nvidia", true)]
     [InlineData("PCI\\VEN_8086&DEV_4682", "https://download.nvidia.com/driver.exe", "nvidia", false)]
     public void IsPackageCompatibleWithHardware_checks_known_vendor_families(
