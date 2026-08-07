@@ -30,6 +30,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();
+        services.AddSingleton<IUpdateSource, WingetVendorToolSource>();
 
         ConfigureVendorScrapingHttpClient(services, AmdGraphicsSource.HttpClientName, "https://www.amd.com/");
         ConfigureVendorScrapingHttpClient(services, AmdChipsetSource.HttpClientName, "https://www.amd.com/");

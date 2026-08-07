@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Install;
 
-public sealed class InstallPipeline : IInstallPipeline
+public sealed partial class InstallPipeline : IInstallPipeline
 {
     public const string DownloadsHttpClientName = "VendorInstallerDownloads";
 
@@ -337,14 +337,14 @@ public sealed class InstallPipeline : IInstallPipeline
 
         var deviceName = DeviceLabel(operation.TargetSnapshot);
 
-        // AMD chipset and graphics packages update several independent device drivers in one
-        // run. The representative row may remain unchanged while another component updates,
-        // so a single-device read-back cannot classify the package result. Keep the successful
-        // package outcome and let the post-update verifier inspect every affected row separately.
-        if (IsSharedAmdPackageCandidate(operation.Candidate))
+        // Shared vendor packages can update several devices, or update a companion application
+        // whose package version is not the Windows driver version. A single-device read-back
+        // cannot classify those results. The next scan verifies the package and covered devices.
+        if (UsesPackageLevelVerification(operation.Candidate))
         {
             _logger.LogInformation(
-                "Shared AMD package completed for {Device}; every covered component will be verified separately in the batch summary",
+                "Shared vendor package {SourceUpdateId} completed for {Device}; verification is deferred to the next package and device scan",
+                operation.Candidate.SourceUpdateId,
                 deviceName);
             return operation;
         }
@@ -1090,6 +1090,10 @@ public sealed class InstallPipeline : IInstallPipeline
     private static bool IsSharedAmdPackageCandidate(UpdateCandidate candidate) =>
         IsAmdChipsetCandidate(candidate) || IsAmdGraphicsCandidate(candidate);
 
+    internal static bool UsesPackageLevelVerification(UpdateCandidate candidate) =>
+        IsSharedAmdPackageCandidate(candidate)
+        || candidate.SourceUpdateId.StartsWith("vendor-installer:winget:", StringComparison.OrdinalIgnoreCase);
+
     private static bool TryConfirmAmdChipsetSuccess(
         DateTimeOffset installStart,
         out string detail,
@@ -1243,6 +1247,14 @@ public sealed class InstallPipeline : IInstallPipeline
         if (ContainsEither(source, host, "realtek"))
         {
             expected.Add("Realtek Semiconductor");
+        }
+        if (source.Contains(":winget:", StringComparison.OrdinalIgnoreCase))
+        {
+            expected.Add("Microsoft Corporation");
+        }
+        if (ContainsEither(source, host, "vigem") || ContainsEither(source, host, "nefarius"))
+        {
+            expected.Add("Nefarius");
         }
         if (ContainsEither(source, host, "logitech") || ContainsEither(source, host, "logi"))
         {
@@ -1542,6 +1554,12 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        if (sourceUpdateId.StartsWith("vendor-installer:vigem:", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments = "/exenoui /qn /norestart";
+            return true;
+        }
+
         if (sourceUpdateId.StartsWith("vendor-installer:intel-graphics:", StringComparison.OrdinalIgnoreCase))
         {
             arguments = "--overwrite -s";
@@ -1580,7 +1598,39 @@ public sealed class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        if (TryBuildWingetArguments(sourceUpdateId, out arguments))
+        {
+            return true;
+        }
+
         return false;
+    }
+
+    internal static bool TryBuildWingetArguments(string sourceUpdateId, out string arguments)
+    {
+        arguments = string.Empty;
+        const string prefix = "vendor-installer:winget:";
+        if (!sourceUpdateId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var fields = sourceUpdateId[prefix.Length..]
+            .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (fields.Length < 3
+            || fields[0] is not ("install" or "upgrade")
+            || !WingetPackageIdPattern().IsMatch(fields[1]))
+        {
+            return false;
+        }
+
+        var mode = fields[0];
+        var packageId = fields[1];
+        var includeUnknown = mode == "upgrade" ? " --include-unknown" : string.Empty;
+        arguments = $"{mode} --id \"{packageId}\" --exact --source winget --silent "
+            + "--accept-source-agreements --accept-package-agreements --disable-interactivity"
+            + includeUnknown;
+        return true;
     }
 
     internal static string BuildDryRunSummary(UpdateOperation operation, InstallOptions options)
@@ -1598,4 +1648,7 @@ public sealed class InstallPipeline : IInstallPipeline
         lines.Add($"{lines.Count + 1}. Install version {operation.Candidate.DisplayVersion}, {operation.Candidate.SizeBytes:N0} bytes");
         return string.Join('\n', lines);
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")]
+    private static partial System.Text.RegularExpressions.Regex WingetPackageIdPattern();
 }
