@@ -201,6 +201,52 @@ public class MainViewModelAiTests
     }
 
     [WpfFact]
+    public async Task ScanAsync_sends_several_ai_discovery_batches_at_once()
+    {
+        var drivers = Enumerable.Range(1, 61)
+            .Select(index => NewDriver(
+                $"Device {index}",
+                $"PCI\\VEN_1234&DEV_{index:X4}",
+                new Version(1, 0, 0, 0)))
+            .ToArray();
+        var verifier = new StubAiVerifier(isConfigured: true) { HoldCalls = true };
+        var vm = NewVm(drivers, Array.Empty<UpdateCandidate>(), verifier);
+
+        var scan = vm.ScanWithAiCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => verifier.RequestsByCall.Count >= 3);
+
+            // Four batches of 20, 20, 20 and 1: three are in flight and the fourth waits its turn.
+            verifier.RequestsByCall.Should().HaveCount(3);
+            vm.Drivers.Count(row => row.IsAiChecking).Should().Be(60);
+        }
+        finally
+        {
+            verifier.ReleaseHeldCalls();
+            await scan;
+        }
+
+        verifier.RequestsByCall.Should().HaveCount(4);
+        verifier.MaxConcurrentCalls.Should().Be(3);
+        vm.Drivers.Should().OnlyContain(row => !row.IsAiChecking);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException("The expected AI calls did not start in time.");
+            }
+
+            await Task.Delay(10);
+        }
+    }
+
+    [WpfFact]
     public async Task ScanAsync_stops_ai_discovery_after_provider_becomes_unavailable()
     {
         var drivers = Enumerable.Range(1, 21)
@@ -584,6 +630,14 @@ public class MainViewModelAiTests
             RequestsByCall.Clear();
         }
 
+        public bool HoldCalls { get; set; }
+        public int MaxConcurrentCalls { get; private set; }
+
+        private readonly TaskCompletionSource _release = new();
+        private int _concurrentCalls;
+
+        public void ReleaseHeldCalls() => _release.TrySetResult();
+
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
             IReadOnlyList<AiVerificationRequest> requests, CancellationToken cancellationToken = default)
         {
@@ -598,7 +652,21 @@ public class MainViewModelAiTests
             {
                 throw new InvalidOperationException("ai failed");
             }
-            return Task.FromResult((IReadOnlyDictionary<string, AiVerdict>)Verdicts);
+            if (!HoldCalls)
+            {
+                return Task.FromResult((IReadOnlyDictionary<string, AiVerdict>)Verdicts);
+            }
+
+            _concurrentCalls++;
+            MaxConcurrentCalls = Math.Max(MaxConcurrentCalls, _concurrentCalls);
+            return HeldAsync();
+
+            async Task<IReadOnlyDictionary<string, AiVerdict>> HeldAsync()
+            {
+                await _release.Task.ConfigureAwait(false);
+                _concurrentCalls--;
+                return Verdicts;
+            }
         }
     }
 

@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject
 {
     private const int VendorVerificationAttempts = 20;
     private const int AiDiscoveryBatchSize = 20;
+    private const int AiDiscoveryParallelism = 3;
     private static readonly TimeSpan VendorVerificationInterval = TimeSpan.FromSeconds(3);
 
     private readonly IDriverScanService _scanService;
@@ -1957,34 +1958,41 @@ public partial class MainViewModel : ObservableObject
         IsAiSearchRunning = true;
         var discoveryCancellationToken = aiSearchCancellation.Token;
 
-        foreach (var batch in targets.Chunk(AiDiscoveryBatchSize))
-        {
-            if (_skipAiSearchRequested)
-            {
-                StatusText = "AI search skipped. Continuing the scan...";
-                break;
-            }
-            discoveryCancellationToken.ThrowIfCancellationRequested();
-            foreach (var row in batch)
-            {
-                row.IsAiChecking = true;
-            }
+        var batches = targets.Chunk(AiDiscoveryBatchSize).ToArray();
+        var stopDispatching = false;
+        var userCancelled = false;
+        using var inFlight = new SemaphoreSlim(AiDiscoveryParallelism);
 
+        // The batches are independent requests with identical content either way, so running a few
+        // at a time only removes the waiting between them. A scan of 100 drivers used to be five
+        // round trips end to end.
+        async Task RunDiscoveryBatchAsync(DriverRowViewModel[] batch)
+        {
+            await inFlight.WaitAsync(discoveryCancellationToken).ConfigureAwait(true);
+            var started = false;
             try
             {
+                if (stopDispatching || _skipAiSearchRequested)
+                {
+                    return;
+                }
+                discoveryCancellationToken.ThrowIfCancellationRequested();
+
+                started = true;
+                foreach (var row in batch)
+                {
+                    row.IsAiChecking = true;
+                }
+
                 var requests = batch.Select(BuildAiDiscoveryRequest).ToArray();
-                var overallStart = alreadyReviewed.Count + processed + 1;
-                var overallEnd = alreadyReviewed.Count + processed + batch.Length;
                 StatusText =
-                    $"Asking AI to find latest drivers... {overallStart}-{overallEnd} of {Drivers.Count}. Waiting for AI response...";
+                    $"Asking AI to find latest drivers... {processed} of {targets.Length} done. Waiting for AI response...";
                 _logger.LogInformation(
-                    "AI latest-driver discovery: provider={Provider}, sending discovery batch {DiscoveryStart}-{DiscoveryEnd} of {DiscoveryTotal}, overall rows {OverallStart}-{OverallEnd} of {OverallTotal}",
+                    "AI latest-driver discovery: provider={Provider}, sending a batch of {BatchSize} row(s), {Processed} of {DiscoveryTotal} discovery rows done, {TotalDrivers} drivers in total",
                     _aiVerifier.Provider,
-                    processed + 1,
-                    processed + batch.Length,
+                    batch.Length,
+                    processed,
                     targets.Length,
-                    overallStart,
-                    overallEnd,
                     Drivers.Count);
                 foreach (var request in requests)
                 {
@@ -1995,26 +2003,27 @@ public partial class MainViewModel : ObservableObject
                 if (_aiVerifier.IsTemporarilyUnavailable)
                 {
                     providerUnavailable = true;
+                    stopDispatching = true;
                     failedBatches++;
                     withoutVerdict += batch.Length;
                     _logger.LogWarning(
                         "AI latest-driver discovery stopped because provider {Provider} became temporarily unavailable",
                         _aiVerifier.Provider);
                     StatusText = "AI search unavailable. Keeping deterministic scan results.";
-                    break;
+                    return;
                 }
                 if (_skipAiSearchRequested)
                 {
+                    stopDispatching = true;
                     StatusText = "AI search skipped. Continuing the scan...";
-                    break;
+                    return;
                 }
                 if (verdicts.Count == 0)
                 {
                     failedBatches++;
                     _logger.LogWarning(
-                        "AI latest-driver discovery returned no usable results for overall rows {Start}-{End}; continuing with the next batch",
-                        overallStart,
-                        overallEnd);
+                        "AI latest-driver discovery returned no usable results for a batch of {BatchSize} row(s); continuing with the remaining batches",
+                        batch.Length);
                 }
                 foreach (var row in batch)
                 {
@@ -2042,15 +2051,12 @@ public partial class MainViewModel : ObservableObject
             catch (OperationCanceledException) when (
                 _skipAiSearchRequested && !cancellationToken.IsCancellationRequested)
             {
+                stopDispatching = true;
+                userCancelled = true;
                 _logger.LogInformation("AI latest-driver discovery skipped by the user");
                 StatusText = "AI search skipped. Continuing the scan...";
-                break;
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failedBatches++;
                 withoutVerdict += batch.Length;
@@ -2058,12 +2064,31 @@ public partial class MainViewModel : ObservableObject
             }
             finally
             {
-                foreach (var row in batch)
+                if (started)
                 {
-                    row.IsAiChecking = false;
+                    foreach (var row in batch)
+                    {
+                        row.IsAiChecking = false;
+                    }
+                    processed += batch.Length;
                 }
-                processed += batch.Length;
+                inFlight.Release();
             }
+        }
+
+        var batchTasks = new List<Task>(batches.Length);
+        foreach (var batch in batches)
+        {
+            batchTasks.Add(RunDiscoveryBatchAsync(batch));
+        }
+
+        try
+        {
+            await Task.WhenAll(batchTasks).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (userCancelled || (_skipAiSearchRequested && !cancellationToken.IsCancellationRequested))
+        {
+            StatusText = "AI search skipped. Continuing the scan...";
         }
 
         if (ReferenceEquals(_aiSearchCancellation, aiSearchCancellation))
