@@ -42,6 +42,9 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonAutoUpdateSelectionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonAutoUpdateSelectionStore>>()));
         services.AddSingleton<IDriverUpdateExclusionStore>(sp =>
             new JsonDriverUpdateExclusionStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverUpdateExclusionStore>>()));
+        services.AddSingleton<IDriverVersionHistoryStore>(sp =>
+            new JsonDriverVersionHistoryStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverVersionHistoryStore>>()));
+        services.AddSingleton<IDriverStoreBrowser, PowerShellDriverStoreBrowser>();
         services.AddSingleton<IDriverCacheStore>(sp =>
             new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>
