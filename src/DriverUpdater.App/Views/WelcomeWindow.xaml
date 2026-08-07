@@ -258,9 +258,7 @@
                                 <Run FontWeight="SemiBold" Text="Drivers you never want touched: " />
                                 <Run Text="Under Settings &gt; Sources, click Choose the drivers to leave alone and tick any device DriverUpdater must not update. A newer version found for it is still listed so you can see what is out there, but the row is marked Not updated and nothing installs it - not the Update button, not a scheduled run. Untick it whenever you want updates for it again.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="The close button keeps DriverUpdater running: " />
-                                <Run Text="X now leaves the app in the Windows notification area instead of exiting. Change it under Settings > Application if you prefer a full exit.&#x0a;&#x0a;" />
-                                <Run FontWeight="SemiBold" Text="What the AI scan finds stays on screen: " />
-                                <Run Text="The AI's findings used to disappear the moment the scan finished, because the app removed every result it could not install by itself. Now it tries the vendor page the AI pointed at and installs the package if there is one; if there is not, the row stays as a Likely update marked No verified in-app package, with the version the AI found and its advice." />
+                                <Run Text="X now leaves the app in the Windows notification area instead of exiting. Change it under Settings > Application if you prefer a full exit." />
                             </TextBlock>
                         </StackPanel>
                     </Border>
@@ -443,9 +441,7 @@
                                 <Run FontWeight="SemiBold" Text="מנהלי התקנים שלא רוצים לעדכן בכלל: " />
                                 <Run Text="בהגדרות, בלשונית Sources, לוחצים על Choose the drivers to leave alone ומסמנים כל התקן ש‑DriverUpdater לא אמורה לעדכן. גרסה חדשה שתימצא להתקן כזה עדיין תוצג בחלון הראשי כדי שתדעו מה קיים, אבל השורה מסומנת Not updated ושום דבר לא מתקין אותה - לא כפתור העדכון ולא סריקה מתוזמנת. מבטלים את הסימון כשרוצים לחזור לעדכן אותו.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="כפתור הסגירה משאיר את DriverUpdater פעילה: " />
-                                <Run Text="לחיצה על X משאירה עכשיו את האפליקציה באזור ההתראות של Windows במקום לסגור אותה. אפשר לשנות זאת בהגדרות, בלשונית Application.&#x0a;&#x0a;" />
-                                <Run FontWeight="SemiBold" Text="מה שסריקת ה־AI מוצאת נשאר על המסך: " />
-                                <Run Text="עד היום הממצאים של ה־AI נעלמו ברגע שהסריקה הסתיימה, כי האפליקציה מחקה כל תוצאה שהיא לא ידעה להתקין בעצמה. עכשיו היא ניגשת לעמוד היצרן שה־AI הצביע עליו ומתקינה את החבילה אם יש כזו; ואם אין, השורה נשארת כ‑Likely update עם הסימון No verified in-app package, יחד עם הגרסה שה־AI מצא וההמלצה שלו." />
+                                <Run Text="לחיצה על X משאירה עכשיו את האפליקציה באזור ההתראות של Windows במקום לסגור אותה. אפשר לשנות זאת בהגדרות, בלשונית Application." />
                             </TextBlock>
                         </StackPanel>
                     </Border>

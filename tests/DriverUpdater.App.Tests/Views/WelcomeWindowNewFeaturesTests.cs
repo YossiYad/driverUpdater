@@ -71,8 +71,7 @@ public class WelcomeWindowNewFeaturesTests
                 "The AI can decide what a scheduled run installs: ",
                 "Your own list of drivers: ",
                 "Drivers you never want touched: ",
-                "The close button keeps DriverUpdater running: ",
-                "What the AI scan finds stays on screen: "
+                "The close button keeps DriverUpdater running: "
             }
             : new[]
             {
@@ -83,8 +82,7 @@ public class WelcomeWindowNewFeaturesTests
                 "ה־AI מחליט מה יותקן בסריקה המתוזמנת: ",
                 "רשימת מנהלי ההתקנים שלכם: ",
                 "מנהלי התקנים שלא רוצים לעדכן בכלל: ",
-                "כפתור הסגירה משאיר את DriverUpdater פעילה: ",
-                "מה שסריקת ה־AI מוצאת נשאר על המסך: "
+                "כפתור הסגירה משאיר את DriverUpdater פעילה: "
             };
 
         card.Descendants(Presentation + "Run")
