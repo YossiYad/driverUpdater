@@ -65,6 +65,18 @@ public class MainViewModelDriverChatTests
     }
 
     [WpfFact]
+    public async Task SendDriverChat_enables_web_search_guidance_for_gemini()
+    {
+        var completer = new StubTextCompleter(isConfigured: true, reply: "ok");
+        var vm = NewVm(completer);
+        vm.DriverChatInput = "What do you recommend?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        completer.LastPrompt.Should().Contain("You have Google Search available");
+    }
+
+    [WpfFact]
     public async Task SendDriverChat_omits_the_log_section_without_a_sink()
     {
         var completer = new StubTextCompleter(isConfigured: true, reply: "ok");

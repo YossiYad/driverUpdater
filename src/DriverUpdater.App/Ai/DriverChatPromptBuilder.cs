@@ -38,7 +38,9 @@ public static class DriverChatPromptBuilder
         bool allowInstallActions = true,
         AppSettings? settings = null,
         IReadOnlyList<LogEntry>? recentLogs = null,
-        bool updateRunInProgress = false)
+        bool updateRunInProgress = false,
+        bool webSearchEnabled = false,
+        string? machineDescription = null)
     {
         ArgumentNullException.ThrowIfNull(drivers);
         ArgumentNullException.ThrowIfNull(history);
@@ -58,6 +60,26 @@ public static class DriverChatPromptBuilder
         sb.AppendLine("for this exact hardware; note when an OEM/vendor driver is safer than a generic one. If a driver");
         sb.AppendLine("is not in the list, say you don't see it rather than inventing details.");
         sb.AppendLine();
+
+        if (webSearchEnabled)
+        {
+            sb.AppendLine("You have Google Search available. Use it whenever fresh, real-world knowledge would improve");
+            sb.AppendLine("the answer: which driver version the vendor currently recommends for this exact hardware,");
+            sb.AppendLine("known issues or bugs in a specific driver version, and what the community consensus says.");
+            sb.AppendLine("Search with the exact device name, the version numbers involved, and the machine model when");
+            sb.AppendLine("one is listed below. Ground your claims in what you find and quote concrete version numbers.");
+            sb.AppendLine("If the web consensus recommends a specific OLDER version than the one installed or offered");
+            sb.AppendLine("(for example a stable version the community prefers), say so clearly in prose, including the");
+            sb.AppendLine("exact version and why. The app cannot downgrade drivers yet, so never put such a version in");
+            sb.AppendLine("a RECOMMEND_UPDATE line; that line stays reserved for updates shown in the driver list.");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(machineDescription))
+        {
+            sb.Append("MACHINE: ").AppendLine(Clean(machineDescription));
+            sb.AppendLine();
+        }
         if (allowInstallActions)
         {
             sb.AppendLine("When you conclude that specific drivers from the list should be updated now - either because the");

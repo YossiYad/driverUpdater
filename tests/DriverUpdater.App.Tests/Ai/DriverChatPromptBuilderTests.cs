@@ -128,6 +128,34 @@ public class DriverChatPromptBuilderTests
     }
 
     [Fact]
+    public void Build_adds_web_search_guidance_and_the_machine_model_when_enabled()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "What do you recommend I update?",
+            webSearchEnabled: true,
+            machineDescription: "Dell Inc. XPS 15 9530");
+
+        prompt.Should().Contain("You have Google Search available");
+        prompt.Should().Contain("known issues or bugs in a specific driver version");
+        prompt.Should().Contain("MACHINE: Dell Inc. XPS 15 9530");
+        prompt.Should().Contain("The app cannot downgrade drivers yet");
+    }
+
+    [Fact]
+    public void Build_omits_web_search_guidance_by_default()
+    {
+        var prompt = DriverChatPromptBuilder.Build(
+            Array.Empty<DriverChatContextItem>(),
+            Array.Empty<LogChatMessage>(),
+            "What do you recommend I update?");
+
+        prompt.Should().NotContain("Google Search");
+        prompt.Should().NotContain("MACHINE:");
+    }
+
+    [Fact]
     public void Build_throws_on_blank_question()
     {
         var act = () => DriverChatPromptBuilder.Build(

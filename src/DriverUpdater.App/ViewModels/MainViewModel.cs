@@ -397,6 +397,10 @@ public partial class MainViewModel : ObservableObject
                 ?? _aiSettings?.CurrentValue.ResponseLanguage
                 ?? AppLanguage.English;
             var currentSettings = await LoadChatSettingsAsync(cancellationToken).ConfigureAwait(true);
+            // Only Gemini declares the google_search tool; promising search to a local Ollama
+            // model would invite invented "I searched the web" claims.
+            var webSearchEnabled = _driverChatCompleter.Provider == AiProvider.Gemini
+                && (_aiSettings?.CurrentValue.EnableWebSearch ?? true);
             var prompt = DriverChatPromptBuilder.Build(
                 context,
                 history,
@@ -405,7 +409,11 @@ public partial class MainViewModel : ObservableObject
                 allowInstallActions,
                 currentSettings,
                 recentLogs: _logSink?.Snapshot(),
-                updateRunInProgress: _activeUpdateRuns > 0);
+                updateRunInProgress: _activeUpdateRuns > 0,
+                webSearchEnabled: webSearchEnabled,
+                machineDescription: DetectedOem is { } oem
+                    ? $"{oem.Manufacturer} {oem.Model}".Trim()
+                    : null);
             var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(answer))
             {

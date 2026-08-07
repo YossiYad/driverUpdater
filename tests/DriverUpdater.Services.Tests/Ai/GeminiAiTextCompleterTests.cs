@@ -32,6 +32,67 @@ public class GeminiAiTextCompleterTests
     }
 
     [Fact]
+    public async Task CompleteAsync_declares_the_google_search_tool_when_web_search_is_enabled()
+    {
+        var handler = new CapturingHandler(AiResponses.Gemini("answer"));
+        var completer = NewCompleter(handler, enableWebSearch: true);
+
+        var result = await completer.CompleteAsync("What driver version is recommended?");
+
+        result.Should().Be("answer");
+        handler.LastRequestBody.Should().Contain("google_search");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_omits_the_google_search_tool_when_web_search_is_disabled()
+    {
+        var handler = new CapturingHandler(AiResponses.Gemini("answer"));
+        var completer = NewCompleter(handler, enableWebSearch: false);
+
+        await completer.CompleteAsync("What driver version is recommended?");
+
+        handler.LastRequestBody.Should().NotContain("google_search");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_appends_deduplicated_grounding_source_titles()
+    {
+        const string body = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Use version 552.22.\"}]}," +
+            "\"groundingMetadata\":{\"groundingChunks\":[" +
+            "{\"web\":{\"uri\":\"https://r/1\",\"title\":\"nvidia.com\"}}," +
+            "{\"web\":{\"uri\":\"https://r/2\",\"title\":\"reddit.com\"}}," +
+            "{\"web\":{\"uri\":\"https://r/3\",\"title\":\"NVIDIA.com\"}}]}}]}";
+        var handler = new CapturingHandler(body);
+        var completer = NewCompleter(handler, enableWebSearch: true);
+
+        var result = await completer.CompleteAsync("What driver version is recommended?");
+
+        result.Should().Be("Use version 552.22.\n\nSources: nvidia.com, reddit.com");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_returns_plain_text_when_no_grounding_metadata_is_present()
+    {
+        var handler = new CapturingHandler(AiResponses.Gemini("plain answer"));
+        var completer = NewCompleter(handler, enableWebSearch: true);
+
+        var result = await completer.CompleteAsync("hello");
+
+        result.Should().Be("plain answer");
+    }
+
+    private static GeminiAiTextCompleter NewCompleter(CapturingHandler handler, bool enableWebSearch) =>
+        new(new SingleClientHttpClientFactory(handler),
+            AiTestSettings.Monitor(new AiSettings
+            {
+                Provider = AiProvider.Gemini,
+                GeminiApiKey = "key",
+                EnableWebSearch = enableWebSearch
+            }),
+            new GeminiQuotaGate(),
+            NullLogger<GeminiAiTextCompleter>.Instance);
+
+    [Fact]
     public async Task CompleteAsync_reports_quota_exhaustion_and_blocks_repeated_requests()
     {
         var handler = new CapturingHandler(
