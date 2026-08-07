@@ -52,6 +52,9 @@ public partial class MainViewModel : ObservableObject
     private readonly IChatSettingsApplier? _chatSettingsApplier;
     private readonly IDriverUpdateExclusionStore? _exclusionStore;
     private readonly InMemoryLogSink? _logSink;
+    private readonly IDriverDowngradeService? _downgradeService;
+    private readonly IDriverVersionHistoryWindowOpener? _versionHistoryWindowOpener;
+    private readonly IRestorePointService? _restorePointService;
     private readonly Dispatcher _dispatcher;
 
     // True while RunUpdatesAsync is installing/verifying. Lets the driver chat tell the AI that
@@ -214,7 +217,10 @@ public partial class MainViewModel : ObservableObject
         IVendorPageInstallerResolver? vendorPageResolver = null,
         IChatSettingsApplier? chatSettingsApplier = null,
         IDriverUpdateExclusionStore? exclusionStore = null,
-        InMemoryLogSink? logSink = null)
+        InMemoryLogSink? logSink = null,
+        IDriverDowngradeService? downgradeService = null,
+        IDriverVersionHistoryWindowOpener? versionHistoryWindowOpener = null,
+        IRestorePointService? restorePointService = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -250,6 +256,9 @@ public partial class MainViewModel : ObservableObject
         _chatSettingsApplier = chatSettingsApplier;
         _exclusionStore = exclusionStore;
         _logSink = logSink;
+        _downgradeService = downgradeService;
+        _versionHistoryWindowOpener = versionHistoryWindowOpener;
+        _restorePointService = restorePointService;
         _logger = logger;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -2808,6 +2817,110 @@ public partial class MainViewModel : ObservableObject
     private bool CanUpdateAll() => Drivers.Any(r => r.CanUpdate);
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0;
+
+    // ----- Driver version history and downgrade -----
+
+    [RelayCommand]
+    private void ShowVersionHistory(DriverRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+        if (_versionHistoryWindowOpener is null || _downgradeService is null)
+        {
+            StatusText = "Version history is not available in this build.";
+            return;
+        }
+        _versionHistoryWindowOpener.Open(row.Driver, target => DowngradeRowAsync(row, target));
+    }
+
+    private async Task<bool> DowngradeRowAsync(DriverRowViewModel row, DriverVersionRecord target)
+    {
+        if (_downgradeService is null)
+        {
+            return false;
+        }
+
+        var displayName = DriverDisplayName(row);
+        StatusText = $"Restoring {displayName} to version {target.Version}...";
+        _logger.LogInformation(
+            "Downgrade requested: {Device} from {Current} to {Target}",
+            displayName, row.Driver.CurrentVersion, target.Version);
+
+        if (_restorePointService is not null)
+        {
+            var restorePoint = await _restorePointService
+                .CreateRestorePointAsync($"DriverUpdater downgrade: {displayName} {target.Version}")
+                .ConfigureAwait(true);
+            if (!restorePoint.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Downgrade: could not create a restore point for {Device}: {Error}",
+                    displayName, restorePoint.Error.Message);
+            }
+        }
+
+        var result = await _downgradeService.DowngradeAsync(row.Driver, target).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            StatusText = $"Downgrade failed: {result.Error.Message}";
+            _logger.LogWarning("Downgrade failed for {Device}: {Error}", displayName, result.Error.Message);
+            return false;
+        }
+
+        var outcome = result.Value;
+        if (!outcome.VerifiedDowngraded)
+        {
+            StatusText = $"Downgrade finished, but {displayName} reports version "
+                + $"{outcome.BoundVersionAfter ?? "(unknown)"}. A restart may be required before it applies.";
+            row.Status = DriverStatus.RestartRequired;
+            _logger.LogWarning(
+                "Downgrade: {Device} still reports {Bound} instead of {Target}; deferring to a restart",
+                displayName, outcome.BoundVersionAfter ?? "(unknown)", target.Version);
+            return false;
+        }
+
+        // The row keeps rendering the pre-downgrade DriverInfo until the next scan; the status
+        // and cleared candidate make the outcome visible immediately.
+        row.AvailableUpdate = null;
+        row.Status = DriverStatus.NotUpdated;
+        RefreshUpdateCounts();
+        await ExcludeDeviceAfterDowngradeAsync(row).ConfigureAwait(true);
+        StatusText = $"{displayName} is back on version {target.Version}. "
+            + "The device was added to the never-update list so the newer driver is not offered again.";
+        return true;
+    }
+
+    // Without this, the very next scan would flag the freshly restored driver as outdated and
+    // an Update All would immediately undo the user's decision.
+    private async Task ExcludeDeviceAfterDowngradeAsync(DriverRowViewModel row)
+    {
+        if (_exclusionStore is null || _excludedDeviceIds.Contains(row.Driver.DeviceId))
+        {
+            return;
+        }
+        try
+        {
+            var exclusions = await _exclusionStore.LoadAsync().ConfigureAwait(true);
+            if (!exclusions.Contains(row.Driver.DeviceId))
+            {
+                await _exclusionStore
+                    .SaveAsync(new DriverUpdateExclusions(
+                        exclusions.DeviceIds.Append(row.Driver.DeviceId).ToArray()))
+                    .ConfigureAwait(true);
+            }
+            _excludedDeviceIds.Add(row.Driver.DeviceId);
+            _logger.LogInformation(
+                "Downgrade: {Device} was excluded from future updates to keep the restored version",
+                DriverDisplayName(row));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex, "Downgrade: could not persist the update exclusion for {Device}", DriverDisplayName(row));
+        }
+    }
 
     public event EventHandler<DriverRowViewModel>? ScrollToRowRequested;
 

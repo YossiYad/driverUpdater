@@ -43,6 +43,7 @@ public static class AppServices
         services.AddTransient<AutoUpdateSelectionViewModel>();
         services.AddTransient<AutoUpdateSelectionWindow>();
         services.AddSingleton<IExcludedDriverSelectionWindowOpener, ExcludedDriverSelectionWindowOpener>();
+        services.AddSingleton<IDriverVersionHistoryWindowOpener, DriverVersionHistoryWindowOpener>();
         services.AddTransient<ExcludedDriverSelectionViewModel>();
         services.AddTransient<ExcludedDriverSelectionWindow>();
         services.AddSingleton(logSink);

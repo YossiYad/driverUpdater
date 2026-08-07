@@ -25,8 +25,13 @@ public static class ServicesServiceCollectionExtensions
     public static IServiceCollection AddDriverUpdaterServices(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.AddSingleton<IDriverScanService, DriverScanService>();
+        services.AddSingleton<DriverScanService>();
+        services.AddSingleton<IDriverScanService>(sp => new VersionRecordingDriverScanService(
+            sp.GetRequiredService<DriverScanService>(),
+            sp.GetRequiredService<IDriverVersionHistoryStore>(),
+            sp.GetRequiredService<ILogger<VersionRecordingDriverScanService>>()));
         services.AddSingleton<IInstalledDriverProbe, WmiInstalledDriverProbe>();
+        services.AddSingleton<IDriverDowngradeService, DriverDowngradeService>();
         services.AddSingleton<IUpdateSource, WindowsUpdateSource>();
         services.AddSingleton<IUpdateSource, MicrosoftCatalogSource>();
         services.AddSingleton<IUpdateSource, OemToolUpdateSource>();
