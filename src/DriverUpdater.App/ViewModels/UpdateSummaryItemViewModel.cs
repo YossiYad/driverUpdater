@@ -64,7 +64,9 @@ public sealed class UpdateSummaryItemViewModel
             };
 
     private static string FriendlyExplanation(UpdateVerificationItem item, AppLanguage language) =>
-        item.Status == UpdateVerificationStatus.Failed
+        item.IsSoftwarePackage
+            ? SoftwarePackageExplanation(item, language)
+            : item.Status == UpdateVerificationStatus.Failed
             ? FailedExplanation(item, language)
             : language == AppLanguage.Hebrew
             ? item.Status switch
@@ -89,6 +91,28 @@ public sealed class UpdateSummaryItemViewModel
                 UpdateVerificationStatus.ManualActionRequired => "No safe in-app installer was found. No external page was opened and no system change was made.",
                 _ => "The app could not read which driver Windows is using now. Run another scan to check again."
             };
+
+    private static string SoftwarePackageExplanation(UpdateVerificationItem item, AppLanguage language)
+    {
+        if (language == AppLanguage.Hebrew)
+        {
+            return item.Status switch
+            {
+                UpdateVerificationStatus.VerifiedUpdated => "האפליקציה בדקה שוב ואישרה שחבילת התוכנה של היצרן מותקנת כעת בגרסת היעד.",
+                UpdateVerificationStatus.Failed => "המתקין הסתיים, אך בדיקת הגרסה החוזרת אישרה שחבילת התוכנה של היצרן לא הגיעה לגרסת היעד.",
+                UpdateVerificationStatus.NotUpdated => "חבילת התוכנה של היצרן לא השתנתה.",
+                _ => "לא ניתן היה לאמת את גרסת חבילת התוכנה של היצרן לאחר ההתקנה."
+            };
+        }
+
+        return item.Status switch
+        {
+            UpdateVerificationStatus.VerifiedUpdated => "The app checked again and confirmed that the vendor software package is now at the target version.",
+            UpdateVerificationStatus.Failed => "The installer finished, but the follow-up version check confirmed that the vendor software package did not reach the target version.",
+            UpdateVerificationStatus.NotUpdated => "The vendor software package did not change.",
+            _ => "The app could not verify the vendor software package version after installation."
+        };
+    }
 
     private static string FailedExplanation(UpdateVerificationItem item, AppLanguage language)
     {
@@ -149,14 +173,15 @@ public sealed class UpdateSummaryItemViewModel
 
     private static string BuildVersionText(UpdateVerificationItem item, AppLanguage language)
     {
-        var before = item.PreviousVersion?.ToString() ?? "?";
+        var before = item.PreviousVersionLabel ?? item.PreviousVersion?.ToString() ?? "?";
         if (item.Status == UpdateVerificationStatus.ManualActionRequired)
         {
             return language == AppLanguage.Hebrew
                 ? $"הגרסה המותקנת כעת: {before}  |  לא בוצע שינוי אוטומטי"
                 : $"Currently installed version: {before}  |  No automatic change was made";
         }
-        var current = item.CurrentVersion?.ToString()
+        var current = item.CurrentVersionLabel
+            ?? item.CurrentVersion?.ToString()
             ?? (item.Status == UpdateVerificationStatus.PendingRestart
                 ? item.ExpectedVersionLabel ?? item.ExpectedVersion?.ToString()
                 : null)

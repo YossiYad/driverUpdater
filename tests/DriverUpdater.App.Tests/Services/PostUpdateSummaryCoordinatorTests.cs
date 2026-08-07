@@ -10,23 +10,51 @@ namespace DriverUpdater.App.Tests.Services;
 public class PostUpdateSummaryCoordinatorTests
 {
     [Fact]
-    public async Task CompleteRun_saves_pending_restart_registers_startup_and_opens_summary()
+    public async Task CompleteRun_with_any_restart_saves_the_whole_batch_without_opening_summary()
     {
-        var operation = NewOperation();
+        var restartOperation = NewOperation(requiresRestart: true);
+        var completedOperation = NewOperation(requiresRestart: false);
         var verifier = new FakeVerifier(UpdateVerificationStatus.PendingRestart);
         var store = new MemoryStore();
         var startup = new FakeStartupService();
         var opener = new FakeWindowOpener();
         var coordinator = NewCoordinator(verifier, store, startup, opener, DateTimeOffset.MinValue);
 
-        var report = await coordinator.CompleteRunAsync(new[] { operation });
+        var callbackCalls = 0;
+        var report = await coordinator.CompleteRunAsync(
+            new[] { restartOperation, completedOperation },
+            _ => callbackCalls++);
+
+        report.Should().BeNull();
+        store.Batch.Should().NotBeNull();
+        store.Batch!.Operations.Select(operation => operation.OperationId).Should().BeEquivalentTo(
+            new[] { restartOperation.OperationId, completedOperation.OperationId });
+        startup.RegisterCalls.Should().Be(1);
+        verifier.CallCount.Should().Be(0);
+        callbackCalls.Should().Be(0);
+        opener.Reports.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CompleteRun_without_restart_verifies_and_opens_summary_immediately()
+    {
+        var operation = NewOperation(requiresRestart: false);
+        var verifier = new FakeVerifier(UpdateVerificationStatus.VerifiedUpdated);
+        var store = new MemoryStore();
+        var startup = new FakeStartupService();
+        var opener = new FakeWindowOpener();
+        var coordinator = NewCoordinator(verifier, store, startup, opener, DateTimeOffset.MinValue);
+
+        var callbackCalls = 0;
+        var report = await coordinator.CompleteRunAsync(new[] { operation }, _ => callbackCalls++);
 
         report.Should().NotBeNull();
-        store.Batch.Should().NotBeNull();
-        store.Batch!.Operations.Should().ContainSingle().Which.OperationId.Should().Be(operation.OperationId);
-        startup.RegisterCalls.Should().Be(1);
-        opener.Reports.Should().ContainSingle();
-        opener.Reports[0].IsAfterRestart.Should().BeFalse();
+        report!.IsAfterRestart.Should().BeFalse();
+        verifier.CallCount.Should().Be(1);
+        callbackCalls.Should().Be(1);
+        opener.Reports.Should().ContainSingle().Which.IsAfterRestart.Should().BeFalse();
+        store.Batch.Should().BeNull();
+        startup.RegisterCalls.Should().Be(0);
     }
 
     [Fact]
@@ -34,9 +62,14 @@ public class PostUpdateSummaryCoordinatorTests
     {
         var createdAt = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
         var verifier = new FakeVerifier(UpdateVerificationStatus.VerifiedUpdated);
+        var firstOperation = NewOperation();
+        var secondOperation = NewOperation(requiresRestart: false);
         var store = new MemoryStore
         {
-            Batch = new PendingUpdateVerificationBatch(Guid.NewGuid(), createdAt, new[] { NewOperation() })
+            Batch = new PendingUpdateVerificationBatch(
+                Guid.NewGuid(),
+                createdAt,
+                new[] { firstOperation, secondOperation })
         };
         var startup = new FakeStartupService();
         var opener = new FakeWindowOpener();
@@ -55,9 +88,14 @@ public class PostUpdateSummaryCoordinatorTests
     {
         var createdAt = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
         var verifier = new FakeVerifier(UpdateVerificationStatus.VerifiedUpdated);
+        var firstOperation = NewOperation();
+        var secondOperation = NewOperation(requiresRestart: false);
         var store = new MemoryStore
         {
-            Batch = new PendingUpdateVerificationBatch(Guid.NewGuid(), createdAt, new[] { NewOperation() })
+            Batch = new PendingUpdateVerificationBatch(
+                Guid.NewGuid(),
+                createdAt,
+                new[] { firstOperation, secondOperation })
         };
         var startup = new FakeStartupService();
         var opener = new FakeWindowOpener();
@@ -67,7 +105,9 @@ public class PostUpdateSummaryCoordinatorTests
 
         verifier.CallCount.Should().Be(1);
         verifier.LastAfterRestart.Should().BeTrue();
+        verifier.LastOperationCount.Should().Be(2);
         opener.Reports.Should().ContainSingle().Which.IsAfterRestart.Should().BeTrue();
+        opener.Reports[0].Items.Should().HaveCount(2);
         store.Batch.Should().BeNull();
         startup.UnregisterCalls.Should().Be(1);
     }
@@ -87,7 +127,7 @@ public class PostUpdateSummaryCoordinatorTests
             new FakeLocalizationService(),
             NullLogger<PostUpdateSummaryCoordinator>.Instance);
 
-    private static UpdateOperation NewOperation()
+    private static UpdateOperation NewOperation(bool requiresRestart = true)
     {
         var driver = DriverInfo.Empty("DEVICE\\1") with
         {
@@ -110,7 +150,7 @@ public class PostUpdateSummaryCoordinatorTests
         return UpdateOperation.NewPending(candidate, driver) with
         {
             Status = UpdateStatus.Succeeded,
-            ErrorMessage = "Reboot required to complete installation.",
+            ErrorMessage = requiresRestart ? "Reboot required to complete installation." : null,
             CompletedAt = DateTimeOffset.UtcNow
         };
     }
@@ -123,6 +163,7 @@ public class PostUpdateSummaryCoordinatorTests
 
         public int CallCount { get; private set; }
         public bool LastAfterRestart { get; private set; }
+        public int LastOperationCount { get; private set; }
 
         public Task<UpdateVerificationReport> VerifyAsync(
             PendingUpdateVerificationBatch batch,
@@ -132,28 +173,29 @@ public class PostUpdateSummaryCoordinatorTests
         {
             CallCount++;
             LastAfterRestart = isAfterRestart;
-            var operation = batch.Operations[0];
-            var item = new UpdateVerificationItem(
-                operation.OperationId,
-                operation.TargetSnapshot.DeviceName,
-                operation.TargetSnapshot.Category,
-                operation.TargetSnapshot.CurrentVersion,
-                operation.TargetSnapshot.CurrentDate,
-                operation.Candidate.NewVersion,
-                operation.Candidate.NewDate,
-                isAfterRestart ? operation.Candidate.NewVersion : null,
-                isAfterRestart ? operation.Candidate.NewDate : null,
-                _status,
-                operation.ErrorMessage,
-                operation.Status,
-                operation.Candidate.InstallKind,
-                operation.Candidate.Confidence,
-                null);
+            LastOperationCount = batch.Operations.Count;
+            var items = batch.Operations.Select(operation => new UpdateVerificationItem(
+                    operation.OperationId,
+                    operation.TargetSnapshot.DeviceName,
+                    operation.TargetSnapshot.Category,
+                    operation.TargetSnapshot.CurrentVersion,
+                    operation.TargetSnapshot.CurrentDate,
+                    operation.Candidate.NewVersion,
+                    operation.Candidate.NewDate,
+                    isAfterRestart ? operation.Candidate.NewVersion : null,
+                    isAfterRestart ? operation.Candidate.NewDate : null,
+                    _status,
+                    operation.ErrorMessage,
+                    operation.Status,
+                    operation.Candidate.InstallKind,
+                    operation.Candidate.Confidence,
+                    null))
+                .ToArray();
             return Task.FromResult(new UpdateVerificationReport(
                 batch.BatchId,
                 batch.CreatedAt,
                 isAfterRestart,
-                new[] { item },
+                items,
                 "Simple summary",
                 true));
         }

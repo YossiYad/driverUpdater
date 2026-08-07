@@ -2959,11 +2959,23 @@ public partial class MainViewModel : ObservableObject
             if (_postUpdateSummaryCoordinator is not null)
             {
                 StatusText = "Verifying installed drivers and preparing the summary...";
-                await _postUpdateSummaryCoordinator.CompleteRunAsync(
+                var report = await _postUpdateSummaryCoordinator.CompleteRunAsync(
                     outcomes.Select(o => o.Operation).ToArray(),
                     report => ApplyPostUpdateVerification(report, outcomes),
                     cancellationToken).ConfigureAwait(true);
-                StatusText = "Driver updates checked. Review the summary for the final result.";
+                if (report is null && outcomes.Any(outcome => outcome.Operation.RequiresRestart))
+                {
+                    foreach (var outcome in outcomes.Where(outcome => outcome.Operation.RequiresRestart))
+                    {
+                        outcome.Row.Status = DriverStatus.RestartRequired;
+                    }
+                    RefreshUpdateCounts();
+                    StatusText = "Restart required. The complete update summary will appear after restart.";
+                }
+                else
+                {
+                    StatusText = "Driver updates checked. Review the summary for the final result.";
+                }
             }
 
             // Save only after Windows verification has reconciled the grid. This prevents
@@ -3021,8 +3033,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var rebootRequiredCount = outcomes.Count(o =>
-            o.Operation.Status == UpdateStatus.Succeeded
-            && o.Operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true);
+            o.Operation.RequiresRestart);
         if (rebootRequiredCount == 0)
         {
             return;

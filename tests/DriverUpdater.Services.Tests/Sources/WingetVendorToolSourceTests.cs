@@ -49,7 +49,7 @@ public class WingetVendorToolSourceTests
     }
 
     [Fact]
-    public async Task SearchAsync_returns_one_shared_upgrade_for_each_matching_logitech_device()
+    public async Task SearchAsync_returns_one_shared_upgrade_on_the_representative_logitech_device()
     {
         using var tool = new TemporaryToolFile();
         var runner = new ScriptedRunner(arguments => arguments.StartsWith("list ", StringComparison.Ordinal)
@@ -64,12 +64,13 @@ public class WingetVendorToolSourceTests
 
         var results = await source.SearchAsync(drivers).ToListAsync();
 
-        results.Should().HaveCount(2);
-        results.Select(candidate => candidate.SourceUpdateId).Should().OnlyContain(id =>
-            id == "vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028");
-        results.Select(candidate => candidate.DownloadUrl.LocalPath).Should().OnlyContain(path => path == tool.Path);
-        results.Select(candidate => candidate.NewVersion).Should().OnlyContain(version =>
-            version == new Version(2026, 4, 919028));
+        results.Should().ContainSingle();
+        results[0].ForHardwareId.Should().Be("ROOT\\LGHUB\\0000");
+        results[0].SourceUpdateId.Should().Be(
+            "vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028");
+        results[0].DownloadUrl.LocalPath.Should().Be(tool.Path);
+        results[0].NewVersion.Should().Be(new Version(2026, 4, 919028));
+        results[0].InstalledVersionLabel.Should().Be("Logitech G HUB 2026.3.880543");
         runner.Arguments.Should().ContainSingle(argument => argument.Contains("list --id \"Logitech.GHUB\"", StringComparison.Ordinal));
     }
 

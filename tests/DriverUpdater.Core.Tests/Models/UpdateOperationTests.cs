@@ -41,6 +41,24 @@ public class UpdateOperationTests
         op.Duration.Should().Be(TimeSpan.FromMinutes(3));
     }
 
+    [Theory]
+    [InlineData(UpdateStatus.Succeeded, "Reboot required to complete installation.", true)]
+    [InlineData(UpdateStatus.Succeeded, "Restart required to finish this update.", true)]
+    [InlineData(UpdateStatus.Succeeded, null, false)]
+    [InlineData(UpdateStatus.Failed, "Reboot required to complete installation.", false)]
+    public void RequiresRestart_needs_a_successful_operation_with_explicit_reboot_result(
+        UpdateStatus status,
+        string? errorMessage,
+        bool expected)
+    {
+        var operation = NewOperation(status, completedAt: DateTimeOffset.UtcNow) with
+        {
+            ErrorMessage = errorMessage
+        };
+
+        operation.RequiresRestart.Should().Be(expected);
+    }
+
     [Fact]
     public void NewPending_creates_operation_with_pending_status_and_fresh_guid()
     {

@@ -12,7 +12,7 @@ namespace DriverUpdater.EndToEnd.Tests;
 /// <summary>
 /// Covers the "did the update actually take?" flow across a reboot: the real
 /// <see cref="PostUpdateVerifier"/> classifies each finished operation, the real
-/// <see cref="PostUpdateSummaryCoordinator"/> persists the reboot-pending ones through the real
+    /// <see cref="PostUpdateSummaryCoordinator"/> persists the whole run when any update needs a restart through the real
 /// <see cref="JsonPendingUpdateVerificationStore"/>, and a second app session resumes and
 /// verifies them once the machine has actually restarted.
 /// </summary>
@@ -178,35 +178,51 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     public async Task An_update_needing_a_restart_is_saved_and_verified_after_the_machine_reboots()
     {
         var installedAt = DateTimeOffset.UtcNow;
+        var secondDevice = Gpu with
+        {
+            DeviceId = @"PCI\VEN_8086&DEV_1234\SECOND",
+            HardwareId = @"PCI\VEN_8086&DEV_1234",
+            DeviceName = "Second device"
+        };
         var probe = new ScriptedInstalledDriverProbe()
-            .Always(Gpu.DeviceId, new InstalledDriverState(Gpu.CurrentVersion, Gpu.CurrentDate));
+            .Always(Gpu.DeviceId, new InstalledDriverState(Gpu.CurrentVersion, Gpu.CurrentDate))
+            .Always(secondDevice.DeviceId, new InstalledDriverState(GpuCandidate.NewVersion, GpuCandidate.NewDate));
         var (coordinator, windows, startup, _, store) =
             BuildCoordinator(probe, bootTime: installedAt.AddHours(-3));
 
         var report = await coordinator.CompleteRunAsync(
-            new[] { Finished(UpdateStatus.Succeeded, "Reboot required to complete installation.") });
+            new[]
+            {
+                Finished(UpdateStatus.Succeeded, "Reboot required to complete installation."),
+                Finished(UpdateStatus.Succeeded, null, secondDevice)
+            });
 
-        report!.Items[0].Status.Should().Be(UpdateVerificationStatus.PendingRestart);
-        report.PendingRestartCount.Should().Be(1);
+        report.Should().BeNull("no summary is produced before a required restart");
+        windows.Reports.Should().BeEmpty();
         startup.RegisterCount.Should().Be(1, "the app must relaunch after the restart to finish verification");
         File.Exists(store.StorePath).Should().BeTrue();
 
         var saved = await NewPendingStore().LoadAsync();
         saved.Should().NotBeNull();
-        saved!.Operations.Should().ContainSingle();
-        saved.Operations[0].TargetSnapshot.DeviceId.Should().Be(Gpu.DeviceId);
-        saved.Operations[0].Candidate.NewVersion.Should().Be(new Version(32, 0, 15, 6094));
+        saved!.Operations.Should().HaveCount(2, "the final summary must contain the complete update run");
+        saved.Operations.Select(operation => operation.TargetSnapshot.DeviceId).Should().BeEquivalentTo(
+            new[] { Gpu.DeviceId, secondDevice.DeviceId });
+        saved.Operations.Should().OnlyContain(operation =>
+            operation.Candidate.NewVersion == new Version(32, 0, 15, 6094));
 
         // --- next session, after the machine actually restarted ---
         var afterRebootProbe = new ScriptedInstalledDriverProbe()
-            .Always(Gpu.DeviceId, new InstalledDriverState(new Version(32, 0, 15, 6094), new DateOnly(2024, 7, 15)));
+            .Always(Gpu.DeviceId, new InstalledDriverState(new Version(32, 0, 15, 6094), new DateOnly(2024, 7, 15)))
+            .Always(secondDevice.DeviceId, new InstalledDriverState(new Version(32, 0, 15, 6094), new DateOnly(2024, 7, 15)));
         var second = BuildCoordinator(afterRebootProbe, bootTime: DateTimeOffset.UtcNow.AddMinutes(1));
 
         await second.Coordinator.ResumeAfterRestartAsync();
 
         second.Windows.Reports.Should().ContainSingle();
         second.Windows.Reports[0].IsAfterRestart.Should().BeTrue();
-        second.Windows.Reports[0].Items[0].Status.Should().Be(UpdateVerificationStatus.VerifiedUpdated);
+        second.Windows.Reports[0].Items.Should().HaveCount(2);
+        second.Windows.Reports[0].Items.Should().OnlyContain(item =>
+            item.Status == UpdateVerificationStatus.VerifiedUpdated);
         second.Startup.UnregisterCount.Should().Be(1);
         File.Exists(store.StorePath).Should().BeFalse("the pending batch is consumed once verified");
     }

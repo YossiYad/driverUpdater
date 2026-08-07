@@ -16,4 +16,7 @@ public sealed record UpdateVerificationItem(
     UpdateInstallKind InstallKind,
     UpdateConfidence Confidence,
     Uri? ActionUrl,
-    string? ExpectedVersionLabel = null);
+    string? ExpectedVersionLabel = null,
+    bool IsSoftwarePackage = false,
+    string? PreviousVersionLabel = null,
+    string? CurrentVersionLabel = null);

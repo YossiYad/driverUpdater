@@ -21,6 +21,10 @@ public sealed record UpdateOperation(
         or UpdateStatus.Skipped
         or UpdateStatus.Cancelled;
 
+    public bool RequiresRestart => Status == UpdateStatus.Succeeded
+        && (ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true
+            || ErrorMessage?.Contains("restart", StringComparison.OrdinalIgnoreCase) == true);
+
     public TimeSpan? Duration => CompletedAt is { } completed
         ? completed - StartedAt
         : null;

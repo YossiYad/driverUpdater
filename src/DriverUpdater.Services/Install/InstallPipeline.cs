@@ -2,6 +2,7 @@ using System.IO.Compression;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using DriverUpdater.Services.Scanning;
+using DriverUpdater.Services.Sources;
 using Microsoft.Extensions.Logging;
 
 namespace DriverUpdater.Services.Install;
@@ -715,6 +716,87 @@ public sealed partial class InstallPipeline : IInstallPipeline
                     result.ExitCode, amdLogDetail);
             }
 
+            string? verifiedPackageMessage = null;
+            if (result.IsSuccess
+                && TryParseWingetSourceUpdateId(
+                    operation.Candidate.SourceUpdateId,
+                    out var wingetMode,
+                    out var packageId,
+                    out var expectedPackageVersion))
+            {
+                var verification = await VerifyWingetPackageAsync(
+                    fileName,
+                    packageId,
+                    expectedPackageVersion,
+                    cancellationToken).ConfigureAwait(false);
+
+                // Logitech's current G HUB bootstrapper can return success without replacing
+                // the installed release. WinGet's supported uninstall-previous mode is the
+                // supported automated recovery. Back up the user profile before replacing the
+                // application package so settings remain recoverable if its uninstaller removes them.
+                if (!verification.IsVerified
+                    && wingetMode == "upgrade"
+                    && packageId.Equals("Logitech.GHUB", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryBackupLogitechGHubProfile(out var profileBackupPath, out var backupError))
+                    {
+                        verification = verification with
+                        {
+                            Detail = verification.Detail
+                                + $" The automatic G HUB repair was not attempted because its profile backup failed: {backupError}"
+                        };
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "WinGet reported success for {Package}, but version {Installed} is still installed. "
+                                + "Retrying with uninstall-previous after backing up the G HUB profile to {BackupPath}.",
+                            packageId,
+                            verification.InstalledVersion ?? "unknown",
+                            profileBackupPath ?? "<no profile data found>");
+                        var repairResult = await _vendorInstallerRunner.RunAsync(
+                            fileName,
+                            arguments + " --uninstall-previous",
+                            cancellationToken).ConfigureAwait(false);
+                        if (repairResult.IsSuccess)
+                        {
+                            verification = await VerifyWingetPackageAsync(
+                                fileName,
+                                packageId,
+                                expectedPackageVersion,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            verification = verification with
+                            {
+                                Detail = $"The repair retry exited with code {repairResult.ExitCode}: "
+                                    + FirstNonEmpty(repairResult.StandardError, repairResult.StandardOutput)
+                            };
+                        }
+                    }
+                }
+
+                if (!verification.IsVerified)
+                {
+                    _logger.LogError(
+                        "WinGet returned success for {Package}, but package verification failed: {Detail}",
+                        packageId,
+                        verification.Detail);
+                    operation = operation with
+                    {
+                        Status = UpdateStatus.Failed,
+                        ErrorMessage = verification.Detail,
+                        CompletedAt = _clock.GetUtcNow()
+                    };
+                    progress?.Report(operation);
+                    return operation;
+                }
+
+                verifiedPackageMessage =
+                    $"Package version confirmed after installation: {packageId} {verification.InstalledVersion}.";
+            }
+
             _logger.LogInformation(
                 "Vendor installer for {Device} succeeded after {Elapsed}",
                 operation.TargetSnapshot.DeviceName, installElapsed);
@@ -722,7 +804,7 @@ public sealed partial class InstallPipeline : IInstallPipeline
             {
                 Status = UpdateStatus.Succeeded,
                 ErrorMessage = BuildAmdChipsetSuccessMessage(
-                    operation.ErrorMessage,
+                    verifiedPackageMessage ?? operation.ErrorMessage,
                     result.ExitCode,
                     amdLogConfirmedSuccess,
                     amdRebootRequired),
@@ -1093,6 +1175,142 @@ public sealed partial class InstallPipeline : IInstallPipeline
     internal static bool UsesPackageLevelVerification(UpdateCandidate candidate) =>
         IsSharedAmdPackageCandidate(candidate)
         || candidate.SourceUpdateId.StartsWith("vendor-installer:winget:", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool TryParseWingetSourceUpdateId(
+        string sourceUpdateId,
+        out string mode,
+        out string packageId,
+        out Version expectedVersion)
+    {
+        mode = string.Empty;
+        packageId = string.Empty;
+        expectedVersion = new Version();
+        const string prefix = "vendor-installer:winget:";
+        if (!sourceUpdateId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var fields = sourceUpdateId[prefix.Length..]
+            .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (fields.Length < 3
+            || fields[0] is not ("install" or "upgrade")
+            || !WingetPackageIdPattern().IsMatch(fields[1])
+            || !Version.TryParse(fields[2], out var parsedVersion))
+        {
+            return false;
+        }
+
+        mode = fields[0];
+        packageId = fields[1];
+        expectedVersion = parsedVersion;
+        return true;
+    }
+
+    private async Task<WingetPackageVerification> VerifyWingetPackageAsync(
+        string wingetPath,
+        string packageId,
+        Version expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        var arguments = $"list --id \"{packageId}\" --exact --source winget "
+            + "--accept-source-agreements --disable-interactivity";
+        var result = await _vendorInstallerRunner!.RunAsync(
+            wingetPath,
+            arguments,
+            cancellationToken).ConfigureAwait(false);
+        if (!WingetVendorToolSource.TryParsePackageRow(
+                result.StandardOutput,
+                packageId,
+                out var installedText,
+                out var availableText)
+            || installedText is null
+            || !Version.TryParse(installedText, out var installedVersion))
+        {
+            return new WingetPackageVerification(
+                false,
+                installedText,
+                $"WinGet exited successfully, but the installed version of {packageId} could not be verified.");
+        }
+
+        if (installedVersion < expectedVersion)
+        {
+            var stillAvailable = availableText is null ? string.Empty : $" Version {availableText} is still offered.";
+            return new WingetPackageVerification(
+                false,
+                installedText,
+                $"WinGet exited successfully, but {packageId} is still at {installedText} instead of {expectedVersion}.{stillAvailable}");
+        }
+
+        return new WingetPackageVerification(true, installedText, string.Empty);
+    }
+
+    private sealed record WingetPackageVerification(
+        bool IsVerified,
+        string? InstalledVersion,
+        string Detail);
+
+    private bool TryBackupLogitechGHubProfile(out string? backupPath, out string error)
+    {
+        backupPath = null;
+        error = string.Empty;
+        try
+        {
+            var sources = new[]
+            {
+                (Name: "Local", Path: Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LGHUB")),
+                (Name: "Roaming", Path: Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "LGHUB"))
+            }.Where(item => Directory.Exists(item.Path)).ToArray();
+            if (sources.Length == 0)
+            {
+                return true;
+            }
+
+            backupPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "DriverUpdater",
+                "Backups",
+                "VendorSoftware",
+                "Logitech_G_HUB",
+                _clock.GetUtcNow().ToString("yyyyMMdd-HHmmss"));
+            foreach (var source in sources)
+            {
+                CopyDirectoryWithoutReparsePoints(
+                    source.Path,
+                    Path.Combine(backupPath, source.Name));
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = ex.Message;
+            _logger.LogWarning(ex, "Could not back up the Logitech G HUB profile before package repair");
+            return false;
+        }
+    }
+
+    private static void CopyDirectoryWithoutReparsePoints(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
+        }
+        foreach (var directory in Directory.EnumerateDirectories(source))
+        {
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+            {
+                continue;
+            }
+            CopyDirectoryWithoutReparsePoints(
+                directory,
+                Path.Combine(destination, Path.GetFileName(directory)));
+        }
+    }
 
     private static bool TryConfirmAmdChipsetSuccess(
         DateTimeOffset installStart,

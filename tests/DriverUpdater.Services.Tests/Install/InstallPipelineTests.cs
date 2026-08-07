@@ -751,6 +751,21 @@ public class InstallPipelineTests
         InstallPipeline.UsesPackageLevelVerification(candidate).Should().Be(expected);
     }
 
+    [Fact]
+    public void TryParseWingetSourceUpdateId_reads_package_and_expected_version()
+    {
+        var parsed = InstallPipeline.TryParseWingetSourceUpdateId(
+            "vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028",
+            out var mode,
+            out var packageId,
+            out var expectedVersion);
+
+        parsed.Should().BeTrue();
+        mode.Should().Be("upgrade");
+        packageId.Should().Be("Logitech.GHUB");
+        expectedVersion.Should().Be(new Version(2026, 4, 919028));
+    }
+
     [Theory]
     [InlineData("Configuration completed successfully. Reconfiguration success or error status: 0.", true)]
     [InlineData("Configuration completed successfully. MainEngineThread is returning 0", true)]

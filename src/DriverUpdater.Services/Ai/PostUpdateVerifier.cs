@@ -1,5 +1,6 @@
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Services.Install;
 using DriverUpdater.Services.Scanning;
 using Microsoft.Extensions.Logging;
 
@@ -90,9 +91,17 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             return CreateItem(operation, Snapshot(before), baseStatus.Value);
         }
 
-        var requiresRestart = operation.Status == UpdateStatus.Succeeded
-            && operation.ErrorMessage?.Contains("reboot", StringComparison.OrdinalIgnoreCase) == true;
-        if (requiresRestart && !isAfterRestart)
+        if (TryGetWingetPackage(operation, out _))
+        {
+            return CreateItem(
+                operation,
+                current: null,
+                operation.Status == UpdateStatus.Succeeded
+                    ? UpdateVerificationStatus.VerifiedUpdated
+                    : UpdateVerificationStatus.Failed);
+        }
+
+        if (operation.RequiresRestart && !isAfterRestart)
         {
             return CreateItem(operation, current: null, UpdateVerificationStatus.PendingRestart);
         }
@@ -156,12 +165,16 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
     private static UpdateVerificationItem CreateItem(
         UpdateOperation operation,
         InstalledDriverState? current,
-        UpdateVerificationStatus status) =>
-        new(
+        UpdateVerificationStatus status)
+    {
+        var isSoftwarePackage = TryGetWingetPackage(operation, out var packageName);
+        return new(
             OperationId: operation.OperationId,
-            DeviceName: string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceName)
-                ? operation.TargetSnapshot.HardwareId
-                : operation.TargetSnapshot.DeviceName,
+            DeviceName: isSoftwarePackage
+                ? packageName
+                : string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceName)
+                    ? operation.TargetSnapshot.HardwareId
+                    : operation.TargetSnapshot.DeviceName,
             Category: operation.TargetSnapshot.Category,
             PreviousVersion: operation.TargetSnapshot.CurrentVersion,
             PreviousDate: operation.TargetSnapshot.CurrentDate,
@@ -175,5 +188,36 @@ public sealed class PostUpdateVerifier : IPostUpdateVerifier
             InstallKind: operation.Candidate.InstallKind,
             Confidence: operation.Candidate.Confidence,
             ActionUrl: null,
-            ExpectedVersionLabel: operation.Candidate.VersionLabel);
+            ExpectedVersionLabel: operation.Candidate.VersionLabel,
+            IsSoftwarePackage: isSoftwarePackage,
+            PreviousVersionLabel: isSoftwarePackage ? operation.Candidate.InstalledVersionLabel : null,
+            CurrentVersionLabel: isSoftwarePackage && status == UpdateVerificationStatus.VerifiedUpdated
+                ? operation.Candidate.VersionLabel
+                : isSoftwarePackage
+                    ? operation.Candidate.InstalledVersionLabel
+                    : null);
+    }
+
+    private static bool TryGetWingetPackage(UpdateOperation operation, out string packageName)
+    {
+        packageName = string.Empty;
+        if (!InstallPipeline.TryParseWingetSourceUpdateId(
+                operation.Candidate.SourceUpdateId,
+                out _,
+                out var packageId,
+                out _))
+        {
+            return false;
+        }
+
+        packageName = packageId switch
+        {
+            "SteelSeries.GG" => "SteelSeries GG",
+            "Logitech.GHUB" => "Logitech G HUB",
+            "Tailscale.Tailscale" => "Tailscale",
+            "ViGEm.ViGEmBus" => "ViGEm Bus Driver",
+            _ => packageId
+        };
+        return true;
+    }
 }

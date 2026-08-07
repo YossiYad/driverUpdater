@@ -57,27 +57,17 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
                 BatchId: Guid.NewGuid(),
                 CreatedAt: DateTimeOffset.UtcNow,
                 Operations: operations.ToArray());
-            var report = await _verifier.VerifyAsync(
-                batch,
-                isAfterRestart: false,
-                _localization.CurrentLanguage,
-                cancellationToken).ConfigureAwait(true);
 
-            if (report.PendingRestartCount > 0)
+            var restartRequiredCount = batch.Operations.Count(operation => operation.RequiresRestart);
+            if (restartRequiredCount > 0)
             {
-                var pendingIds = report.Items
-                    .Where(i => i.Status == UpdateVerificationStatus.PendingRestart)
-                    .Select(i => i.OperationId)
-                    .ToHashSet();
-                var pendingOperations = batch.Operations
-                    .Where(o => pendingIds.Contains(o.OperationId))
-                    .ToList();
+                var pendingOperations = batch.Operations.ToList();
                 var existing = await _store.LoadAsync(cancellationToken).ConfigureAwait(true);
                 if (existing is not null)
                 {
                     pendingOperations = existing.Operations
                         .Concat(pendingOperations)
-                        .DistinctBy(o => o.OperationId)
+                        .DistinctBy(operation => operation.OperationId)
                         .ToList();
                 }
 
@@ -88,9 +78,17 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
                 await _store.SaveAsync(pendingBatch, cancellationToken).ConfigureAwait(true);
                 await _startupService.RegisterAsync(cancellationToken).ConfigureAwait(true);
                 _logger.LogInformation(
-                    "Saved {Count} update result(s) for verification after restart",
-                    report.PendingRestartCount);
+                    "Deferred the complete summary for {OperationCount} update result(s) because {RestartCount} require a restart",
+                    pendingOperations.Count,
+                    restartRequiredCount);
+                return null;
             }
+
+            var report = await _verifier.VerifyAsync(
+                batch,
+                isAfterRestart: false,
+                _localization.CurrentLanguage,
+                cancellationToken).ConfigureAwait(true);
 
             beforeSummaryOpen?.Invoke(report);
             _windowOpener.Open(report, _localization.CurrentLanguage);

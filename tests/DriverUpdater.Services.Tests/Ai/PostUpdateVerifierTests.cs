@@ -129,6 +129,44 @@ public class PostUpdateVerifierTests
         report.AiWasUsed.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(UpdateStatus.Succeeded, UpdateVerificationStatus.VerifiedUpdated)]
+    [InlineData(UpdateStatus.Failed, UpdateVerificationStatus.Failed)]
+    public async Task Winget_package_uses_the_verified_package_result_instead_of_driver_readback(
+        UpdateStatus installerStatus,
+        UpdateVerificationStatus expectedStatus)
+    {
+        var probe = new FakeProbe(new InstalledDriverState(new Version(1, 0), new DateOnly(2025, 1, 1)));
+        var verifier = NewVerifier(probe, new FakeCompleter(false, null));
+        var operation = NewOperation(installerStatus, "Package version checked after installation.");
+        operation = operation with
+        {
+            Candidate = operation.Candidate with
+            {
+                Source = UpdateSource.Oem,
+                InstallKind = UpdateInstallKind.VendorInstaller,
+                SourceUpdateId = "vendor-installer:winget:upgrade:Logitech.GHUB:2026.4.919028",
+                VersionLabel = "Logitech G HUB 2026.4.919028",
+                InstalledVersionLabel = "Logitech G HUB 2026.3.880543"
+            }
+        };
+
+        var report = await verifier.VerifyAsync(
+            NewBatch(operation),
+            isAfterRestart: false,
+            AppLanguage.English);
+
+        report.Items.Should().ContainSingle().Which.Status.Should().Be(expectedStatus);
+        report.Items[0].DeviceName.Should().Be("Logitech G HUB");
+        report.Items[0].IsSoftwarePackage.Should().BeTrue();
+        report.Items[0].PreviousVersionLabel.Should().Be("Logitech G HUB 2026.3.880543");
+        report.Items[0].CurrentVersionLabel.Should().Be(
+            installerStatus == UpdateStatus.Succeeded
+                ? "Logitech G HUB 2026.4.919028"
+                : "Logitech G HUB 2026.3.880543");
+        probe.CallCount.Should().Be(0);
+    }
+
     [Fact]
     public async Task Vendor_page_fallback_is_manual_action_not_failed_install()
     {

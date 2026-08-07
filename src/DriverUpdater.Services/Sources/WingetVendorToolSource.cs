@@ -19,26 +19,33 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
             driver => Contains(driver.HardwareId, "VID_1038")
                 || Contains(driver.Provider, "SteelSeries")
                 || Contains(driver.Manufacturer, "SteelSeries")
-                || Contains(driver.DeviceName, "SteelSeries")),
+                || Contains(driver.DeviceName, "SteelSeries"),
+            driver => Contains(driver.DeviceName, "SteelSeries GG Component Device") ? 100 : 0),
         new(
             "Logitech.GHUB",
             "Logitech G HUB",
             driver => Contains(driver.DeviceName, "LIGHTSPEED")
                 || Contains(driver.DeviceName, "Logitech G HUB")
-                || Contains(driver.DeviceName, "Logi G")),
+                || Contains(driver.DeviceName, "Logi G"),
+            driver => Contains(driver.DeviceName, "Logitech G HUB Virtual Bus Enumerator") ? 100
+                : Contains(driver.DeviceName, "LIGHTSPEED") ? 50
+                : 0),
         new(
             "Tailscale.Tailscale",
             "Tailscale",
             driver => Contains(driver.DeviceName, "Tailscale")
                 || Contains(driver.Provider, "Tailscale")
-                || Contains(driver.Manufacturer, "Tailscale")),
+                || Contains(driver.Manufacturer, "Tailscale"),
+            driver => Contains(driver.DeviceName, "Tailscale Tunnel") ? 100 : 0),
         new(
             "ViGEm.ViGEmBus",
             "ViGEm Bus Driver",
             driver => Contains(driver.DeviceName, "ViGEm")
                 || Contains(driver.DeviceName, "Nefarius Virtual Gamepad")
                 || Contains(driver.Provider, "Nefarius")
-                || Contains(driver.Manufacturer, "Nefarius"))
+                || Contains(driver.Manufacturer, "Nefarius"),
+            driver => Contains(driver.DeviceName, "ViGEm Bus")
+                || Contains(driver.DeviceName, "Virtual Gamepad Emulation Bus") ? 100 : 0)
     ];
 
     private readonly IVendorInstallerRunner _runner;
@@ -114,24 +121,27 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
 
             var sourceUpdateId = $"vendor-installer:winget:{state.Mode}:{package.Id}:{state.AvailableVersionText}";
             var date = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime.Date);
-            foreach (var driver in matchedDrivers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                yield return new UpdateCandidate(
-                    ForHardwareId: driver.HardwareId,
-                    Source: UpdateSource.Oem,
-                    NewVersion: state.AvailableVersion,
-                    NewDate: date,
-                    DownloadUrl: new Uri(wingetPath),
-                    SizeBytes: 0,
-                    KbArticle: null,
-                    IsSuperseded: false,
-                    SourceUpdateId: sourceUpdateId,
-                    SupersededIds: Array.Empty<string>(),
-                    InstallKind: UpdateInstallKind.VendorInstaller,
-                    Confidence: UpdateConfidence.Confirmed,
-                    VersionLabel: $"{package.DisplayName} {state.AvailableVersionText}");
-            }
+            var driver = matchedDrivers
+                .OrderByDescending(package.RepresentativeScore)
+                .ThenBy(item => item.DeviceName, StringComparer.OrdinalIgnoreCase)
+                .First();
+            yield return new UpdateCandidate(
+                ForHardwareId: driver.HardwareId,
+                Source: UpdateSource.Oem,
+                NewVersion: state.AvailableVersion,
+                NewDate: date,
+                DownloadUrl: new Uri(wingetPath),
+                SizeBytes: 0,
+                KbArticle: null,
+                IsSuperseded: false,
+                SourceUpdateId: sourceUpdateId,
+                SupersededIds: Array.Empty<string>(),
+                InstallKind: UpdateInstallKind.VendorInstaller,
+                Confidence: UpdateConfidence.Confirmed,
+                VersionLabel: $"{package.DisplayName} {state.AvailableVersionText}",
+                InstalledVersionLabel: state.InstalledVersionText is null
+                    ? null
+                    : $"{package.DisplayName} {state.InstalledVersionText}");
         }
     }
 
@@ -158,7 +168,7 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
                 package.Id,
                 installed ?? "unknown",
                 available);
-            return TryBuildPackageUpdate("upgrade", available);
+            return TryBuildPackageUpdate("upgrade", available, installed);
         }
 
         var searched = await _runner.RunAsync(wingetPath, $"search {common}", cancellationToken).ConfigureAwait(false);
@@ -182,10 +192,13 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
             "WinGet vendor tool {Package} is not installed; version {Version} can cover the matching device family",
             package.Id,
             latest);
-        return TryBuildPackageUpdate("install", latest);
+        return TryBuildPackageUpdate("install", latest, installedVersionText: null);
     }
 
-    private static WingetPackageUpdate? TryBuildPackageUpdate(string mode, string versionText)
+    private static WingetPackageUpdate? TryBuildPackageUpdate(
+        string mode,
+        string versionText,
+        string? installedVersionText)
     {
         var versionMatch = VersionPattern().Match(versionText);
         if (!versionMatch.Success || !Version.TryParse(versionMatch.Value, out var version))
@@ -193,7 +206,7 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
             return null;
         }
 
-        return new WingetPackageUpdate(mode, versionText, version);
+        return new WingetPackageUpdate(mode, versionText, version, installedVersionText);
     }
 
     internal static bool TryParsePackageRow(
@@ -312,10 +325,12 @@ public sealed partial class WingetVendorToolSource : IUpdateSource
     private sealed record VendorToolPackage(
         string Id,
         string DisplayName,
-        Func<DriverInfo, bool> Matches);
+        Func<DriverInfo, bool> Matches,
+        Func<DriverInfo, int> RepresentativeScore);
 
     private sealed record WingetPackageUpdate(
         string Mode,
         string AvailableVersionText,
-        Version AvailableVersion);
+        Version AvailableVersion,
+        string? InstalledVersionText);
 }
