@@ -16,6 +16,12 @@
         PreviewMouseLeftButtonDown="OnWindowPreviewMouseLeftButtonDown">
 
     <Window.Resources>
+        <LinearGradientBrush x:Key="AiSweepBrush" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Offset="0" Color="#002E7D32" />
+            <GradientStop Offset="0.5" Color="#FF2E7D32" />
+            <GradientStop Offset="1" Color="#002E7D32" />
+        </LinearGradientBrush>
+
         <Style x:Key="HeaderIconButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="36" />
             <Setter Property="Height" Value="32" />
@@ -573,7 +579,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Button Grid.Column="0"
-                                        Width="58"
+                                        Width="{x:Static views:AiSweepClock.TrackWidth}"
                                         Height="24"
                                         Padding="0"
                                         HorizontalAlignment="Left"
@@ -599,13 +605,18 @@
                                                                 CornerRadius="2"
                                                                 ClipToBounds="True">
                                                             <Grid>
-                                                                <ProgressBar Height="{TemplateBinding Height}"
-                                                                             IsIndeterminate="True"
-                                                                             Foreground="#FF2E7D32"
-                                                                             Background="Transparent"
-                                                                             BorderThickness="0"
-                                                                             Opacity="0.95"
-                                                                             Visibility="{Binding IsAiChecking, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                                <Grid ClipToBounds="True"
+                                                                      Opacity="0.95"
+                                                                      views:AiSweepClock.IsRunning="{Binding IsAiChecking}"
+                                                                      Visibility="{Binding IsAiChecking, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                    <Rectangle Width="{x:Static views:AiSweepClock.SweepWidth}"
+                                                                               HorizontalAlignment="Left"
+                                                                               Fill="{StaticResource AiSweepBrush}">
+                                                                        <Rectangle.RenderTransform>
+                                                                            <TranslateTransform X="{Binding Source={x:Static views:AiSweepClock.Instance}, Path=Offset}" />
+                                                                        </Rectangle.RenderTransform>
+                                                                    </Rectangle>
+                                                                </Grid>
                                                                 <ContentPresenter HorizontalAlignment="Center"
                                                                                   VerticalAlignment="Center"
                                                                                   RecognizesAccessKey="True" />
