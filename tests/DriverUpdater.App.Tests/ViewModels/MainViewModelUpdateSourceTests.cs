@@ -1320,6 +1320,11 @@ public class MainViewModelUpdateSourceTests
             {
                 DownloadUrl = _resolvedPackage,
                 InstallKind = UpdateInstallKind.VendorInstaller,
+                // Mirrors the real resolver: a resolved package is confirmed, unless the lead
+                // that pointed at the page came from AI discovery.
+                Confidence = candidate.SourceUpdateId.StartsWith("ai-latest:", StringComparison.OrdinalIgnoreCase)
+                    ? UpdateConfidence.Advisory
+                    : UpdateConfidence.Confirmed,
                 SourceUpdateId = "vendor-installer:zip-inf:resolved:" + candidate.SourceUpdateId
             }));
         }

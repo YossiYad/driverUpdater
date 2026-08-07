@@ -41,18 +41,6 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
             return VendorPageResolution.NoPackageFound;
         }
 
-        // AI discovery is useful as an advisory, but it does not provide the package
-        // applicability metadata required to bind an installer to a hardware ID. A general
-        // release page may contain source archives, utilities, firmware, and drivers for
-        // unrelated products. Only deterministic vendor sources may enter package resolution.
-        if (candidate.SourceUpdateId.StartsWith("ai-latest:", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation(
-                "Vendor page resolve skipped for {SourceUpdateId}: an AI page lead is not package applicability evidence",
-                candidate.SourceUpdateId);
-            return VendorPageResolution.NoPackageFound;
-        }
-
         if (candidate.DownloadUrl.Scheme is not ("http" or "https"))
         {
             _logger.LogInformation(
@@ -159,7 +147,7 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         {
             DownloadUrl = packageUrl,
             InstallKind = UpdateInstallKind.VendorInstaller,
-            Confidence = UpdateConfidence.Confirmed,
+            Confidence = ResolvedConfidence(candidate),
             SourceUpdateId = $"vendor-installer:{installerKind}:resolved:{candidate.SourceUpdateId}"
         });
     }
@@ -299,6 +287,19 @@ public sealed partial class VendorPageInstallerResolver : IVendorPageInstallerRe
         installerKind = string.Empty;
         return false;
     }
+
+    // A deterministic source names the exact page for the exact device, so a package found
+    // there is confirmed. An AI lead only names a plausible download page: the package that
+    // comes off it is installable and hardware-checked, but the match itself was never proven,
+    // so it stays advisory instead of being promoted.
+    public static bool IsAiDiscoveryLead(UpdateCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        return candidate.SourceUpdateId.StartsWith("ai-latest:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static UpdateConfidence ResolvedConfidence(UpdateCandidate candidate) =>
+        IsAiDiscoveryLead(candidate) ? UpdateConfidence.Advisory : UpdateConfidence.Confirmed;
 
     public static bool IsPackageCompatibleWithHardware(
         UpdateCandidate candidate,

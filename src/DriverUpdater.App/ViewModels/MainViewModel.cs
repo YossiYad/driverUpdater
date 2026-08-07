@@ -2569,6 +2569,7 @@ public partial class MainViewModel : ObservableObject
 
         var resolvedPages = 0;
         var droppedPages = 0;
+        var advisoryRows = 0;
         var index = 0;
         foreach (var group in pending)
         {
@@ -2615,8 +2616,16 @@ public partial class MainViewModel : ObservableObject
                                 row.DeviceName,
                                 row.HardwareId,
                                 installerKind);
-                            row.AvailableUpdate = null;
-                            row.Status = DriverStatus.NotFound;
+                            if (original.AiVerification is not null)
+                            {
+                                row.Status = DriverStatus.ManualActionRequired;
+                                advisoryRows++;
+                            }
+                            else
+                            {
+                                row.AvailableUpdate = null;
+                                row.Status = DriverStatus.NotFound;
+                            }
                             break;
                         }
 
@@ -2626,7 +2635,7 @@ public partial class MainViewModel : ObservableObject
                         {
                             DownloadUrl = resolved.DownloadUrl,
                             InstallKind = resolved.InstallKind,
-                            Confidence = UpdateConfidence.Confirmed,
+                            Confidence = resolved.Confidence,
                             SourceUpdateId = resolved.SourceUpdateId
                         };
                         row.Status = DriverStatus.Outdated;
@@ -2640,11 +2649,21 @@ public partial class MainViewModel : ObservableObject
                         break;
                     case VendorPageResolutionKind.NoPackageFound:
                     case VendorPageResolutionKind.PageUnreachable:
-                        // A page URL is not an update package. If the app cannot resolve and
-                        // validate a downloadable package, do not advertise the lead as an
-                        // update and do not send the user to a browser.
-                        row.AvailableUpdate = null;
-                        row.Status = DriverStatus.NotFound;
+                        // A page URL is not an update package, so the app never claims it can
+                        // install one. A lead that carries an AI verdict still carries the
+                        // finding itself - which version is current and how to get it - so the
+                        // row stays as an advisory the user can read instead of vanishing from
+                        // a finished scan. A bare page lead has nothing left to show and goes.
+                        if (row.AvailableUpdate?.AiVerification is not null)
+                        {
+                            row.Status = DriverStatus.ManualActionRequired;
+                            advisoryRows++;
+                        }
+                        else
+                        {
+                            row.AvailableUpdate = null;
+                            row.Status = DriverStatus.NotFound;
+                        }
                         break;
                 }
             }
@@ -2660,9 +2679,11 @@ public partial class MainViewModel : ObservableObject
         RefreshUpdateCounts();
         _logger.LogInformation(
             "Vendor page resolution complete: {Resolved} page(s) resolved to an in-app installer, " +
-            "{Dropped} page(s) had no validated installable package and were dropped",
+            "{Dropped} page(s) had no validated installable package ({Advisory} row(s) kept as an " +
+            "AI advisory, the rest dropped)",
             resolvedPages,
-            droppedPages);
+            droppedPages,
+            advisoryRows);
     }
 
     private void FinalizeScanStatuses()

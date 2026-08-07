@@ -556,11 +556,116 @@ public class MainViewModelAiTests
         vm.VendorChecksCount.Should().Be(0);
     }
 
+    [WpfFact]
+    public async Task ScanAsync_keeps_ai_findings_as_advisories_when_no_installable_package_is_found()
+    {
+        // Regression: vendor page resolution ran after AI discovery and deleted every row it
+        // could not turn into an installer. Since AI leads point at vendor landing pages, that
+        // wiped out the entire AI result - the user watched a scan find updates and finish with
+        // none. The finding itself is still worth showing, marked as needing manual action.
+        var driver = NewDriver("Intel Network", "PCI\\VEN_8086&DEV_1234", new Version(1, 0, 0, 0));
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            Verdicts =
+            {
+                ["ai-latest:PCI\\VEN_8086&DEV_1234"] = new AiVerdict(
+                    true,
+                    AiRiskLevel.Safe,
+                    "Recommended",
+                    "Intel lists a newer package for this hardware.",
+                    "2.0.0.0",
+                    new DateOnly(2026, 2, 3),
+                    "https://example.com/intel-driver",
+                    AdvisorNote: "Download the 2.0.0.0 package from the Intel support page.")
+            }
+        };
+        var vm = NewVm(
+            new[] { driver },
+            Array.Empty<UpdateCandidate>(),
+            verifier,
+            vendorPageResolver: new UnresolvableVendorPageResolver());
+
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers[0];
+        row.AvailableUpdate.Should().NotBeNull("the AI finding survives a scan that cannot install it");
+        row.AvailableUpdate!.Confidence.Should().Be(UpdateConfidence.Advisory);
+        row.AvailableUpdate.AiVerification.Should().NotBeNull();
+        row.Status.Should().Be(DriverStatus.ManualActionRequired);
+        vm.UpdatesFoundCount.Should().Be(1);
+        vm.VendorChecksCount.Should().Be(1);
+    }
+
+    [WpfFact]
+    public async Task ScanAsync_installs_an_ai_lead_that_resolves_to_a_real_package_but_keeps_it_advisory()
+    {
+        var driver = NewDriver("Intel Network", "PCI\\VEN_8086&DEV_1234", new Version(1, 0, 0, 0));
+        var verifier = new StubAiVerifier(isConfigured: true)
+        {
+            Verdicts =
+            {
+                ["ai-latest:PCI\\VEN_8086&DEV_1234"] = new AiVerdict(
+                    true,
+                    AiRiskLevel.Safe,
+                    "Recommended",
+                    "Intel lists a newer package for this hardware.",
+                    "2.0.0.0",
+                    new DateOnly(2026, 2, 3),
+                    "https://example.com/intel-driver")
+            }
+        };
+        var vm = NewVm(
+            new[] { driver },
+            Array.Empty<UpdateCandidate>(),
+            verifier,
+            vendorPageResolver: new ResolvingVendorPageResolver(
+                new Uri("https://example.com/intel-driver.msi")));
+
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
+
+        var row = vm.Drivers[0];
+        row.AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        row.AvailableUpdate.DownloadUrl.Should().Be(new Uri("https://example.com/intel-driver.msi"));
+        row.AvailableUpdate.Confidence.Should().Be(
+            UpdateConfidence.Advisory,
+            "an AI lead never proved the page belongs to this device, even when a package came off it");
+        row.Status.Should().Be(DriverStatus.Outdated);
+    }
+
+    private sealed class UnresolvableVendorPageResolver : IVendorPageInstallerResolver
+    {
+        public Task<VendorPageResolution> TryResolveAsync(
+            UpdateCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(VendorPageResolution.NoPackageFound);
+    }
+
+    private sealed class ResolvingVendorPageResolver : IVendorPageInstallerResolver
+    {
+        private readonly Uri _package;
+
+        public ResolvingVendorPageResolver(Uri package) => _package = package;
+
+        public Task<VendorPageResolution> TryResolveAsync(
+            UpdateCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(VendorPageResolution.Installer(candidate with
+            {
+                DownloadUrl = _package,
+                InstallKind = UpdateInstallKind.VendorInstaller,
+                Confidence = candidate.SourceUpdateId.StartsWith("ai-latest:", StringComparison.OrdinalIgnoreCase)
+                    ? UpdateConfidence.Advisory
+                    : UpdateConfidence.Confirmed,
+                SourceUpdateId = "vendor-installer:msi-wrapper:resolved:" + candidate.SourceUpdateId
+            }));
+    }
+
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,
         IAiVerifier aiVerifier,
-        IAiScanConfirmation? aiScanConfirmation = null) =>
+        IAiScanConfirmation? aiScanConfirmation = null,
+        IVendorPageInstallerResolver? vendorPageResolver = null) =>
         new(new FakeScanService(drivers),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
             new NullOemDetectionService(),
@@ -571,7 +676,8 @@ public class MainViewModelAiTests
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             aiVerifier: aiVerifier,
-            aiScanConfirmation: aiScanConfirmation);
+            aiScanConfirmation: aiScanConfirmation,
+            vendorPageResolver: vendorPageResolver);
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",

@@ -196,14 +196,36 @@ public class VendorPageInstallerResolverTests
     }
 
     [Fact]
-    public async Task TryResolveAsync_does_not_treat_an_ai_page_lead_as_package_metadata()
+    public async Task TryResolveAsync_resolves_an_ai_page_lead_but_keeps_it_advisory()
     {
         var resolver = new VendorPageInstallerResolver(
-            new StubHttpClientFactory("<a href='/downloads/unrelated-driver.msi'>download</a>"),
+            new StubHttpClientFactory("<a href='/downloads/driver.msi'>download</a>"),
             NullLogger<VendorPageInstallerResolver>.Instance);
 
         var resolution = await resolver.TryResolveAsync(
             NewVendorPageCandidate() with { SourceUpdateId = "ai-latest:PCI\\X" });
+
+        resolution.Kind.Should().Be(VendorPageResolutionKind.Installer);
+        resolution.Candidate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
+        resolution.Candidate.Confidence.Should().Be(
+            UpdateConfidence.Advisory,
+            "the package is installable, but an AI lead never proved the page belongs to this device");
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_still_rejects_a_package_from_another_vendor_family()
+    {
+        var resolver = new VendorPageInstallerResolver(
+            new StubHttpClientFactory(
+                "<a href='https://drivers.amd.com/drivers/amd_chipset_software_7.03.11.361.exe'>chipset</a>"),
+            NullLogger<VendorPageInstallerResolver>.Instance);
+
+        var resolution = await resolver.TryResolveAsync(
+            NewVendorPageCandidate() with
+            {
+                SourceUpdateId = "ai-latest:PCI\\VEN_8086&DEV_1234",
+                ForHardwareId = "PCI\\VEN_8086&DEV_1234"
+            });
 
         resolution.Kind.Should().Be(VendorPageResolutionKind.NoPackageFound);
     }
