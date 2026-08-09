@@ -1,10 +1,13 @@
 using System.Runtime.CompilerServices;
+using DriverUpdater.App.Logging;
 using DriverUpdater.App.Tests.Stubs;
 using DriverUpdater.App.ViewModels;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Serilog.Events;
+using Serilog.Parsing;
 
 namespace DriverUpdater.App.Tests.ViewModels;
 
@@ -44,6 +47,45 @@ public class MainViewModelDriverChatTests
         vm.DriverChatMessages[0].IsUser.Should().BeFalse();
         vm.DriverChatMessages[0].Text.Should().Contain("not configured");
         completer.WasCalled.Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task SendDriverChat_includes_recent_logs_in_the_prompt()
+    {
+        var sink = new InMemoryLogSink();
+        EmitInfo(sink, "Update run: starting Intel Iris Xe Graphics (current version=1.0, target version=2.0)");
+        var completer = new StubTextCompleter(isConfigured: true, reply: "The graphics driver is still installing.");
+        var vm = NewVm(completer, sink);
+        vm.DriverChatInput = "Why is the update taking so long?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        completer.LastPrompt.Should().Contain("RECENT APPLICATION LOGS");
+        completer.LastPrompt.Should().Contain("Update run: starting Intel Iris Xe Graphics");
+    }
+
+    [WpfFact]
+    public async Task SendDriverChat_enables_web_search_guidance_for_gemini()
+    {
+        var completer = new StubTextCompleter(isConfigured: true, reply: "ok");
+        var vm = NewVm(completer);
+        vm.DriverChatInput = "What do you recommend?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        completer.LastPrompt.Should().Contain("You have Google Search available");
+    }
+
+    [WpfFact]
+    public async Task SendDriverChat_omits_the_log_section_without_a_sink()
+    {
+        var completer = new StubTextCompleter(isConfigured: true, reply: "ok");
+        var vm = NewVm(completer);
+        vm.DriverChatInput = "What should I update?";
+
+        await vm.SendDriverChatCommand.ExecuteAsync(null);
+
+        completer.LastPrompt.Should().NotContain("RECENT APPLICATION LOGS");
     }
 
     [WpfFact]
@@ -264,7 +306,7 @@ public class MainViewModelDriverChatTests
         SourceUpdateId: "abc",
         SupersededIds: Array.Empty<string>());
 
-    private static MainViewModel NewVm(IAiTextCompleter completer) =>
+    private static MainViewModel NewVm(IAiTextCompleter completer, InMemoryLogSink? logSink = null) =>
         new(new FakeScanService(),
             Array.Empty<IUpdateSource>(),
             new NullOemDetectionService(),
@@ -274,7 +316,19 @@ public class MainViewModelDriverChatTests
             new NullSettingsWindowOpener(),
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
-            driverChatCompleter: completer);
+            driverChatCompleter: completer,
+            logSink: logSink);
+
+    private static void EmitInfo(InMemoryLogSink sink, string message)
+    {
+        var template = new MessageTemplateParser().Parse(message);
+        sink.Emit(new LogEvent(
+            DateTimeOffset.Now,
+            LogEventLevel.Information,
+            exception: null,
+            template,
+            Array.Empty<LogEventProperty>()));
+    }
 
     private static DriverInfo NewDriver(string name) => new(
         DeviceId: $"ID\\{name}",
