@@ -46,7 +46,9 @@ public sealed class AiAutoUpdateAdvisor : IAiAutoUpdateAdvisor
             "AI auto-update review: provider={Provider}, tolerance={Tolerance}, {Count} unique update(s) from {Rows} row(s)",
             _verifier.Provider, riskTolerance, requests.Length, items.Count);
 
-        var verdicts = await _verifier.VerifyAsync(requests, cancellationToken).ConfigureAwait(false);
+        var verdicts = await _verifier
+            .VerifyAsync(requests, unattendedRun: true, cancellationToken)
+            .ConfigureAwait(false);
 
         var decisions = new List<AiUpdateDecision>(unique.Length);
         foreach (var item in unique)

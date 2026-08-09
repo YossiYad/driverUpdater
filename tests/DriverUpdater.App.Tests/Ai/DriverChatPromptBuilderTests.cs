@@ -135,12 +135,24 @@ public class DriverChatPromptBuilderTests
             Array.Empty<LogChatMessage>(),
             "What do you recommend I update?",
             webSearchEnabled: true,
-            machineDescription: "Dell Inc. XPS 15 9530");
+            machine: MachineProfile.Empty with
+            {
+                SystemManufacturer = "Dell Inc.",
+                SystemModel = "XPS 15 9530",
+                ProcessorName = "13th Gen Intel(R) Core(TM) i9-13900H",
+                GraphicsAdapters = new[] { "NVIDIA GeForce RTX 4070 Laptop GPU" },
+                OperatingSystemName = "Microsoft Windows 11 Pro",
+                OperatingSystemBuild = "26200"
+            });
 
         prompt.Should().Contain("You have Google Search available");
         prompt.Should().Contain("known issues or bugs in a specific driver version");
-        prompt.Should().Contain("MACHINE: Dell Inc. XPS 15 9530");
-        prompt.Should().Contain("The app cannot downgrade drivers yet");
+        prompt.Should().Contain("THIS PC (every recommendation is for this machine):");
+        prompt.Should().Contain("- System: Dell Inc. XPS 15 9530");
+        prompt.Should().Contain("- CPU: 13th Gen Intel(R) Core(TM) i9-13900H");
+        prompt.Should().Contain("- GPU: NVIDIA GeForce RTX 4070 Laptop GPU");
+        prompt.Should().Contain("build: 26200");
+        prompt.Should().Contain("Version history and downgrade");
     }
 
     [Fact]
@@ -152,7 +164,7 @@ public class DriverChatPromptBuilderTests
             "What do you recommend I update?");
 
         prompt.Should().NotContain("Google Search");
-        prompt.Should().NotContain("MACHINE:");
+        prompt.Should().NotContain("THIS PC");
     }
 
     [Fact]

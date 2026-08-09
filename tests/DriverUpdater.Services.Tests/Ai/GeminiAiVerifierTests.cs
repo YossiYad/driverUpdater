@@ -118,7 +118,7 @@ public class GeminiAiVerifierTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        var act = () => verifier.VerifyAsync(new[] { NewRequest("corr-1") }, cancellation.Token);
+        var act = () => verifier.VerifyAsync(new[] { NewRequest("corr-1") }, unattendedRun: false, cancellation.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }

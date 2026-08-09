@@ -94,7 +94,20 @@ public class AiCompositionIntegrationTests
             o.OllamaModel = ai.OllamaModel;
         });
         services.AddDriverUpdaterServices();
+        // The real provider reads this machine over WMI. Composition is what is under test here,
+        // so the AI graph gets a fixed profile instead of whatever box the suite runs on.
+        services.AddSingleton<IMachineProfileProvider>(new FixedMachineProfileProvider());
         return services.BuildServiceProvider();
+    }
+
+    private sealed class FixedMachineProfileProvider : IMachineProfileProvider
+    {
+        public Task<MachineProfile> GetAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(MachineProfile.Empty with
+            {
+                SystemManufacturer = "Contoso",
+                SystemModel = "Test Bench 1"
+            });
     }
 
     private static string OllamaBody(string id, bool genuinelyNewer, string risk)

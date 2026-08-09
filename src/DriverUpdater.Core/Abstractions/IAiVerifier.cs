@@ -10,7 +10,12 @@ public interface IAiVerifier
 
     bool IsTemporarilyUnavailable { get; }
 
+    /// <param name="unattendedRun">
+    /// True when the verdicts drive an unattended scheduled install rather than a review the
+    /// user is watching. The prompt holds the model to a stricter bar in that case.
+    /// </param>
     Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
+        bool unattendedRun = false,
         CancellationToken cancellationToken = default);
 }

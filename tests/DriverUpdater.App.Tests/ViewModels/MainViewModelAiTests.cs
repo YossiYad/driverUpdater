@@ -745,7 +745,9 @@ public class MainViewModelAiTests
         public void ReleaseHeldCalls() => _release.TrySetResult();
 
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
-            IReadOnlyList<AiVerificationRequest> requests, CancellationToken cancellationToken = default)
+            IReadOnlyList<AiVerificationRequest> requests,
+            bool unattendedRun = false,
+            CancellationToken cancellationToken = default)
         {
             WasCalled = true;
             LastRequests = requests;

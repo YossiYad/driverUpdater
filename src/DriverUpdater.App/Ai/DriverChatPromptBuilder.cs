@@ -40,7 +40,7 @@ public static class DriverChatPromptBuilder
         IReadOnlyList<LogEntry>? recentLogs = null,
         bool updateRunInProgress = false,
         bool webSearchEnabled = false,
-        string? machineDescription = null)
+        MachineProfile? machine = null)
     {
         ArgumentNullException.ThrowIfNull(drivers);
         ArgumentNullException.ThrowIfNull(history);
@@ -66,18 +66,24 @@ public static class DriverChatPromptBuilder
             sb.AppendLine("You have Google Search available. Use it whenever fresh, real-world knowledge would improve");
             sb.AppendLine("the answer: which driver version the vendor currently recommends for this exact hardware,");
             sb.AppendLine("known issues or bugs in a specific driver version, and what the community consensus says.");
-            sb.AppendLine("Search with the exact device name, the version numbers involved, and the machine model when");
-            sb.AppendLine("one is listed below. Ground your claims in what you find and quote concrete version numbers.");
+            sb.AppendLine("Search with the exact device name, the version numbers involved, and the system model, board,");
+            sb.AppendLine("CPU, GPU, and Windows build listed under THIS PC below when they are available. Ground your");
+            sb.AppendLine("claims in what you find and quote concrete version numbers.");
             sb.AppendLine("If the web consensus recommends a specific OLDER version than the one installed or offered");
             sb.AppendLine("(for example a stable version the community prefers), say so clearly in prose, including the");
-            sb.AppendLine("exact version and why. The app cannot downgrade drivers yet, so never put such a version in");
-            sb.AppendLine("a RECOMMEND_UPDATE line; that line stays reserved for updates shown in the driver list.");
+            sb.AppendLine("exact version and why. Never put such a version in a RECOMMEND_UPDATE line; that line stays");
+            sb.AppendLine("reserved for updates shown in the driver list. Instead tell the user they can right-click the");
+            sb.AppendLine("driver row and choose Version history and downgrade, which restores an older version when its");
+            sb.AppendLine("package is still in the Windows driver store.");
             sb.AppendLine();
         }
 
-        if (!string.IsNullOrWhiteSpace(machineDescription))
+        if (machine is { } profile && profile.HasAnyDetail)
         {
-            sb.Append("MACHINE: ").AppendLine(Clean(machineDescription));
+            sb.AppendLine("THIS PC (every recommendation is for this machine):");
+            sb.AppendLine(profile.Describe());
+            sb.AppendLine("An OEM package built for this model usually beats a generic vendor build on a laptop, and a");
+            sb.AppendLine("version that is fine elsewhere can regress on this chipset, GPU, or Windows build.");
             sb.AppendLine();
         }
         if (allowInstallActions)

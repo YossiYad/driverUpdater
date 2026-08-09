@@ -25,6 +25,96 @@ public class AiVerificationProtocolTests
     }
 
     [Fact]
+    public void BuildPrompt_puts_the_machine_in_front_of_the_candidates()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Intel(R) Iris(R) Xe Graphics", "32.0.101.7076", "32.0.101.7088") },
+            machine: Machine(),
+            webSearchEnabled: true);
+
+        prompt.Should().Contain("THIS PC (the machine every verdict is for):");
+        prompt.Should().Contain("- System: ASUSTeK COMPUTER INC. Vivobook X1502VA");
+        prompt.Should().Contain("- CPU: 13th Gen Intel(R) Core(TM) i5-13500H");
+        prompt.Should().Contain("- GPU: Intel(R) Iris(R) Xe Graphics");
+        prompt.Should().Contain("- Windows: Microsoft Windows 11 Home");
+        prompt.Should().Contain("When you search, put these details in the query");
+        prompt.IndexOf("THIS PC", StringComparison.Ordinal)
+            .Should().BeLessThan(prompt.IndexOf("Candidates:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildPrompt_says_nothing_about_a_machine_it_could_not_read()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: MachineProfile.Empty);
+
+        prompt.Should().NotContain("THIS PC");
+    }
+
+    [Fact]
+    public void BuildPrompt_only_tells_the_model_to_search_when_it_can()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: Machine(),
+            webSearchEnabled: true);
+
+        prompt.Should().Contain("search the web for the latest official driver");
+        prompt.Should().Contain("Use the web to check for reported problems");
+        prompt.Should().NotContain("You have NO web access");
+    }
+
+    [Fact]
+    public void BuildPrompt_forbids_invented_lookups_when_there_is_no_web_access()
+    {
+        // Ollama has no search tool. Telling it to "search the web" only invites a made-up
+        // "I checked the release notes" answer.
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: Machine(),
+            webSearchEnabled: false);
+
+        prompt.Should().Contain("You have NO web access");
+        prompt.Should().NotContain("search the web for the latest official driver");
+        prompt.Should().NotContain("Use the web to check for reported problems");
+        prompt.Should().NotContain("When you search, put these details in the query");
+    }
+
+    [Fact]
+    public void BuildPrompt_raises_the_bar_for_an_unattended_scheduled_run()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: Machine(),
+            webSearchEnabled: true,
+            unattendedRun: true);
+
+        prompt.Should().Contain("UNATTENDED scheduled run");
+        prompt.Should().Contain("prefer Caution or Unknown over an optimistic Safe");
+    }
+
+    [Fact]
+    public void BuildPrompt_does_not_mention_an_unattended_run_for_an_interactive_scan()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: Machine());
+
+        prompt.Should().NotContain("UNATTENDED");
+    }
+
+    private static MachineProfile Machine() => MachineProfile.Empty with
+    {
+        SystemManufacturer = "ASUSTeK COMPUTER INC.",
+        SystemModel = "Vivobook X1502VA",
+        ProcessorName = "13th Gen Intel(R) Core(TM) i5-13500H",
+        GraphicsAdapters = new[] { "Intel(R) Iris(R) Xe Graphics" },
+        OperatingSystemName = "Microsoft Windows 11 Home",
+        OperatingSystemBuild = "26200"
+    };
+
+    [Fact]
     public void BuildPrompt_instructs_the_ai_to_write_user_facing_fields_in_the_selected_language()
     {
         var prompt = AiVerificationProtocol.BuildPrompt(

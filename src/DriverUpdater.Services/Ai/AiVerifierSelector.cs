@@ -42,6 +42,7 @@ public sealed class AiVerifierSelector : IAiVerifier
 
     public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
+        bool unattendedRun = false,
         CancellationToken cancellationToken = default)
     {
         var provider = _settings.CurrentValue.Provider;
@@ -59,12 +60,13 @@ public sealed class AiVerifierSelector : IAiVerifier
         }
 
         _logger?.LogInformation(
-            "AI request routed to {Provider}: total={Count}, discovery={DiscoveryCount}, candidateVerification={CandidateCount}",
+            "AI request routed to {Provider}: total={Count}, discovery={DiscoveryCount}, candidateVerification={CandidateCount}, unattended={Unattended}",
             provider,
             requests.Count,
             requests.Count(r => r.FindLatestWhenNoCandidate),
-            requests.Count(r => !r.FindLatestWhenNoCandidate));
-        return verifier.VerifyAsync(requests, cancellationToken);
+            requests.Count(r => !r.FindLatestWhenNoCandidate),
+            unattendedRun);
+        return verifier.VerifyAsync(requests, unattendedRun, cancellationToken);
     }
 
     private IAiVerifier? Current() => _settings.CurrentValue.Provider switch

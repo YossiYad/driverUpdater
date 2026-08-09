@@ -15,7 +15,10 @@ internal static class AiVerificationProtocol
 
     public static string BuildPrompt(
         IReadOnlyList<AiVerificationRequest> requests,
-        AppLanguage responseLanguage = AppLanguage.English)
+        AppLanguage responseLanguage = AppLanguage.English,
+        MachineProfile? machine = null,
+        bool webSearchEnabled = false,
+        bool unattendedRun = false)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are a Windows driver advisor and update verification assistant.");
@@ -23,9 +26,35 @@ internal static class AiVerificationProtocol
             ? "Write every user-facing text field in clear, natural Hebrew. Keep the JSON property names and enum values in English so the app can parse them. Keep driver names, versions, hardware IDs, and URLs unchanged."
             : "Write every user-facing text field in clear, natural English. Keep the JSON property names and enum values in English so the app can parse them. Keep driver names, versions, hardware IDs, and URLs unchanged.");
         sb.AppendLine("For each driver below, decide TWO things:");
-        sb.AppendLine("1. isGenuinelyNewer: for normal candidate checks, is the candidate truly a newer/different driver than what is already installed? For findLatestWhenNoCandidate=true, search the web for the latest official driver for this exact device/hardware and set true only when you find evidence of a newer version than installed. Set false if the candidate/latest version equals (or is older/same as) the installed version, or if it is clearly the same driver just published under a later date. A false here means the update should NOT be offered.");
-        sb.AppendLine("2. risk: how likely is installing this driver to cause problems (bugs, instability, regressions, known issues)? Use the web to check for reported problems with this exact version when possible. Values: Safe, Caution, HighRisk, Unknown.");
+        sb.AppendLine(webSearchEnabled
+            ? "1. isGenuinelyNewer: for normal candidate checks, is the candidate truly a newer/different driver than what is already installed? For findLatestWhenNoCandidate=true, search the web for the latest official driver for this exact device/hardware and set true only when you find evidence of a newer version than installed. Set false if the candidate/latest version equals (or is older/same as) the installed version, or if it is clearly the same driver just published under a later date. A false here means the update should NOT be offered."
+            : "1. isGenuinelyNewer: for normal candidate checks, is the candidate truly a newer/different driver than what is already installed? For findLatestWhenNoCandidate=true, judge from the data below and your own knowledge, and set true only when you are confident a newer version than installed exists. Set false if the candidate/latest version equals (or is older/same as) the installed version, or if it is clearly the same driver just published under a later date. A false here means the update should NOT be offered.");
+        sb.AppendLine(webSearchEnabled
+            ? "2. risk: how likely is installing this driver to cause problems (bugs, instability, regressions, known issues)? Use the web to check for reported problems with this exact version when possible. Values: Safe, Caution, HighRisk, Unknown."
+            : "2. risk: how likely is installing this driver to cause problems (bugs, instability, regressions, known issues)? Values: Safe, Caution, HighRisk, Unknown.");
         sb.AppendLine();
+
+        // Without web access the model has no way to look anything up. Saying so keeps it from
+        // reporting confident "known issues" it never actually checked.
+        if (!webSearchEnabled)
+        {
+            sb.AppendLine("You have NO web access for this request. Do not claim you searched, looked up, or checked any");
+            sb.AppendLine("page, and do not invent release notes, issue reports, URLs, or version numbers. When the data");
+            sb.AppendLine("below plus your own knowledge is not enough, answer Unknown and say the evidence is thin.");
+            sb.AppendLine();
+        }
+
+        AppendMachineSection(sb, machine, webSearchEnabled);
+
+        if (unattendedRun)
+        {
+            sb.AppendLine("This is an UNATTENDED scheduled run: nobody is at the machine, nobody will read a warning, and");
+            sb.AppendLine("a bad driver can leave the PC without display, network, or boot until someone comes back to it.");
+            sb.AppendLine("Hold every verdict to that bar. Endorse only what you would install on this exact machine with");
+            sb.AppendLine("no one watching, and prefer Caution or Unknown over an optimistic Safe.");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("Recommendation guidance:");
         sb.AppendLine("- Recommend installing only when the candidate appears genuinely newer, matches the hardware/vendor, comes from a trustworthy source, and there are no significant reports of regressions for this exact version.");
         sb.AppendLine("- Recommend waiting or avoiding when reports mention BSODs, boot/display/network/audio regressions, failed installs, firmware risk, wrong device family, or when the version evidence is weak.");
@@ -65,6 +94,30 @@ internal static class AiVerificationProtocol
         sb.AppendLine("Respond with ONLY a JSON object, no markdown, in exactly this shape:");
         sb.AppendLine("{\"verdicts\":[{\"id\":\"<id>\",\"isGenuinelyNewer\":true,\"risk\":\"Safe\",\"summary\":\"...\",\"rationale\":\"...\",\"latestKnownVersion\":\"...\",\"latestKnownDate\":\"2026-01-31\",\"latestKnownUrl\":\"https://...\",\"installedSuitability\":\"...\",\"candidateSuitability\":\"...\",\"recommendedVersion\":\"...\",\"advisorNote\":\"...\"}]}");
         return sb.ToString();
+    }
+
+    // A driver verdict is only meaningful for a specific machine: vendors publish per model,
+    // OEM-customized packages beat generic ones on laptops, and a version that is fine on one
+    // chipset generation regresses on another. Without this block the model was reasoning about
+    // the device class in the abstract.
+    private static void AppendMachineSection(StringBuilder sb, MachineProfile? machine, bool webSearchEnabled)
+    {
+        if (machine is null || !machine.HasAnyDetail)
+        {
+            return;
+        }
+
+        sb.AppendLine("THIS PC (the machine every verdict is for):");
+        sb.AppendLine(machine.Describe());
+        sb.AppendLine("Judge every driver against this exact machine, not against the device in general. An OEM-supplied");
+        sb.AppendLine("package for this model usually beats a generic vendor build on a laptop, and a version that is");
+        sb.AppendLine("fine on other hardware can regress on this chipset, GPU, or Windows build.");
+        if (webSearchEnabled)
+        {
+            sb.AppendLine("When you search, put these details in the query: the system model, the motherboard, the CPU, the");
+            sb.AppendLine("GPU, and the Windows build, alongside the device name and the version numbers involved.");
+        }
+        sb.AppendLine();
     }
 
     // Tolerant parse: providers with web grounding can wrap JSON in prose or markdown

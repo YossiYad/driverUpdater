@@ -13,18 +13,21 @@ public sealed class OllamaAiVerifier : IAiVerifier
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptionsMonitor<AiSettings> _settings;
+    private readonly IMachineProfileProvider? _machineProfileProvider;
     private readonly ILogger<OllamaAiVerifier> _logger;
 
     public OllamaAiVerifier(
         IHttpClientFactory httpClientFactory,
         IOptionsMonitor<AiSettings> settings,
-        ILogger<OllamaAiVerifier> logger)
+        ILogger<OllamaAiVerifier> logger,
+        IMachineProfileProvider? machineProfileProvider = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(logger);
         _httpClientFactory = httpClientFactory;
         _settings = settings;
+        _machineProfileProvider = machineProfileProvider;
         _logger = logger;
     }
 
@@ -39,6 +42,7 @@ public sealed class OllamaAiVerifier : IAiVerifier
 
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
+        bool unattendedRun = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
@@ -53,7 +57,14 @@ public sealed class OllamaAiVerifier : IAiVerifier
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var prompt = AiVerificationProtocol.BuildPrompt(requests, settings.ResponseLanguage);
+            var machine = await ReadMachineProfileAsync(cancellationToken).ConfigureAwait(false);
+            // Ollama runs locally with no search tool, so the prompt must never imply one.
+            var prompt = AiVerificationProtocol.BuildPrompt(
+                requests,
+                settings.ResponseLanguage,
+                machine,
+                webSearchEnabled: false,
+                unattendedRun);
             var payload = new
             {
                 model = settings.OllamaModel,
@@ -139,6 +150,30 @@ public sealed class OllamaAiVerifier : IAiVerifier
         }
         catch (JsonException)
         {
+            return null;
+        }
+    }
+
+    // The machine profile must never be the reason a verification fails: it makes the answer
+    // better, it is not required for one.
+    private async Task<MachineProfile?> ReadMachineProfileAsync(CancellationToken cancellationToken)
+    {
+        if (_machineProfileProvider is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _machineProfileProvider.GetAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the machine profile for the AI verification prompt");
             return null;
         }
     }

@@ -152,6 +152,19 @@ public class AiAutoUpdateAdvisorTests
                 SupersededIds: Array.Empty<string>(),
                 InstallKind: UpdateInstallKind.PnPUtilPackage));
 
+    [Fact]
+    public async Task ReviewAsync_tells_the_verifier_that_nobody_is_watching()
+    {
+        // A scheduled run installs without anyone to read a warning, so the prompt has to hold
+        // the model to a stricter bar than an interactive "Scan with AI".
+        var verifier = new StubVerifier(("update-1", Verdict(true, AiRiskLevel.Safe)));
+        var advisor = NewAdvisor(verifier);
+
+        await advisor.ReviewAsync(new[] { Item("update-1") }, AiAutoUpdateRiskTolerance.SafeOnly);
+
+        verifier.LastUnattendedRun.Should().BeTrue();
+    }
+
     private sealed class StubVerifier : IAiVerifier
     {
         private readonly Dictionary<string, AiVerdict> _verdicts;
@@ -169,11 +182,15 @@ public class AiAutoUpdateAdvisorTests
 
         public bool IsTemporarilyUnavailable => false;
 
+        public bool? LastUnattendedRun { get; private set; }
+
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
             IReadOnlyList<AiVerificationRequest> requests,
+            bool unattendedRun = false,
             CancellationToken cancellationToken = default)
         {
             Requests.AddRange(requests);
+            LastUnattendedRun = unattendedRun;
             return Task.FromResult<IReadOnlyDictionary<string, AiVerdict>>(_verdicts);
         }
     }
