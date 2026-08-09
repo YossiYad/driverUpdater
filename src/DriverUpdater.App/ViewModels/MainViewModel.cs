@@ -44,6 +44,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IRebootPrompt? _rebootPrompt;
     private readonly IIneffectiveUpdateStore? _ineffectiveUpdateStore;
     private readonly IAiTextCompleter? _driverChatCompleter;
+    private readonly IMachineProfileProvider? _machineProfileProvider;
     private readonly IOptionsMonitor<AiSettings>? _aiSettings;
     private readonly IAiScanConfirmation? _aiScanConfirmation;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
@@ -220,7 +221,8 @@ public partial class MainViewModel : ObservableObject
         InMemoryLogSink? logSink = null,
         IDriverDowngradeService? downgradeService = null,
         IDriverVersionHistoryWindowOpener? versionHistoryWindowOpener = null,
-        IRestorePointService? restorePointService = null)
+        IRestorePointService? restorePointService = null,
+        IMachineProfileProvider? machineProfileProvider = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -231,6 +233,7 @@ public partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(settingsWindowOpener);
         ArgumentNullException.ThrowIfNull(logsWindowOpener);
         ArgumentNullException.ThrowIfNull(logger);
+        _machineProfileProvider = machineProfileProvider;
         _scanService = scanService;
         _updateSources = updateSources.ToArray();
         _oemDetectionService = oemDetectionService;
@@ -420,9 +423,7 @@ public partial class MainViewModel : ObservableObject
                 recentLogs: _logSink?.Snapshot(),
                 updateRunInProgress: _activeUpdateRuns > 0,
                 webSearchEnabled: webSearchEnabled,
-                machineDescription: DetectedOem is { } oem
-                    ? $"{oem.Manufacturer} {oem.Model}".Trim()
-                    : null);
+                machine: await ReadMachineProfileAsync(cancellationToken).ConfigureAwait(true));
             var answer = await _driverChatCompleter.CompleteAsync(prompt, cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(answer))
             {
@@ -1585,6 +1586,32 @@ public partial class MainViewModel : ObservableObject
 
     private static string IneffectiveKey(string deviceId, string targetVersion) => deviceId + "|" + targetVersion;
 
+    // Hardware identity sharpens every recommendation, but a machine that will not answer a WMI
+    // query must not cost the user their answer.
+    private async Task<MachineProfile?> ReadMachineProfileAsync(CancellationToken cancellationToken)
+    {
+        if (_machineProfileProvider is null)
+        {
+            return DetectedOem is { } oem
+                ? MachineProfile.Empty with { SystemManufacturer = oem.Manufacturer, SystemModel = oem.Model }
+                : null;
+        }
+
+        try
+        {
+            return await _machineProfileProvider.GetAsync(cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the machine profile for the driver chat prompt");
+            return null;
+        }
+    }
+
     private async Task LoadIneffectiveLedgerAsync(CancellationToken cancellationToken)
     {
         if (_ineffectiveUpdateStore is null)
@@ -1763,7 +1790,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             StatusText = $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
-            verdicts = await _aiVerifier.VerifyAsync(requests, aiSearchCancellation.Token).ConfigureAwait(true);
+            verdicts = await _aiVerifier.VerifyAsync(requests, unattendedRun: false, aiSearchCancellation.Token).ConfigureAwait(true);
             stopwatch.Stop();
         }
         catch (OperationCanceledException) when (
@@ -1890,7 +1917,7 @@ public partial class MainViewModel : ObservableObject
                 ? BuildAiVerificationRequest(row)
                 : BuildAiDiscoveryRequest(row);
             LogAiRequest("single-row Ask AI", request);
-            var verdicts = await _aiVerifier.VerifyAsync(new[] { request }, cancellationToken).ConfigureAwait(true);
+            var verdicts = await _aiVerifier.VerifyAsync(new[] { request }, unattendedRun: false, cancellationToken).ConfigureAwait(true);
             if (!verdicts.TryGetValue(request.CorrelationId, out var verdict))
             {
                 _logger.LogWarning(
@@ -2025,7 +2052,7 @@ public partial class MainViewModel : ObservableObject
                     LogAiRequest("latest-driver discovery", request);
                 }
 
-                var verdicts = await _aiVerifier.VerifyAsync(requests, discoveryCancellationToken).ConfigureAwait(true);
+                var verdicts = await _aiVerifier.VerifyAsync(requests, unattendedRun: false, discoveryCancellationToken).ConfigureAwait(true);
                 if (_aiVerifier.IsTemporarilyUnavailable)
                 {
                     providerUnavailable = true;

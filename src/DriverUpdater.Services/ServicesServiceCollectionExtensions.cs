@@ -5,6 +5,7 @@ using DriverUpdater.Core.Options;
 using DriverUpdater.Services.Ai;
 using DriverUpdater.Services.Backup;
 using DriverUpdater.Services.Install;
+using DriverUpdater.Services.Machine;
 using DriverUpdater.Services.Scanning;
 using DriverUpdater.Services.Sources;
 using DriverUpdater.Services.Sources.Internal;
@@ -102,6 +103,8 @@ public static class ServicesServiceCollectionExtensions
 
         services.AddSingleton<GeminiQuotaGate>();
         services.AddSingleton<GeminiRequestUsageTracker>();
+        services.AddSingleton<IMachineProfileProvider, WmiMachineProfileProvider>();
+
         services.AddTransient<GeminiUsageTrackingHandler>();
         ConfigureAiHttpClient(services);
         services.AddSingleton<GeminiAiVerifier>();

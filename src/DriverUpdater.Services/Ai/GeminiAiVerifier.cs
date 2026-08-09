@@ -16,13 +16,15 @@ public sealed class GeminiAiVerifier : IAiVerifier
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptionsMonitor<AiSettings> _settings;
     private readonly GeminiQuotaGate _quotaGate;
+    private readonly IMachineProfileProvider? _machineProfileProvider;
     private readonly ILogger<GeminiAiVerifier> _logger;
 
     public GeminiAiVerifier(
         IHttpClientFactory httpClientFactory,
         IOptionsMonitor<AiSettings> settings,
         GeminiQuotaGate quotaGate,
-        ILogger<GeminiAiVerifier> logger)
+        ILogger<GeminiAiVerifier> logger,
+        IMachineProfileProvider? machineProfileProvider = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(settings);
@@ -31,6 +33,7 @@ public sealed class GeminiAiVerifier : IAiVerifier
         _httpClientFactory = httpClientFactory;
         _settings = settings;
         _quotaGate = quotaGate;
+        _machineProfileProvider = machineProfileProvider;
         _logger = logger;
     }
 
@@ -51,6 +54,7 @@ public sealed class GeminiAiVerifier : IAiVerifier
 
     public async Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
         IReadOnlyList<AiVerificationRequest> requests,
+        bool unattendedRun = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
@@ -75,7 +79,13 @@ public sealed class GeminiAiVerifier : IAiVerifier
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var prompt = AiVerificationProtocol.BuildPrompt(requests, settings.ResponseLanguage);
+            var machine = await ReadMachineProfileAsync(cancellationToken).ConfigureAwait(false);
+            var prompt = AiVerificationProtocol.BuildPrompt(
+                requests,
+                settings.ResponseLanguage,
+                machine,
+                settings.EnableWebSearch,
+                unattendedRun);
             var payload = BuildPayload(prompt, settings.EnableWebSearch);
 
             _logger.LogInformation(
@@ -287,4 +297,28 @@ public sealed class GeminiAiVerifier : IAiVerifier
 
     internal static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength] + $"... (+{value.Length - maxLength} more chars)";
+
+    // The machine profile must never be the reason a verification fails: it makes the answer
+    // better, it is not required for one.
+    private async Task<MachineProfile?> ReadMachineProfileAsync(CancellationToken cancellationToken)
+    {
+        if (_machineProfileProvider is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _machineProfileProvider.GetAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the machine profile for the AI verification prompt");
+            return null;
+        }
+    }
 }
