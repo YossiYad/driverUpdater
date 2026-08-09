@@ -243,6 +243,14 @@
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="Every version a driver has had, and a way back: " />
+                                <Run Text="Right-click any driver row and choose Version history and downgrade. Each version the app has seen on that device is listed, and any whose package is still in the Windows driver store goes back in one click. The app takes a restore point, backs up the newer package, puts the older one back, checks which version the device actually bound, and adds the device to the never-update list so the next scan does not undo your choice.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="The AI looks things up on the web before answering: " />
+                                <Run Text="Ask about a driver and the chat searches for what the vendor published and what other people report about that version, including whether an older one is the safer pick for your machine. Answers end with the sources they came from.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="The AI can read what is happening right now: " />
+                                <Run Text="During an update run the chat sees the app's own log, so asking why something is taking a long time gets an answer from the actual run instead of a guess.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="Updates Windows refuses to apply stop coming back: " />
+                                <Run Text="Some packages install but Windows keeps the old driver anyway. Until now the app offered them again on every scan, downloading and restarting for nothing. Once a restart proves the driver did not change, that update is not offered again unless the installed driver changes.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="Ask the AI to change your settings: " />
                                 <Run Text="Tell the chat what you want - turn scheduled updates on or off, decide what the X button does, start with Windows, pick the day and time, switch driver sources, and more. The AI shows you exactly what it is about to change and nothing happens until you press the confirm button. It can also suggest a setting on its own when it would solve what you are describing.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="Ask what is turned on right now: " />
@@ -426,6 +434,14 @@
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Style="{StaticResource WelcomeBodyStyle}">
+                                <Run FontWeight="SemiBold" Text="כל גרסה שהייתה למנהל התקן, ודרך לחזור אליה: " />
+                                <Run Text="לחיצה ימנית על שורה של מנהל התקן ובחירה ב-Version history and downgrade מציגה כל גרסה שהאפליקציה ראתה על ההתקן הזה. כל גרסה שהחבילה שלה עדיין נמצאת במאגר הדרייברים של Windows חוזרת בלחיצה אחת. האפליקציה יוצרת נקודת שחזור, מגבה את החבילה החדשה, מחזירה את הישנה, בודקת לאיזו גרסה ההתקן באמת נקשר, ומוסיפה אותו לרשימת ההתקנים שלא מתעדכנים כדי שהסריקה הבאה לא תבטל את הבחירה.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="ה־AI מחפש ברשת לפני שהוא עונה: " />
+                                <Run Text="כששואלים על מנהל התקן, הצ'אט מחפש מה היצרן פרסם ומה אחרים מדווחים על הגרסה הזו, כולל האם דווקא גרסה ישנה יותר עדיפה למחשב שלכם. בסוף כל תשובה מופיעים המקורות שממנו היא הגיעה.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="ה־AI רואה מה קורה ברגע זה: " />
+                                <Run Text="במהלך ריצת עדכון הצ'אט רואה את הלוג של האפליקציה עצמה, כך ששאלה כמו למה זה לוקח כל כך הרבה זמן נענית מתוך הריצה האמיתית ולא בניחוש.&#x0a;&#x0a;" />
+                                <Run FontWeight="SemiBold" Text="עדכונים ש-Windows מסרב להחיל מפסיקים לחזור: " />
+                                <Run Text="יש חבילות שמותקנות אבל Windows ממשיך להשתמש בדרייבר הישן. עד עכשיו האפליקציה הציעה אותן שוב בכל סריקה, והורידה והפעילה מחדש בלי סיבה. מרגע שהפעלה מחדש מוכיחה שהדרייבר לא השתנה, אותו עדכון לא מוצע שוב אלא אם הדרייבר המותקן משתנה.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="אפשר לבקש מה־AI לשנות הגדרות: " />
                                 <Run Text="פשוט אומרים לצ'אט מה רוצים - להפעיל או לכבות עדכונים מתוזמנים, להחליט מה כפתור ה־X עושה, לעלות עם Windows, לקבוע יום ושעה, לשנות מקורות למנהלי התקנים ועוד. ה־AI מציג בדיוק מה הוא עומד לשנות, ושום דבר לא קורה עד שלוחצים על כפתור האישור. הוא גם יכול להציע הגדרה מיוזמתו כשהיא פותרת את מה שתיארתם.&#x0a;&#x0a;" />
                                 <Run FontWeight="SemiBold" Text="אפשר לשאול מה מוגדר כרגע: " />
