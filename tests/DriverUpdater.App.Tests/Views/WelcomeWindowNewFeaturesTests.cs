@@ -64,6 +64,10 @@ public class WelcomeWindowNewFeaturesTests
         var expectedHeadings = panelName == "EnglishPanel"
             ? new[]
             {
+                "Every version a driver has had, and a way back: ",
+                "The AI looks things up on the web before answering: ",
+                "The AI can read what is happening right now: ",
+                "Updates Windows refuses to apply stop coming back: ",
                 "Ask the AI to change your settings: ",
                 "Ask what is turned on right now: ",
                 "Conversation starters: ",
@@ -75,6 +79,10 @@ public class WelcomeWindowNewFeaturesTests
             }
             : new[]
             {
+                "כל גרסה שהייתה למנהל התקן, ודרך לחזור אליה: ",
+                "ה־AI מחפש ברשת לפני שהוא עונה: ",
+                "ה־AI רואה מה קורה ברגע זה: ",
+                "עדכונים ש-Windows מסרב להחיל מפסיקים לחזור: ",
                 "אפשר לבקש מה־AI לשנות הגדרות: ",
                 "אפשר לשאול מה מוגדר כרגע: ",
                 "כפתורי פתיחת שיחה: ",
