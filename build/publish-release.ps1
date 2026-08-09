@@ -97,8 +97,20 @@ Write-Host 'Verifying tag...'
 Invoke-Checked git rev-parse "$tagName^{}"
 Invoke-Checked git ls-remote --exit-code --tags origin "refs/tags/$tagName"
 
-& gh release view $tagName --json url *> $null
-if ($LASTEXITCODE -eq 0) {
+# "release not found" is the expected answer here, and gh writes it to stderr. Windows
+# PowerShell 5.1 turns a native command's stderr into a NativeCommandError record, which
+# $ErrorActionPreference = 'Stop' promotes to a terminating error - so the happy path aborted
+# the publish. Drop to 'Continue' for this one call and judge the result by the exit code.
+$previousErrorAction = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & gh release view $tagName --json url 2>&1 | Out-Null
+    $releaseAlreadyExists = ($LASTEXITCODE -eq 0)
+}
+finally {
+    $ErrorActionPreference = $previousErrorAction
+}
+if ($releaseAlreadyExists) {
     throw "GitHub release $tagName already exists."
 }
 
