@@ -425,6 +425,39 @@ public sealed partial class InstallPipeline : IInstallPipeline
         return operation;
     }
 
+    private async Task<bool> TryConfirmInstallByReadBackAsync(
+        UpdateOperation operation,
+        CancellationToken cancellationToken)
+    {
+        if (_installedDriverProbe is null || UsesPackageLevelVerification(operation.Candidate))
+        {
+            return false;
+        }
+
+        var before = operation.TargetSnapshot;
+        try
+        {
+            var current = await _installedDriverProbe
+                .GetCurrentAsync(before.DeviceId, cancellationToken)
+                .ConfigureAwait(false);
+            return current is not null
+                && (current.Version is not null || current.Date is not null)
+                && InstalledDriverChangeClassifier.IsUpgrade(before, current);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not read the active driver back for {Device} after the installer returned a failure exit code",
+                DeviceLabel(before));
+            return false;
+        }
+    }
+
     private async Task<UpdateOperation> StepResolveVendorPageAsync(
         UpdateOperation operation,
         IProgress<UpdateOperation>? progress,
@@ -690,7 +723,27 @@ public sealed partial class InstallPipeline : IInstallPipeline
                     out amdLogDetail,
                     out amdRebootRequired);
             var amdLogConfirmedSuccess = !result.IsSuccess && amdLogReportsSuccess;
+
+            // Vendor installers disagree about what a success code looks like. Intel's graphics
+            // installer returns exit 1000 after installing the driver, and the run is then filed
+            // as failed even though Windows is already on the new version. The active driver is
+            // the authority, so read it back before believing the exit code.
+            var readBackConfirmedSuccess = false;
             if (!result.IsSuccess && !amdLogConfirmedSuccess)
+            {
+                readBackConfirmedSuccess = await TryConfirmInstallByReadBackAsync(
+                    operation,
+                    cancellationToken).ConfigureAwait(false);
+                if (readBackConfirmedSuccess)
+                {
+                    _logger.LogInformation(
+                        "Vendor installer for {Device} returned exit {Code}, but the active driver is now the target version; "
+                        + "treating the install as successful",
+                        operation.TargetSnapshot.DeviceName, result.ExitCode);
+                }
+            }
+
+            if (!result.IsSuccess && !amdLogConfirmedSuccess && !readBackConfirmedSuccess)
             {
                 var harvestedLogs = TryHarvestInstallerLogTails(installStart, operation.Candidate.SourceUpdateId);
                 _logger.LogError(
@@ -804,7 +857,10 @@ public sealed partial class InstallPipeline : IInstallPipeline
             {
                 Status = UpdateStatus.Succeeded,
                 ErrorMessage = BuildAmdChipsetSuccessMessage(
-                    verifiedPackageMessage ?? operation.ErrorMessage,
+                    (readBackConfirmedSuccess
+                        ? $"The installer returned exit {result.ExitCode}, but Windows is now running the new driver."
+                        : null)
+                    ?? verifiedPackageMessage ?? operation.ErrorMessage,
                     result.ExitCode,
                     amdLogConfirmedSuccess,
                     amdRebootRequired),
@@ -1547,7 +1603,7 @@ public sealed partial class InstallPipeline : IInstallPipeline
             try
             {
                 var hits = Directory.EnumerateFiles(dir, "*.log", searchOption)
-                    .Where(p => !Path.GetFileName(p).StartsWith("Microsoft.NET.Workload_", StringComparison.OrdinalIgnoreCase))
+                    .Where(p => !IsUnrelatedInstallerLog(Path.GetFileName(p)))
                     .Where(p =>
                     {
                         try { return File.GetLastWriteTimeUtc(p) >= cutoff; }
@@ -1573,6 +1629,23 @@ public sealed partial class InstallPipeline : IInstallPipeline
 
         return sb.ToString();
     }
+
+    // %TEMP% collects installer logs from everything running on the machine, and a driver
+    // installer that bundles a runtime makes its dependencies write there too. Picking the
+    // newest .log files alone attached 60 lines of "Microsoft ASP.NET Core Shared Framework"
+    // output to an Intel graphics failure. Drop the log families that never carry the driver
+    // installer's own diagnostics.
+    private static readonly string[] UnrelatedInstallerLogPrefixes =
+    [
+        "Microsoft.NET.Workload_",
+        "dd_",
+        "vcredist",
+        "MSI"
+    ];
+
+    internal static bool IsUnrelatedInstallerLog(string fileName) =>
+        UnrelatedInstallerLogPrefixes.Any(prefix =>
+            fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     private static void TryAddIfExists(
         List<(string Path, SearchOption SearchOption)> list,

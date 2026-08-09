@@ -29,8 +29,11 @@ internal static class PostUpdateSummaryPromptBuilder
         sb.AppendLine("When Installer process result is Succeeded but Verified result is NotUpdated, say that the installer ran but Windows did not show a driver change. Do not say that no automatic installation was attempted.");
         sb.AppendLine("Say that no automatic installation was attempted only for ManualActionRequired items.");
         sb.AppendLine("For advisory vendor-page results, do not claim that an update definitely exists and do not present a date-based placeholder as a real driver version.");
-        sb.AppendLine("NotUpdated after a shared vendor bundle can mean that the component was already current. Do not recommend another update unless the evidence explicitly says one is still needed.");
+        sb.AppendLine("Say that a component may already have been current only when the version Windows now reports is the same as the Expected update version. When it is not, the package was added to the driver store and Windows kept the previous driver; say that instead.");
+        sb.AppendLine("Do not recommend another update unless the evidence explicitly says one is still needed.");
         sb.AppendLine("If an installer reported a warning or non-zero exit but Windows now reports a changed driver, describe the verified Windows result and mention the installer warning only briefly.");
+        sb.AppendLine("Never describe an Installer process result of Failed as a warning unless the Windows read-back confirms the new driver.");
+        sb.AppendLine("Any count you state must match the devices listed below. Do not say how many succeeded or need attention unless that number matches the list.");
         sb.AppendLine("Only say that the previous driver remains active when the Windows read-back version matches the Before version.");
         sb.Append("This check happened ").AppendLine(isAfterRestart ? "after the computer restarted." : "immediately after installation.");
         sb.AppendLine();

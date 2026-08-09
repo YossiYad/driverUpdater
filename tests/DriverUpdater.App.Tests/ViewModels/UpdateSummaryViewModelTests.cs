@@ -88,6 +88,66 @@ public class UpdateSummaryViewModelTests
         vm.Items[0].Explanation.Should().NotContain("previous driver is still active");
     }
 
+    [Theory]
+    [InlineData(AppLanguage.English, "Windows kept the previous driver")]
+    [InlineData(AppLanguage.Hebrew, "המשיך להשתמש בדרייבר הקודם")]
+    public void NotUpdated_does_not_claim_the_component_was_already_current(AppLanguage language, string expected)
+    {
+        // WinUsb Device: installed 1.1.0.0, target 2021.12.29.0, still 1.1.0.0 after the restart.
+        // The package went into the driver store and Windows declined to bind it.
+        var report = NewNotUpdatedReport(
+            previous: new Version(1, 1, 0, 0),
+            expectedVersion: new Version(2021, 12, 29, 0),
+            current: new Version(1, 1, 0, 0));
+
+        var vm = new UpdateSummaryViewModel(report, language);
+
+        vm.Items[0].Explanation.Should().Contain(expected);
+    }
+
+    [Fact]
+    public void NotUpdated_still_says_already_current_when_the_target_version_is_the_active_one()
+    {
+        var report = NewNotUpdatedReport(
+            previous: new Version(2, 0),
+            expectedVersion: new Version(2, 0),
+            current: new Version(2, 0));
+
+        var vm = new UpdateSummaryViewModel(report, AppLanguage.English);
+
+        vm.Items[0].Explanation.Should().Contain("already at the requested version");
+    }
+
+    private static UpdateVerificationReport NewNotUpdatedReport(
+        Version previous,
+        Version expectedVersion,
+        Version current)
+    {
+        var item = new UpdateVerificationItem(
+            Guid.NewGuid(),
+            "WinUsb Device",
+            DriverCategory.Other,
+            previous,
+            new DateOnly(2006, 6, 21),
+            expectedVersion,
+            new DateOnly(2021, 12, 29),
+            current,
+            new DateOnly(2006, 6, 21),
+            UpdateVerificationStatus.NotUpdated,
+            null,
+            UpdateStatus.Succeeded,
+            UpdateInstallKind.PnPUtilPackage,
+            UpdateConfidence.Confirmed,
+            null);
+        return new UpdateVerificationReport(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            true,
+            new[] { item },
+            null,
+            false);
+    }
+
     private static UpdateVerificationReport NewReport(
         UpdateVerificationStatus status,
         string? aiSummary,

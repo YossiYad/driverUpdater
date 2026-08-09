@@ -659,6 +659,87 @@ public class InstallPipelineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_treats_a_failing_vendor_exit_code_as_success_when_the_driver_did_change()
+    {
+        // Intel's graphics installer returns exit 1000 after installing the driver. The active
+        // driver is the authority, not the exit code.
+        var vendorInstaller = new FakeVendorInstallerRunner { ExitCode = 1000 };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(2, 0), new DateOnly(2026, 1, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([0x4D, 0x5A, 0x00, 0x00]),
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
+
+        var result = await pipeline.ExecuteAsync(
+            NewIntelGraphicsOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Succeeded);
+        result.ErrorMessage.Should().Contain("1000");
+        result.VerifiedState.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_keeps_a_failing_vendor_exit_code_as_failure_when_the_driver_is_unchanged()
+    {
+        var vendorInstaller = new FakeVendorInstallerRunner { ExitCode = 1000 };
+        var probe = new FakeInstalledDriverProbe
+        {
+            State = new InstalledDriverState(new Version(1, 0), new DateOnly(2024, 1, 1))
+        };
+        var pipeline = new InstallPipeline(
+            new FakeRestorePointService(),
+            new FakeBackupService(),
+            new FakeWuApiClient(),
+            NullLogger<InstallPipeline>.Instance,
+            vendorInstallerRunner: vendorInstaller,
+            httpClientFactory: new FakeHttpClientFactory([0x4D, 0x5A, 0x00, 0x00]),
+            installedDriverProbe: probe,
+            fileSignatureVerifier: new FakeFileSignatureVerifier());
+
+        var result = await pipeline.ExecuteAsync(
+            NewIntelGraphicsOperation(),
+            new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
+
+        result.Status.Should().Be(UpdateStatus.Failed);
+        result.ErrorMessage.Should().Contain("exit 1000");
+    }
+
+    private static UpdateOperation NewIntelGraphicsOperation()
+    {
+        var operation = NewOperation(
+            UpdateSource.Oem,
+            UpdateInstallKind.VendorInstaller,
+            new Uri("https://downloadmirror.intel.com/922492/gfx_win_101.7088.exe"));
+        return operation with
+        {
+            Candidate = operation.Candidate with
+            {
+                SourceUpdateId = "vendor-installer:intel-graphics:922492:32.0.101.7088"
+            }
+        };
+    }
+
+    [Theory]
+    [InlineData("dd_dd_AspNetCoreSharedFramework___20260807183857.log", true)]
+    [InlineData("Microsoft.NET.Workload_abc.log", true)]
+    [InlineData("MSI1a2b3.log", true)]
+    [InlineData("Intel®_Driver_&_Support_Assistant_20260807183838.elevated.log", false)]
+    [InlineData("AMD_Chipset_Software_Install.log", false)]
+    public void IsUnrelatedInstallerLog_skips_log_families_that_never_hold_driver_diagnostics(
+        string fileName,
+        bool expected) =>
+        InstallPipeline.IsUnrelatedInstallerLog(fileName).Should().Be(expected);
+
+    [Fact]
     public async Task ExecuteAsync_keeps_amd_bundle_success_for_batch_component_verification()
     {
         var vendorInstaller = new FakeVendorInstallerRunner();
@@ -1388,10 +1469,12 @@ public class InstallPipelineTests
     {
         public List<(string FileName, string Arguments)> Invocations { get; } = new();
 
+        public int ExitCode { get; init; }
+
         public Task<ProcessResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
         {
             Invocations.Add((fileName, arguments));
-            return Task.FromResult(new ProcessResult(0, "ok", ""));
+            return Task.FromResult(new ProcessResult(ExitCode, ExitCode == 0 ? "ok" : "", ""));
         }
     }
 

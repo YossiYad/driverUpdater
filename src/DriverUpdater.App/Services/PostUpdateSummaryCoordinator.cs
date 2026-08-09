@@ -13,6 +13,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
     private readonly ISystemBootTimeProvider _bootTimeProvider;
     private readonly IUpdateSummaryWindowOpener _windowOpener;
     private readonly ILocalizationService _localization;
+    private readonly IIneffectiveUpdateStore _ineffectiveUpdateStore;
     private readonly ILogger<PostUpdateSummaryCoordinator> _logger;
 
     public PostUpdateSummaryCoordinator(
@@ -22,6 +23,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         ISystemBootTimeProvider bootTimeProvider,
         IUpdateSummaryWindowOpener windowOpener,
         ILocalizationService localization,
+        IIneffectiveUpdateStore ineffectiveUpdateStore,
         ILogger<PostUpdateSummaryCoordinator> logger)
     {
         ArgumentNullException.ThrowIfNull(verifier);
@@ -30,6 +32,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         ArgumentNullException.ThrowIfNull(bootTimeProvider);
         ArgumentNullException.ThrowIfNull(windowOpener);
         ArgumentNullException.ThrowIfNull(localization);
+        ArgumentNullException.ThrowIfNull(ineffectiveUpdateStore);
         ArgumentNullException.ThrowIfNull(logger);
         _verifier = verifier;
         _store = store;
@@ -37,6 +40,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         _bootTimeProvider = bootTimeProvider;
         _windowOpener = windowOpener;
         _localization = localization;
+        _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _logger = logger;
     }
 
@@ -144,6 +148,7 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
                 isAfterRestart: true,
                 _localization.CurrentLanguage,
                 cancellationToken).ConfigureAwait(true);
+            await RecordProvenNoOpsAsync(batch, report, cancellationToken).ConfigureAwait(true);
             _windowOpener.Open(report, _localization.CurrentLanguage);
             await _store.ClearAsync(cancellationToken).ConfigureAwait(true);
             await _startupService.UnregisterAsync(cancellationToken).ConfigureAwait(true);
@@ -159,4 +164,52 @@ public sealed class PostUpdateSummaryCoordinator : IPostUpdateSummaryCoordinator
         }
     }
 
+    /// <summary>
+    /// An install that reported success but needed a restart is only proven after that restart.
+    /// When the driver is still unchanged once the machine is back up, the package went into the
+    /// driver store and Windows refused to bind it. Nothing recorded that until now, so the same
+    /// package was downloaded, installed and prompted for a restart again on every later scan.
+    /// </summary>
+    private async Task RecordProvenNoOpsAsync(
+        PendingUpdateVerificationBatch batch,
+        UpdateVerificationReport report,
+        CancellationToken cancellationToken)
+    {
+        var operationsById = batch.Operations.ToDictionary(operation => operation.OperationId);
+        foreach (var item in report.Items)
+        {
+            if (item.Status != UpdateVerificationStatus.NotUpdated
+                || item.InstallerStatus != UpdateStatus.Succeeded
+                || !operationsById.TryGetValue(item.OperationId, out var operation)
+                || operation.Candidate.NewVersion is null
+                || string.IsNullOrWhiteSpace(operation.TargetSnapshot.DeviceId))
+            {
+                continue;
+            }
+
+            try
+            {
+                await _ineffectiveUpdateStore.RecordAsync(
+                    operation.TargetSnapshot.DeviceId,
+                    operation.Candidate.NewVersion.ToString(),
+                    operation.TargetSnapshot.CurrentVersion?.ToString(),
+                    cancellationToken).ConfigureAwait(true);
+                _logger.LogInformation(
+                    "Recorded {Target} as a proven no-op for {Device}: the installer reported success, but after the "
+                    + "restart the active driver is still {Installed}. It will not be offered again until the "
+                    + "installed driver changes.",
+                    operation.Candidate.NewVersion,
+                    item.DeviceName,
+                    operation.TargetSnapshot.CurrentVersion?.ToString() ?? "the existing driver");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not record the ineffective update for {Device}", item.DeviceName);
+            }
+        }
+    }
 }

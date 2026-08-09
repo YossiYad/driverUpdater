@@ -73,7 +73,7 @@ public sealed class UpdateSummaryItemViewModel
             {
                 UpdateVerificationStatus.VerifiedUpdated => "Windows אישר שהמכשיר משתמש כעת בדרייבר החדש.",
                 UpdateVerificationStatus.PendingRestart => "העדכון הותקן, אך הוא ייכנס לפעולה רק לאחר הפעלה מחדש של המחשב.",
-                UpdateVerificationStatus.NotUpdated => "ההתקנה הסתיימה, אך רכיב זה לא השתנה. ייתכן שהוא כבר היה מעודכן.",
+                UpdateVerificationStatus.NotUpdated => NotUpdatedExplanation(item, language),
                 UpdateVerificationStatus.Failed => item.CurrentVersion is not null || item.CurrentDate is not null
                     ? "המתקין דיווח על כשל, ו־Windows אישר שהדרייבר הקודם עדיין פעיל."
                     : "המתקין דיווח על כשל, והאפליקציה לא הצליחה לאמת איזו גרסה פעילה כעת.",
@@ -85,12 +85,36 @@ public sealed class UpdateSummaryItemViewModel
             {
                 UpdateVerificationStatus.VerifiedUpdated => "Windows confirmed that the device is now using the new driver.",
                 UpdateVerificationStatus.PendingRestart => "The update is installed, but it will only become active after the computer restarts.",
-                UpdateVerificationStatus.NotUpdated => "The installer completed, but this component did not change. It may already have been current.",
+                UpdateVerificationStatus.NotUpdated => NotUpdatedExplanation(item, language),
                 UpdateVerificationStatus.Failed => FailedExplanation(item, language),
                 UpdateVerificationStatus.Skipped => "The update was not installed and the driver was not changed.",
                 UpdateVerificationStatus.ManualActionRequired => "No safe in-app installer was found. No external page was opened and no system change was made.",
                 _ => "The app could not read which driver Windows is using now. Run another scan to check again."
             };
+
+    // "It may already have been current" is only true when the version Windows reports is the
+    // version the update was aiming for. When the target was never reached, the package went
+    // into the driver store and Windows declined to bind it, which is a different outcome and
+    // must not be described as "already up to date".
+    private static string NotUpdatedExplanation(UpdateVerificationItem item, AppLanguage language)
+    {
+        var reachedTarget = item.ExpectedVersion is not null
+            && item.CurrentVersion is not null
+            && item.ExpectedVersion == item.CurrentVersion;
+
+        if (language == AppLanguage.Hebrew)
+        {
+            return reachedTarget
+                ? "ההתקנה הסתיימה, ורכיב זה כבר היה בגרסה המבוקשת."
+                : "ההתקנה הסתיימה, אך Windows המשיך להשתמש בדרייבר הקודם. החבילה נוספה למאגר הדרייברים, "
+                  + "אך Windows לא עבר אליה, ולכן הגרסה לא השתנתה.";
+        }
+
+        return reachedTarget
+            ? "The installer completed, and this component was already at the requested version."
+            : "The installer completed, but Windows kept the previous driver. The package was added to the driver "
+              + "store and Windows did not switch to it, so the version did not change.";
+    }
 
     private static string SoftwarePackageExplanation(UpdateVerificationItem item, AppLanguage language)
     {

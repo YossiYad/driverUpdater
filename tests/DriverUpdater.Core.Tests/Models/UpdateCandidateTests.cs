@@ -260,6 +260,36 @@ public class UpdateCandidateTests
     }
 
     [Fact]
+    public void IsNewerThan_rejects_calendar_candidate_over_generic_driver_with_the_inbox_placeholder_date()
+    {
+        // WinUsb Device: version 1.1.0.0 with the placeholder date Windows stamps on every inbox
+        // driver. A 2021.12.29.0 catalog package is not an upgrade, and Windows refuses to bind
+        // it, so offering it means downloading and installing the same package on every scan.
+        var candidate = NewCandidate(new Version(2021, 12, 29, 0), new DateOnly(2021, 12, 29));
+        var current = SampleDriver(new Version(1, 1, 0, 0)) with { CurrentDate = new DateOnly(2006, 6, 21) };
+
+        candidate.IsNewerThan(current).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewerThan_still_accepts_a_normal_candidate_over_a_driver_with_the_inbox_placeholder_date()
+    {
+        var candidate = NewCandidate(new Version(1, 2, 0, 0), new DateOnly(2025, 3, 4));
+        var current = SampleDriver(new Version(1, 1, 0, 0)) with { CurrentDate = new DateOnly(2006, 6, 21) };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNewerThan_still_uses_a_real_driver_date_that_is_close_to_the_placeholder()
+    {
+        var candidate = NewCandidate(new Version(2021, 12, 29, 0), new DateOnly(2021, 12, 29));
+        var current = SampleDriver(new Version(2006, 6, 20, 0)) with { CurrentDate = new DateOnly(2006, 6, 20) };
+
+        candidate.IsNewerThan(current).Should().BeTrue();
+    }
+
+    [Fact]
     public void IsNewerThan_throws_when_current_is_null()
     {
         var candidate = NewCandidate(new Version(1, 0, 0, 0));
