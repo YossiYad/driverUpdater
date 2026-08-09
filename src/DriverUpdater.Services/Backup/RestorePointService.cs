@@ -8,17 +8,32 @@ namespace DriverUpdater.Services.Backup;
 
 public sealed partial class RestorePointService : IRestorePointService
 {
+    internal const string ProtectionEnabledByAppMarker = "SRPROTECTIONENABLEDBYAPP=1";
+
     private const string CheckpointScript = @"$ErrorActionPreference = 'Stop';
+$srKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore';
+$hadFrequency = $false;
+$priorFrequency = 0;
 try {
     $sysDrive = $env:SystemDrive + '\';
-    $srKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore';
     # System Protection ships disabled on many OEM laptops, so Checkpoint-Computer fails with
     # 'the service cannot be started because it is disabled'. Turn protection back on for the
     # system drive first (the app runs elevated) so the checkpoint can actually be created.
-    # Also clear DisableSR and set the creation-frequency throttle to 0 so Windows does not
-    # silently skip a checkpoint created within 1440 minutes of a previous one.
+    # The creation-frequency throttle also has to go, otherwise Windows silently skips a
+    # checkpoint created within 1440 minutes of a previous one. Both of those are machine-wide
+    # settings the user did not ask to change, so the prior throttle is captured here and put
+    # back in the finally block below.
+    $protectionWasOff = $false;
     try {
         if (-not (Test-Path $srKey)) { New-Item -Path $srKey -Force | Out-Null; }
+        $existing = Get-ItemProperty -Path $srKey -ErrorAction SilentlyContinue;
+        if ($null -ne $existing -and $null -ne $existing.SystemRestorePointCreationFrequency) {
+            $hadFrequency = $true;
+            $priorFrequency = [int]$existing.SystemRestorePointCreationFrequency;
+        }
+        if ($null -ne $existing -and $null -ne $existing.DisableSR -and [int]$existing.DisableSR -ne 0) {
+            $protectionWasOff = $true;
+        }
         Set-ItemProperty -Path $srKey -Name 'DisableSR' -Value 0 -Type DWord -Force;
         Set-ItemProperty -Path $srKey -Name 'SystemRestorePointCreationFrequency' -Value 0 -Type DWord -Force;
     } catch { }
@@ -31,9 +46,20 @@ try {
     }
     $createdUtc = [System.Management.ManagementDateTimeConverter]::ToDateTime($rp.CreationTime).ToUniversalTime();
     Write-Output ('SEQ=' + $rp.SequenceNumber + ';DESC=' + $rp.Description + ';TIME=' + $createdUtc.ToString('o'));
+    # Re-disabling protection would delete the checkpoint that was just created, so it stays on.
+    # Report it instead so the app can tell the user the machine setting changed.
+    if ($protectionWasOff) { Write-Output 'SRPROTECTIONENABLEDBYAPP=1'; }
 } catch {
     Write-Error $_.Exception.Message;
     exit 1;
+} finally {
+    try {
+        if ($hadFrequency) {
+            Set-ItemProperty -Path $srKey -Name 'SystemRestorePointCreationFrequency' -Value $priorFrequency -Type DWord -Force;
+        } else {
+            Remove-ItemProperty -Path $srKey -Name 'SystemRestorePointCreationFrequency' -ErrorAction SilentlyContinue;
+        }
+    } catch { }
 }";
 
     private const string IsEnabledScript = @"try {
@@ -71,6 +97,13 @@ try {
         {
             _logger.LogWarning("Checkpoint-Computer failed (exit {Code}): {Err}", result.ExitCode, result.StandardError);
             return ResultError.From("RESTORE_POINT_FAILED", $"Checkpoint-Computer failed: {result.StandardError.Trim()}");
+        }
+
+        if (result.StandardOutput.Contains(ProtectionEnabledByAppMarker, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                "System Protection was disabled on the system drive and had to be turned on to create the restore point. " +
+                "It was left on, because turning it off again would delete the checkpoint that was just created.");
         }
 
         var info = ParseRestorePointOutput(result.StandardOutput);

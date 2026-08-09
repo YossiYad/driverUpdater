@@ -6,6 +6,11 @@ Driver updates can render a Windows machine unbootable. The app applies multiple
 
 Before any update batch the app creates a System Restore Point named `DriverUpdater - before <timestamp>` via PowerShell `Checkpoint-Computer`. If System Restore is disabled on the system drive (default on many Windows 11 installs) the app surfaces a warning banner and offers a one-time prompt to enable it.
 
+Creating the checkpoint needs two machine-wide settings temporarily out of the way:
+
+- `SystemRestorePointCreationFrequency` is set to 0 so Windows does not silently skip a checkpoint created within 1440 minutes of a previous one. The previous value is captured first and put back once the checkpoint attempt finishes, including when it fails.
+- System Protection is enabled on the system drive when it is off, because `Checkpoint-Computer` cannot run without it. This one is **not** reverted: turning protection off again deletes the checkpoint that was just created. The app logs a warning when it had to make that change.
+
 ## Layer 2: Per-device backup
 
 Before each individual driver replacement the app runs:

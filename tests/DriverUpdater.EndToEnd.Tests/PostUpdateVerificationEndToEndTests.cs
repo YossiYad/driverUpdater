@@ -63,17 +63,22 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     private static PostUpdateVerifier NewVerifier(ScriptedInstalledDriverProbe probe, ScriptedAiTextCompleter? ai = null) =>
         new(probe, ai ?? new ScriptedAiTextCompleter(isConfigured: false), NullLogger<PostUpdateVerifier>.Instance);
 
+    private JsonIneffectiveUpdateStore NewIneffectiveStore() =>
+        new(NullLogger<JsonIneffectiveUpdateStore>.Instance, _workspace.Path("ineffective-updates.json"));
+
     private (PostUpdateSummaryCoordinator Coordinator,
              RecordingUpdateSummaryWindowOpener Windows,
              RecordingPostRebootStartupService Startup,
              FixedBootTimeProvider BootTime,
-             JsonPendingUpdateVerificationStore Store)
+             JsonPendingUpdateVerificationStore Store,
+             JsonIneffectiveUpdateStore Ineffective)
         BuildCoordinator(ScriptedInstalledDriverProbe probe, DateTimeOffset bootTime, ScriptedAiTextCompleter? ai = null)
     {
         var store = NewPendingStore();
         var windows = new RecordingUpdateSummaryWindowOpener();
         var startup = new RecordingPostRebootStartupService();
         var boot = new FixedBootTimeProvider(bootTime);
+        var ineffective = NewIneffectiveStore();
         var coordinator = new PostUpdateSummaryCoordinator(
             NewVerifier(probe, ai),
             store,
@@ -81,8 +86,9 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
             boot,
             windows,
             new FixedLocalizationService(),
+            ineffective,
             NullLogger<PostUpdateSummaryCoordinator>.Instance);
-        return (coordinator, windows, startup, boot, store);
+        return (coordinator, windows, startup, boot, store, ineffective);
     }
 
     [Fact]
@@ -90,7 +96,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     {
         var probe = new ScriptedInstalledDriverProbe()
             .Always(Gpu.DeviceId, new InstalledDriverState(new Version(32, 0, 15, 6094), new DateOnly(2024, 7, 15)));
-        var (coordinator, windows, startup, _, store) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
+        var (coordinator, windows, startup, _, store, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
 
         var report = await coordinator.CompleteRunAsync(new[] { Finished(UpdateStatus.Succeeded, null) });
 
@@ -160,7 +166,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
                 new InstalledDriverState(
                     new Version(32, 0, 31035, 1003),
                     new DateOnly(2026, 7, 24)));
-        var (coordinator, windows, _, _, _) =
+        var (coordinator, windows, _, _, _, _) =
             BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
 
         var report = await coordinator.CompleteRunAsync(operations);
@@ -187,7 +193,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
         var probe = new ScriptedInstalledDriverProbe()
             .Always(Gpu.DeviceId, new InstalledDriverState(Gpu.CurrentVersion, Gpu.CurrentDate))
             .Always(secondDevice.DeviceId, new InstalledDriverState(GpuCandidate.NewVersion, GpuCandidate.NewDate));
-        var (coordinator, windows, startup, _, store) =
+        var (coordinator, windows, startup, _, store, _) =
             BuildCoordinator(probe, bootTime: installedAt.AddHours(-3));
 
         var report = await coordinator.CompleteRunAsync(
@@ -232,7 +238,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     {
         var probe = new ScriptedInstalledDriverProbe()
             .Always(Gpu.DeviceId, new InstalledDriverState(Gpu.CurrentVersion, Gpu.CurrentDate));
-        var (coordinator, _, _, _, store) = BuildCoordinator(probe, bootTime: DateTimeOffset.UtcNow.AddHours(-3));
+        var (coordinator, _, _, _, store, _) = BuildCoordinator(probe, bootTime: DateTimeOffset.UtcNow.AddHours(-3));
         await coordinator.CompleteRunAsync(
             new[] { Finished(UpdateStatus.Succeeded, "Reboot required to complete installation.") });
 
@@ -250,7 +256,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     {
         var probe = new ScriptedInstalledDriverProbe();
         var ai = new ScriptedAiTextCompleter(isConfigured: true, "should never be asked");
-        var (coordinator, windows, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2), ai);
+        var (coordinator, windows, _, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2), ai);
 
         var operation = UpdateOperation.NewPending(
             GpuCandidate with
@@ -281,7 +287,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
         var probe = new ScriptedInstalledDriverProbe()
             .Always(Gpu.DeviceId, new InstalledDriverState(Gpu.CurrentVersion, Gpu.CurrentDate));
         var ai = new ScriptedAiTextCompleter(isConfigured: true, "Windows kept the driver it already had.");
-        var (coordinator, _, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2), ai);
+        var (coordinator, _, _, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2), ai);
 
         var report = await coordinator.CompleteRunAsync(new[]
         {
@@ -302,7 +308,7 @@ public sealed class PostUpdateVerificationEndToEndTests : IDisposable
     public async Task A_device_that_cannot_be_read_back_is_reported_as_inconclusive_not_as_success()
     {
         var probe = new ScriptedInstalledDriverProbe().Always(Gpu.DeviceId, null);
-        var (coordinator, _, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
+        var (coordinator, _, _, _, _, _) = BuildCoordinator(probe, DateTimeOffset.UtcNow.AddHours(-2));
 
         var report = await coordinator.CompleteRunAsync(new[] { Finished(UpdateStatus.Succeeded, null) });
 

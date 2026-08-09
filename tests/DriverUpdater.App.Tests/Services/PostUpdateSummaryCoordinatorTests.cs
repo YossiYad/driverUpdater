@@ -112,12 +112,64 @@ public class PostUpdateSummaryCoordinatorTests
         startup.UnregisterCalls.Should().Be(1);
     }
 
+    [Fact]
+    public async Task Resume_records_a_reboot_required_success_that_did_not_change_the_driver()
+    {
+        var createdAt = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+        var operation = NewOperation(requiresRestart: true);
+        var verifier = new FakeVerifier(UpdateVerificationStatus.NotUpdated, reportsUnchanged: true);
+        var store = new MemoryStore
+        {
+            Batch = new PendingUpdateVerificationBatch(Guid.NewGuid(), createdAt, new[] { operation })
+        };
+        var ineffective = new RecordingIneffectiveUpdateStore();
+        var coordinator = NewCoordinator(
+            verifier,
+            store,
+            new FakeStartupService(),
+            new FakeWindowOpener(),
+            createdAt.AddMinutes(5),
+            ineffective);
+
+        await coordinator.ResumeAfterRestartAsync();
+
+        ineffective.Records.Should().ContainSingle().Which.Should().Be(
+            (operation.TargetSnapshot.DeviceId,
+             operation.Candidate.NewVersion.ToString(),
+             operation.TargetSnapshot.CurrentVersion?.ToString()));
+    }
+
+    [Fact]
+    public async Task Resume_does_not_record_anything_when_the_driver_actually_changed()
+    {
+        var createdAt = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+        var operation = NewOperation(requiresRestart: true);
+        var verifier = new FakeVerifier(UpdateVerificationStatus.VerifiedUpdated);
+        var store = new MemoryStore
+        {
+            Batch = new PendingUpdateVerificationBatch(Guid.NewGuid(), createdAt, new[] { operation })
+        };
+        var ineffective = new RecordingIneffectiveUpdateStore();
+        var coordinator = NewCoordinator(
+            verifier,
+            store,
+            new FakeStartupService(),
+            new FakeWindowOpener(),
+            createdAt.AddMinutes(5),
+            ineffective);
+
+        await coordinator.ResumeAfterRestartAsync();
+
+        ineffective.Records.Should().BeEmpty();
+    }
+
     private static PostUpdateSummaryCoordinator NewCoordinator(
         IPostUpdateVerifier verifier,
         IPendingUpdateVerificationStore store,
         IPostRebootStartupService startup,
         IUpdateSummaryWindowOpener opener,
-        DateTimeOffset bootTime) =>
+        DateTimeOffset bootTime,
+        IIneffectiveUpdateStore? ineffectiveUpdateStore = null) =>
         new(
             verifier,
             store,
@@ -125,6 +177,7 @@ public class PostUpdateSummaryCoordinatorTests
             new FakeBootTimeProvider(bootTime),
             opener,
             new FakeLocalizationService(),
+            ineffectiveUpdateStore ?? new RecordingIneffectiveUpdateStore(),
             NullLogger<PostUpdateSummaryCoordinator>.Instance);
 
     private static UpdateOperation NewOperation(bool requiresRestart = true)
@@ -155,11 +208,34 @@ public class PostUpdateSummaryCoordinatorTests
         };
     }
 
+    private sealed class RecordingIneffectiveUpdateStore : IIneffectiveUpdateStore
+    {
+        public List<(string DeviceId, string TargetVersion, string? InstalledVersion)> Records { get; } = new();
+
+        public Task<IReadOnlyList<IneffectiveUpdateRecord>> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<IneffectiveUpdateRecord>>(Array.Empty<IneffectiveUpdateRecord>());
+
+        public Task RecordAsync(
+            string deviceId,
+            string targetVersion,
+            string? installedVersion,
+            CancellationToken cancellationToken = default)
+        {
+            Records.Add((deviceId, targetVersion, installedVersion));
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FakeVerifier : IPostUpdateVerifier
     {
         private readonly UpdateVerificationStatus _status;
+        private readonly bool _reportsUnchanged;
 
-        public FakeVerifier(UpdateVerificationStatus status) => _status = status;
+        public FakeVerifier(UpdateVerificationStatus status, bool reportsUnchanged = false)
+        {
+            _status = status;
+            _reportsUnchanged = reportsUnchanged;
+        }
 
         public int CallCount { get; private set; }
         public bool LastAfterRestart { get; private set; }
@@ -182,8 +258,12 @@ public class PostUpdateSummaryCoordinatorTests
                     operation.TargetSnapshot.CurrentDate,
                     operation.Candidate.NewVersion,
                     operation.Candidate.NewDate,
-                    isAfterRestart ? operation.Candidate.NewVersion : null,
-                    isAfterRestart ? operation.Candidate.NewDate : null,
+                    isAfterRestart
+                        ? _reportsUnchanged ? operation.TargetSnapshot.CurrentVersion : operation.Candidate.NewVersion
+                        : null,
+                    isAfterRestart
+                        ? _reportsUnchanged ? operation.TargetSnapshot.CurrentDate : operation.Candidate.NewDate
+                        : null,
                     _status,
                     operation.ErrorMessage,
                     operation.Status,

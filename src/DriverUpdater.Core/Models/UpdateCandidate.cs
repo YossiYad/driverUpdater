@@ -44,19 +44,27 @@ public sealed record UpdateCandidate(
             return false;
         }
 
+        // Generic drivers that ship in the Windows image carry a placeholder release date
+        // instead of a real one, so their date says nothing about how current they are. It
+        // must not be used as the comparison key: WinUSB reports 1.1.0.0 with the placeholder
+        // date, and a calendar-versioned catalog package (2021.12.29.0) then looks like an
+        // upgrade purely because 2021 comes after the placeholder year. Windows refuses to
+        // bind that package, so the "update" is reinstalled on every scan.
+        var installedDate = IsInboxPlaceholderDate(current.CurrentDate) ? null : current.CurrentDate;
+
         // Version formats are not comparable across every driver family. A package can
         // report a high Windows build number while the installed component uses its own
         // product version. An explicitly older driver date is reliable evidence that the
         // package is not an upgrade, regardless of the numeric version format.
-        if (current.CurrentDate is { } installedDate
+        if (installedDate is { } olderThanCandidate
             && NewDate != DateOnly.MinValue
-            && NewDate < installedDate)
+            && NewDate < olderThanCandidate)
         {
             return false;
         }
 
         // Most reliable comparison: both the candidate and the installed driver expose a date.
-        if (IsDateBasedVersion(NewVersion, NewDate) && current.CurrentDate is { } currentDate)
+        if (IsDateBasedVersion(NewVersion, NewDate) && installedDate is { } currentDate)
         {
             return NewDate > currentDate;
         }
@@ -67,10 +75,10 @@ public sealed record UpdateCandidate(
         }
 
         // Calendar-year candidate vs a low-major classic driver (e.g. Realtek 6.0.9927.1 or
-        // an Intel NIC 12.19.0.11) with no date to compare against: still incomparable
+        // an Intel NIC 12.19.0.11) with no usable date to compare against: still incomparable
         // schemes ("2021 > 6"), so refuse rather than downgrade.
         if (IsCalendarVersion(NewVersion)
-            && current.CurrentDate is null
+            && installedDate is null
             && current.CurrentVersion.Major < 100)
         {
             return false;
@@ -78,6 +86,12 @@ public sealed record UpdateCandidate(
 
         return NewVersion > current.CurrentVersion;
     }
+
+    // The date Windows stamps on the generic drivers bundled with the OS image. It is a
+    // constant, not a release date, and every inbox driver on every machine reports it.
+    private static readonly DateOnly InboxPlaceholderDate = new(2006, 6, 21);
+
+    private static bool IsInboxPlaceholderDate(DateOnly? date) => date == InboxPlaceholderDate;
 
     private static bool IsDateBasedVersion(Version version, DateOnly date) =>
         version.Major == date.Year
