@@ -22,6 +22,9 @@ public sealed class AiSettings
 
     public bool ShowAiScanUsageWarning { get; set; } = true;
 
+    // Whether "Update with AI" stops to show what the AI picked before installing it.
+    public bool ShowAiUpdatePlanReview { get; set; } = true;
+
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
 
     public string OllamaModel { get; set; } = "llama3.1";

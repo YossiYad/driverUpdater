@@ -116,6 +116,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _enableAiWebSearch = true;
     [ObservableProperty] private int _geminiDailyRequestLimit;
     [ObservableProperty] private bool _showAiScanUsageWarning = true;
+    [ObservableProperty] private bool _showAiUpdatePlanReview = true;
     [ObservableProperty] private string _ollamaBaseUrl = "http://localhost:11434";
     [ObservableProperty] private string _ollamaModel = "llama3.1";
 
@@ -768,6 +769,7 @@ public partial class SettingsViewModel : ObservableObject
         EnableAiWebSearch = settings.Ai.EnableWebSearch;
         GeminiDailyRequestLimit = Math.Max(0, settings.Ai.GeminiDailyRequestLimit);
         ShowAiScanUsageWarning = settings.Ai.ShowAiScanUsageWarning;
+        ShowAiUpdatePlanReview = settings.Ai.ShowAiUpdatePlanReview;
         OllamaBaseUrl = settings.Ai.OllamaBaseUrl;
         OllamaModel = settings.Ai.OllamaModel;
         EnableAutomaticLogCleanup = settings.LogCleanup.Enabled;
@@ -799,6 +801,7 @@ public partial class SettingsViewModel : ObservableObject
             EnableWebSearch = EnableAiWebSearch,
             GeminiDailyRequestLimit = Math.Max(0, GeminiDailyRequestLimit),
             ShowAiScanUsageWarning = ShowAiScanUsageWarning,
+            ShowAiUpdatePlanReview = ShowAiUpdatePlanReview,
             OllamaBaseUrl = string.IsNullOrWhiteSpace(OllamaBaseUrl) ? "http://localhost:11434" : OllamaBaseUrl.Trim(),
             OllamaModel = string.IsNullOrWhiteSpace(OllamaModel) ? "llama3.1" : OllamaModel.Trim()
         };

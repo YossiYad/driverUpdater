@@ -89,12 +89,103 @@ public class MainViewModelUpdateWithAiTests
         vm.StatusText.Should().Contain("Configure an AI provider");
     }
 
+    [WpfFact]
+    public async Task Shows_the_user_what_the_ai_picked_and_why_before_installing()
+    {
+        var safeDriver = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var riskyDriver = NewDriver("AMD Radeon", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var safeCandidate = NewCandidate(safeDriver.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var riskyCandidate = NewCandidate(riskyDriver.HardwareId, new Version(2, 0, 0, 0), "gpu-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts =
+            {
+                ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0"),
+                ["gpu-update"] = new AiVerdict(true, AiRiskLevel.HighRisk, "Black screens", "Many reports", "2.0.0.0")
+            }
+        };
+        var pipeline = new RecordingInstallPipeline();
+        var confirmation = new StubPlanConfirmation();
+
+        var vm = NewVm(
+            new[] { safeDriver, riskyDriver },
+            new[] { safeCandidate, riskyCandidate },
+            verifier,
+            pipeline,
+            planConfirmation: confirmation);
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        confirmation.LastPlan.Should().NotBeNull();
+        confirmation.LastPlan!.Endorsed.Should().ContainSingle()
+            .Which.Row.DeviceName.Should().Be("Intel Wi-Fi");
+        confirmation.LastPlan.Endorsed[0].Reason.Should().Contain("Routine update");
+        confirmation.LastPlan.Skipped.Should().ContainSingle()
+            .Which.Row.DeviceName.Should().Be("AMD Radeon");
+        confirmation.LastPlan.Skipped[0].Reason.Should().Contain("above the safe only tolerance");
+        pipeline.InstalledDevices.Should().Equal("Intel Wi-Fi");
+    }
+
+    [WpfFact]
+    public async Task Installs_nothing_when_the_user_cancels_the_plan()
+    {
+        var driver = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts = { ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0") }
+        };
+        var pipeline = new RecordingInstallPipeline();
+        var confirmation = new StubPlanConfirmation { Approved = null };
+
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, pipeline, planConfirmation: confirmation);
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        pipeline.InstalledDevices.Should().BeEmpty();
+        vm.StatusText.Should().Contain("cancelled");
+    }
+
+    [WpfFact]
+    public async Task Installs_only_what_the_user_left_ticked_in_the_plan()
+    {
+        var first = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var second = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var firstCandidate = NewCandidate(first.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var secondCandidate = NewCandidate(second.HardwareId, new Version(2, 0, 0, 0), "audio-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts =
+            {
+                ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0"),
+                ["audio-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0")
+            }
+        };
+        var pipeline = new RecordingInstallPipeline();
+        var confirmation = new StubPlanConfirmation
+        {
+            Pick = plan => plan.Endorsed
+                .Where(entry => entry.Row.DeviceName == "Realtek Audio")
+                .Select(entry => entry.Row)
+                .ToArray()
+        };
+
+        var vm = NewVm(
+            new[] { first, second },
+            new[] { firstCandidate, secondCandidate },
+            verifier,
+            pipeline,
+            planConfirmation: confirmation);
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        pipeline.InstalledDevices.Should().Equal("Realtek Audio");
+    }
+
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,
         IAiVerifier aiVerifier,
         IInstallPipeline pipeline,
-        AiAutoUpdateRiskTolerance tolerance = AiAutoUpdateRiskTolerance.SafeOnly) =>
+        AiAutoUpdateRiskTolerance tolerance = AiAutoUpdateRiskTolerance.SafeOnly,
+        IAiUpdatePlanConfirmation? planConfirmation = null) =>
         new(new FakeScanService(drivers),
             new[] { (IUpdateSource)new FakeUpdateSource(candidates) },
             new NullOemDetectionService(),
@@ -105,7 +196,8 @@ public class MainViewModelUpdateWithAiTests
             new NullLogsWindowOpener(),
             NullLogger<MainViewModel>.Instance,
             aiVerifier: aiVerifier,
-            scheduleSettings: new StubOptionsMonitor<ScheduleSettings>(new ScheduleSettings { AiRiskTolerance = tolerance }));
+            scheduleSettings: new StubOptionsMonitor<ScheduleSettings>(new ScheduleSettings { AiRiskTolerance = tolerance }),
+            aiUpdatePlanConfirmation: planConfirmation);
 
     private static DriverInfo NewDriver(string name, string hardwareId, Version version) => new(
         DeviceId: $"ID\\{name}",
@@ -150,6 +242,43 @@ public class MainViewModelUpdateWithAiTests
         {
             WasCalled = true;
             return Task.FromResult((IReadOnlyDictionary<string, AiVerdict>)Verdicts);
+        }
+    }
+
+    private sealed class StubPlanConfirmation : IAiUpdatePlanConfirmation
+    {
+        private bool _approvedSet;
+        private IReadOnlyList<DriverRowViewModel>? _approved;
+
+        public AiUpdatePlan? LastPlan { get; private set; }
+
+        public Func<AiUpdatePlan, IReadOnlyList<DriverRowViewModel>>? Pick { get; init; }
+
+        public IReadOnlyList<DriverRowViewModel>? Approved
+        {
+            get => _approved;
+            init
+            {
+                _approved = value;
+                _approvedSet = true;
+            }
+        }
+
+        public Task<IReadOnlyList<DriverRowViewModel>?> ConfirmAsync(
+            AiUpdatePlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            LastPlan = plan;
+            if (_approvedSet)
+            {
+                return Task.FromResult(_approved);
+            }
+            if (Pick is not null)
+            {
+                return Task.FromResult<IReadOnlyList<DriverRowViewModel>?>(Pick(plan));
+            }
+            return Task.FromResult<IReadOnlyList<DriverRowViewModel>?>(
+                plan.Endorsed.Select(entry => entry.Row).ToArray());
         }
     }
 

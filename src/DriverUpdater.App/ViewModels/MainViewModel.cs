@@ -47,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IMachineProfileProvider? _machineProfileProvider;
     private readonly IOptionsMonitor<AiSettings>? _aiSettings;
     private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
+    private readonly IAiUpdatePlanConfirmation? _aiUpdatePlanConfirmation;
     private readonly IAiScanConfirmation? _aiScanConfirmation;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
@@ -232,7 +233,8 @@ public partial class MainViewModel : ObservableObject
         IDriverVersionHistoryWindowOpener? versionHistoryWindowOpener = null,
         IRestorePointService? restorePointService = null,
         IMachineProfileProvider? machineProfileProvider = null,
-        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null)
+        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null,
+        IAiUpdatePlanConfirmation? aiUpdatePlanConfirmation = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -263,6 +265,7 @@ public partial class MainViewModel : ObservableObject
         _driverChatCompleter = driverChatCompleter;
         _aiSettings = aiSettings;
         _scheduleSettings = scheduleSettings;
+        _aiUpdatePlanConfirmation = aiUpdatePlanConfirmation;
         _aiScanConfirmation = aiScanConfirmation;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
@@ -1184,8 +1187,8 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            var endorsed = SelectAiEndorsedRows(tolerance);
-            if (endorsed.Count == 0)
+            var plan = BuildAiUpdatePlan(tolerance);
+            if (plan.Endorsed.Count == 0)
             {
                 StatusText = UpdatesFoundCount == 0
                     ? "Update with AI: the AI found nothing to update."
@@ -1194,8 +1197,25 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            StatusText = $"Update with AI: installing {endorsed.Count} update(s) the AI endorsed...";
-            await RunUpdatesAsync(endorsed, dryRun: false, includeVendorPages: true, cancellationToken)
+            // The user sees what the AI picked and why before a single install starts. Once they
+            // tick "do not show this again" the confirmation returns the full list unchanged.
+            var approved = _aiUpdatePlanConfirmation is null
+                ? plan.Endorsed.Select(entry => entry.Row).ToArray()
+                : await _aiUpdatePlanConfirmation.ConfirmAsync(plan, cancellationToken).ConfigureAwait(true);
+            if (approved is null)
+            {
+                StatusText = "Update with AI cancelled. Nothing was installed.";
+                _logger.LogInformation("Update with AI cancelled at the plan review; nothing was installed");
+                return;
+            }
+            if (approved.Count == 0)
+            {
+                StatusText = "Update with AI: no update was left ticked, so nothing was installed.";
+                return;
+            }
+
+            StatusText = $"Update with AI: installing {approved.Count} update(s) the AI endorsed...";
+            await RunUpdatesAsync(approved, dryRun: false, includeVendorPages: true, cancellationToken)
                 .ConfigureAwait(true);
         }
         catch (OperationCanceledException)
@@ -1211,11 +1231,13 @@ public partial class MainViewModel : ObservableObject
 
     private bool CanUpdateWithAi() => !IsScanning && !IsUpdatingWithAi;
 
-    // Every row the AI actually vouched for. A row without a verdict is never installed here:
-    // "no answer" is not an endorsement, and the user is not being asked to fill the gap.
-    private IReadOnlyList<DriverRowViewModel> SelectAiEndorsedRows(AiAutoUpdateRiskTolerance tolerance)
+    // Every row the AI actually vouched for, plus the ones it turned down and the reason why,
+    // so the review window can show both sides. A row without a verdict is never endorsed:
+    // "no answer" is not an endorsement.
+    private AiUpdatePlan BuildAiUpdatePlan(AiAutoUpdateRiskTolerance tolerance)
     {
-        var endorsed = new List<DriverRowViewModel>();
+        var endorsed = new List<AiUpdatePlanEntry>();
+        var skipped = new List<AiUpdatePlanEntry>();
         foreach (var row in Drivers)
         {
             if (!row.CanUpdate)
@@ -1226,38 +1248,52 @@ public partial class MainViewModel : ObservableObject
             var verdict = row.AvailableUpdate?.AiVerification;
             if (verdict is null)
             {
-                _logger.LogInformation(
-                    "Update with AI: skipping {Device} - the AI returned no verdict for this update",
-                    DriverDisplayName(row));
+                Skip(row, AiRiskLevel.Unknown, "The AI returned no verdict for this update.");
                 continue;
             }
 
             if (!verdict.IsGenuinelyNewer)
             {
-                _logger.LogInformation(
-                    "Update with AI: skipping {Device} - the AI does not consider this a genuine upgrade. {Summary}",
-                    DriverDisplayName(row), verdict.Summary);
+                Skip(row, verdict.Risk, DescribeAiDecision("The AI does not consider this a genuine upgrade", verdict));
                 continue;
             }
 
             if (!AiUpdateRiskPolicy.IsWithinTolerance(verdict.Risk, tolerance))
             {
-                _logger.LogInformation(
-                    "Update with AI: skipping {Device} - risk rated {Risk}, above the configured tolerance {Tolerance}. {Summary}",
-                    DriverDisplayName(row), verdict.Risk, tolerance, verdict.Summary);
+                Skip(
+                    row,
+                    verdict.Risk,
+                    DescribeAiDecision(
+                        $"Risk rated {verdict.Risk}, above the {AiUpdateRiskPolicy.Describe(tolerance)} tolerance",
+                        verdict));
                 continue;
             }
 
+            var reason = DescribeAiDecision($"Risk rated {verdict.Risk}", verdict);
             _logger.LogInformation(
-                "Update with AI: installing {Device} - risk rated {Risk}, target {Version}. {Summary}",
+                "Update with AI: endorsing {Device} - risk rated {Risk}, target {Version}. {Summary}",
                 DriverDisplayName(row), verdict.Risk, row.AvailableUpdate!.DisplayVersion, verdict.Summary);
-            endorsed.Add(row);
+            endorsed.Add(new AiUpdatePlanEntry(row, reason, verdict.Risk, IsEndorsed: true));
         }
 
         _logger.LogInformation(
             "Update with AI selection: {Selected} of {Available} available update(s) endorsed at tolerance {Tolerance}",
             endorsed.Count, UpdatesFoundCount, tolerance);
-        return endorsed;
+        return new AiUpdatePlan(endorsed, skipped, tolerance);
+
+        void Skip(DriverRowViewModel row, AiRiskLevel risk, string reason)
+        {
+            _logger.LogInformation(
+                "Update with AI: skipping {Device} - {Reason}",
+                DriverDisplayName(row), reason);
+            skipped.Add(new AiUpdatePlanEntry(row, reason, risk, IsEndorsed: false));
+        }
+    }
+
+    private static string DescribeAiDecision(string reason, AiVerdict verdict)
+    {
+        var summary = verdict.Summary?.Trim();
+        return string.IsNullOrEmpty(summary) ? reason + "." : $"{reason}: {summary}";
     }
 
     private async Task<bool> RunScanAsync(bool includeAi)
