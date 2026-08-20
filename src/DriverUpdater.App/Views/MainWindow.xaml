@@ -913,11 +913,20 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0"
-                           Text="{Binding StatusText}"
-                           Opacity="0.85"
-                           VerticalAlignment="Center"
-                           FontSize="12" />
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Button Margin="0,0,12,0"
+                            Padding="12,4"
+                            Content="{DynamicResource Toolbar.CancelUpdateWithAi}"
+                            Command="{Binding CancelUpdateWithAiCommand}"
+                            Visibility="{Binding IsUpdatingWithAi, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Text="{Binding StatusText}"
+                               Opacity="0.85"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="12" />
+                </StackPanel>
 
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"

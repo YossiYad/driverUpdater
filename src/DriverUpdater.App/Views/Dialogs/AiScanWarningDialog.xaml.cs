@@ -26,6 +26,7 @@ public partial class AiScanWarningDialog : FluentWindow
         DailyLimitBox.Text = dailyRequestLimit > 0
             ? dailyRequestLimit.ToString(CultureInfo.CurrentCulture)
             : string.Empty;
+        ApplyPurposeWording();
         RefreshUsageText();
     }
 
@@ -33,20 +34,40 @@ public partial class AiScanWarningDialog : FluentWindow
 
     public int DailyRequestLimit { get; private set; }
 
+    // The same warning fronts two very different actions. Left with the scan wording, the
+    // "Update with AI" run looks like it is about to scan the machine all over again.
+    private void ApplyPurposeWording()
+    {
+        if (_estimate.Purpose != AiUsagePurpose.UpdateResearch)
+        {
+            return;
+        }
+
+        Title = FindString("AiUpdateWarning.Title") ?? Title;
+        HeadingText.Text = FindString("AiUpdateWarning.Heading") ?? HeadingText.Text;
+        CancelButton.Content = FindString("AiUpdateWarning.Cancel") ?? CancelButton.Content;
+        StartButton.Content = FindString("AiUpdateWarning.Start") ?? StartButton.Content;
+    }
+
+    private string UsageResourceKey(string suffix) =>
+        _estimate.Purpose == AiUsagePurpose.UpdateResearch
+            ? "AiUpdateWarning." + suffix
+            : "AiScanWarning." + suffix;
+
     private void RefreshUsageText()
     {
         var dailyLimit = TryReadDailyLimit();
         var projectedUsage = _requestsToday + _estimate.PlannedRequests;
         UsageSummaryText.Text = dailyLimit > 0
             ? FormatResource(
-                "AiScanWarning.UsageKnown",
+                UsageResourceKey("UsageKnown"),
                 _estimate.PlannedRequests,
                 _requestsToday,
                 projectedUsage,
                 dailyLimit,
                 _estimate.Model)
             : FormatResource(
-                "AiScanWarning.UsageUnknown",
+                UsageResourceKey("UsageUnknown"),
                 _estimate.PlannedRequests,
                 _requestsToday,
                 _estimate.Model);
