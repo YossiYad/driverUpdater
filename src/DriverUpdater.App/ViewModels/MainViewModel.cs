@@ -1437,6 +1437,7 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            RetargetAdvisoryLeads();
             await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
             if (DiscardScanIfCacheWasCleared())
             {
@@ -1483,6 +1484,65 @@ public partial class MainViewModel : ObservableObject
 
     // Researching the updates is one batched request over every candidate found, not the
     // per-row discovery sweep a full AI scan plans.
+    // An AI lead names a page, not a package. Where this scan already found the package the
+    // vendor ships that component in, the lead is pointed at it; where the component is serviced
+    // by Windows Update there is no package to point at and the row stops claiming an update.
+    private void RetargetAdvisoryLeads()
+    {
+        var packages = Drivers
+            .Select(row => row.AvailableUpdate)
+            .OfType<UpdateCandidate>()
+            .Where(candidate => candidate.InstallKind == UpdateInstallKind.VendorInstaller
+                && candidate.SourceUpdateId.StartsWith("vendor-installer:", StringComparison.OrdinalIgnoreCase))
+            .DistinctBy(candidate => candidate.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var retargeted = 0;
+        var servicedByWindows = 0;
+        foreach (var row in Drivers)
+        {
+            var lead = row.AvailableUpdate;
+            if (!AdvisoryLeadRetargeting.IsAdvisoryPageLead(lead))
+            {
+                continue;
+            }
+
+            if (AdvisoryLeadRetargeting.IsWindowsUpdateDelivered(lead!))
+            {
+                _logger.LogInformation(
+                    "Advisory lead for {Device} dropped: {Url} is a Windows servicing article, so this component is "
+                    + "updated by Windows Update and there is no package to install",
+                    row.DeviceName, lead!.DownloadUrl);
+                row.AvailableUpdate = null;
+                row.IsUpdateFromCache = false;
+                row.Status = DriverStatus.UpToDate;
+                servicedByWindows++;
+                continue;
+            }
+
+            var package = AdvisoryLeadRetargeting.FindPackageForLead(row.Driver, lead!, packages);
+            if (package is null)
+            {
+                continue;
+            }
+
+            row.AvailableUpdate = AdvisoryLeadRetargeting.Retarget(lead!, package);
+            _logger.LogInformation(
+                "Advisory lead for {Device} retargeted from {Page} to the package this scan already found: {Package} ({Url})",
+                row.DeviceName, lead!.DownloadUrl, package.SourceUpdateId, package.DownloadUrl);
+            retargeted++;
+        }
+
+        if (retargeted > 0 || servicedByWindows > 0)
+        {
+            _logger.LogInformation(
+                "Advisory lead pass: {Retargeted} lead(s) now point at a real package, {Serviced} left to Windows Update",
+                retargeted, servicedByWindows);
+            RefreshUpdateCounts();
+            DriversView.Refresh();
+        }
+    }
+
     private AiScanUsageEstimate BuildAiResearchUsageEstimate()
     {
         var rows = Drivers.Where(row => row.IsScannedThisRun && row.CanUpdate).ToArray();
