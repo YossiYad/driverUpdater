@@ -14,6 +14,12 @@
     <sys:String x:Key="AiScanWarning.DailyLimitHint">יש להזין את סך ה-RPD בכל הפרויקטים המוגדרים. מפתחות מאותו פרויקט נספרים פעם אחת. אפשר להשאיר ריק אם אינו ידוע.</sys:String>
     <sys:String x:Key="AiScanWarning.OpenLimits">פתח AI Studio</sys:String>
     <sys:String x:Key="AiScanWarning.DoNotShowAgain">אל תציג שוב את האזהרה הזאת</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Title">עדכון עם AI</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Heading">שימוש בבקשות Gemini</sys:String>
+    <sys:String x:Key="AiUpdateWarning.UsageKnown">חקירת העדכונים שהסריקה מצאה מתוכננת ל-{0} בקשות Gemini. לא מתחילה סריקה חדשה. DriverUpdater שלחה היום {1} בקשות עבור {4}. שימוש מקומי צפוי לאחר מכן: {2} מתוך {3} בקשות יומיות.</sys:String>
+    <sys:String x:Key="AiUpdateWarning.UsageUnknown">חקירת העדכונים שהסריקה מצאה מתוכננת ל-{0} בקשות Gemini. לא מתחילה סריקה חדשה. DriverUpdater שלחה היום {1} בקשות עבור {2}. הזינו את מגבלת ה-RPD היומית שמוצגת ב-Google AI Studio כדי לראות את השימוש מתוך המכסה שלכם.</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Cancel">ביטול</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Start">חקור את העדכונים</sys:String>
     <sys:String x:Key="AiScanWarning.Cancel">השתמש בסריקה רגילה</sys:String>
     <sys:String x:Key="AiScanWarning.Start">התחל סריקת AI</sys:String>
 
@@ -27,6 +33,7 @@
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAi">עדכן עם AI</sys:String>
+    <sys:String x:Key="Toolbar.CancelUpdateWithAi">בטל עדכון עם AI</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAiTooltip">אחרי סריקה, ה-AI חוקר את העדכונים שנמצאו ומתקין רק את אלה שהוא ממליץ עליהם לחומרה הזאת</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">בצע עדכונים באפליקציה</sys:String>

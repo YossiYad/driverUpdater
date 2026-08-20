@@ -225,6 +225,60 @@ public class MainViewModelUpdateWithAiTests
         pipeline.InstalledDevices.Should().Equal("Realtek Audio");
     }
 
+    [WpfFact]
+    public async Task Cancelling_the_run_stops_it_before_anything_else_is_installed()
+    {
+        var first = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var second = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
+        var firstCandidate = NewCandidate(first.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var secondCandidate = NewCandidate(second.HardwareId, new Version(2, 0, 0, 0), "audio-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts =
+            {
+                ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0"),
+                ["audio-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0")
+            }
+        };
+        MainViewModel? vm = null;
+        var pipeline = new RecordingInstallPipeline
+        {
+            // Cancel from inside the first install, the way the status-bar button does mid-run.
+            OnExecute = () => vm!.CancelUpdateWithAiCommand.Execute(null)
+        };
+
+        vm = NewVm(
+            new[] { first, second },
+            new[] { firstCandidate, secondCandidate },
+            verifier,
+            pipeline);
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        pipeline.InstalledDevices.Should().HaveCount(1, "the run stops before starting the next install");
+        vm.StatusText.Should().Contain("cancelled");
+    }
+
+    [WpfFact]
+    public async Task The_cancel_command_is_only_available_while_a_run_is_active()
+    {
+        var driver = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts = { ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0") }
+        };
+
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, new RecordingInstallPipeline());
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.CancelUpdateWithAiCommand.CanExecute(null).Should().BeFalse();
+
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        vm.CancelUpdateWithAiCommand.CanExecute(null).Should().BeFalse("the run has finished");
+    }
+
     private static MainViewModel NewVm(
         IEnumerable<DriverInfo> drivers,
         IEnumerable<UpdateCandidate> candidates,
@@ -333,6 +387,8 @@ public class MainViewModelUpdateWithAiTests
     {
         public List<string> InstalledDevices { get; } = new();
 
+        public Action? OnExecute { get; init; }
+
         public Task<UpdateOperation> ExecuteAsync(
             UpdateOperation operation,
             InstallOptions options,
@@ -340,6 +396,7 @@ public class MainViewModelUpdateWithAiTests
             CancellationToken cancellationToken = default)
         {
             InstalledDevices.Add(operation.TargetSnapshot.DeviceName);
+            OnExecute?.Invoke();
             return Task.FromResult(operation with
             {
                 Status = UpdateStatus.Succeeded,

@@ -68,6 +68,7 @@ public partial class MainViewModel : ObservableObject
     // created mid-scan can be initialised without another disk read.
     private CancellationTokenSource? _aiSearchCancellation;
     private CancellationTokenSource? _scanCancellation;
+    private CancellationTokenSource? _updateWithAiCancellation;
     private bool _skipAiSearchRequested;
     private bool _driverCacheClearPending;
 
@@ -122,6 +123,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ScanWithAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelUpdateWithAiCommand))]
     private bool _isUpdatingWithAi;
 
     [ObservableProperty]
@@ -1175,6 +1177,9 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _updateWithAiCancellation = runCancellation;
+        var runToken = runCancellation.Token;
         IsUpdatingWithAi = true;
         try
         {
@@ -1183,7 +1188,7 @@ public partial class MainViewModel : ObservableObject
                 "Update with AI started: provider={Provider}, risk tolerance={Tolerance}",
                 _aiVerifier.Provider, tolerance);
 
-            if (!await ResearchUpdatesWithAiAsync(cancellationToken).ConfigureAwait(true))
+            if (!await ResearchUpdatesWithAiAsync(runToken).ConfigureAwait(true))
             {
                 return;
             }
@@ -1202,7 +1207,7 @@ public partial class MainViewModel : ObservableObject
             // tick "do not show this again" the confirmation returns the full list unchanged.
             var approved = _aiUpdatePlanConfirmation is null
                 ? plan.Endorsed.Select(entry => entry.Row).ToArray()
-                : await _aiUpdatePlanConfirmation.ConfirmAsync(plan, cancellationToken).ConfigureAwait(true);
+                : await _aiUpdatePlanConfirmation.ConfirmAsync(plan, runToken).ConfigureAwait(true);
             if (approved is null)
             {
                 StatusText = "Update with AI cancelled. Nothing was installed.";
@@ -1216,7 +1221,7 @@ public partial class MainViewModel : ObservableObject
             }
 
             StatusText = $"Update with AI: installing {approved.Count} update(s) the AI endorsed...";
-            await RunUpdatesAsync(approved, dryRun: false, includeVendorPages: true, cancellationToken)
+            await RunUpdatesAsync(approved, dryRun: false, includeVendorPages: true, runToken)
                 .ConfigureAwait(true);
         }
         catch (OperationCanceledException)
@@ -1227,8 +1232,24 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsUpdatingWithAi = false;
+            if (ReferenceEquals(_updateWithAiCancellation, runCancellation))
+            {
+                _updateWithAiCancellation = null;
+            }
         }
     }
+
+    // Stops the run between steps. An install already handed to Windows finishes on its own,
+    // so what this really promises is that nothing further is started.
+    [RelayCommand(CanExecute = nameof(CanCancelUpdateWithAi))]
+    private void CancelUpdateWithAi()
+    {
+        _logger.LogInformation("Update with AI cancellation requested by the user");
+        StatusText = "Update with AI: stopping after the current step...";
+        _updateWithAiCancellation?.Cancel();
+    }
+
+    private bool CanCancelUpdateWithAi() => IsUpdatingWithAi && _updateWithAiCancellation is not null;
 
     // Only after a scan of this session: the AI reviews what that scan found, so there is
     // nothing to research before one has run, and a cached list from the last session has not
@@ -1254,7 +1275,7 @@ public partial class MainViewModel : ObservableObject
         var approved = _aiVerifier!.Provider != AiProvider.Gemini
             || _aiScanConfirmation is null
             || await _aiScanConfirmation
-                .ConfirmAsync(BuildAiScanUsageEstimate(), cancellationToken)
+                .ConfirmAsync(BuildAiResearchUsageEstimate(), cancellationToken)
                 .ConfigureAwait(true);
         if (!approved)
         {
@@ -1263,8 +1284,7 @@ public partial class MainViewModel : ObservableObject
             return false;
         }
 
-        StatusText = "Update with AI: asking the AI to research the updates this scan found...";
-        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+        await VerifyCandidatesWithAiAsync(cancellationToken, isUpdateRun: true).ConfigureAwait(true);
 
         if (_aiVerifier.IsTemporarilyUnavailable)
         {
@@ -1417,6 +1437,7 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
+            RetargetAdvisoryLeads();
             await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
             if (DiscardScanIfCacheWasCleared())
             {
@@ -1459,6 +1480,78 @@ public partial class MainViewModel : ObservableObject
             }
             IsScanning = false;
         }
+    }
+
+    // Researching the updates is one batched request over every candidate found, not the
+    // per-row discovery sweep a full AI scan plans.
+    // An AI lead names a page, not a package. Where this scan already found the package the
+    // vendor ships that component in, the lead is pointed at it; where the component is serviced
+    // by Windows Update there is no package to point at and the row stops claiming an update.
+    private void RetargetAdvisoryLeads()
+    {
+        var packages = Drivers
+            .Select(row => row.AvailableUpdate)
+            .OfType<UpdateCandidate>()
+            .Where(candidate => candidate.InstallKind == UpdateInstallKind.VendorInstaller
+                && candidate.SourceUpdateId.StartsWith("vendor-installer:", StringComparison.OrdinalIgnoreCase))
+            .DistinctBy(candidate => candidate.SourceUpdateId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var retargeted = 0;
+        var servicedByWindows = 0;
+        foreach (var row in Drivers)
+        {
+            var lead = row.AvailableUpdate;
+            if (!AdvisoryLeadRetargeting.IsAdvisoryPageLead(lead))
+            {
+                continue;
+            }
+
+            if (AdvisoryLeadRetargeting.IsWindowsUpdateDelivered(lead!))
+            {
+                _logger.LogInformation(
+                    "Advisory lead for {Device} dropped: {Url} is a Windows servicing article, so this component is "
+                    + "updated by Windows Update and there is no package to install",
+                    row.DeviceName, lead!.DownloadUrl);
+                row.AvailableUpdate = null;
+                row.IsUpdateFromCache = false;
+                row.Status = DriverStatus.UpToDate;
+                servicedByWindows++;
+                continue;
+            }
+
+            var package = AdvisoryLeadRetargeting.FindPackageForLead(row.Driver, lead!, packages);
+            if (package is null)
+            {
+                continue;
+            }
+
+            row.AvailableUpdate = AdvisoryLeadRetargeting.Retarget(lead!, package);
+            _logger.LogInformation(
+                "Advisory lead for {Device} retargeted from {Page} to the package this scan already found: {Package} ({Url})",
+                row.DeviceName, lead!.DownloadUrl, package.SourceUpdateId, package.DownloadUrl);
+            retargeted++;
+        }
+
+        if (retargeted > 0 || servicedByWindows > 0)
+        {
+            _logger.LogInformation(
+                "Advisory lead pass: {Retargeted} lead(s) now point at a real package, {Serviced} left to Windows Update",
+                retargeted, servicedByWindows);
+            RefreshUpdateCounts();
+            DriversView.Refresh();
+        }
+    }
+
+    private AiScanUsageEstimate BuildAiResearchUsageEstimate()
+    {
+        var rows = Drivers.Where(row => row.IsScannedThisRun && row.CanUpdate).ToArray();
+        var model = _aiSettings?.CurrentValue.GeminiModel;
+        return new AiScanUsageEstimate(
+            rows.Length,
+            rows.Length == 0 ? 0 : 1,
+            string.IsNullOrWhiteSpace(model) ? "Gemini" : model,
+            AiUsagePurpose.UpdateResearch);
     }
 
     private AiScanUsageEstimate BuildAiScanUsageEstimate()
@@ -1937,7 +2030,8 @@ public partial class MainViewModel : ObservableObject
     // newer than what is installed and (2) annotate the rest with a risk assessment.
     // Any failure leaves the scan results exactly as they were.
     private async Task<IReadOnlySet<DriverRowViewModel>> VerifyCandidatesWithAiAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool isUpdateRun = false)
     {
         if (_aiVerifier is null)
         {
@@ -1986,7 +2080,9 @@ public partial class MainViewModel : ObservableObject
         IReadOnlyDictionary<string, AiVerdict> verdicts;
         try
         {
-            StatusText = $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
+            StatusText = isUpdateRun
+                ? $"Update with AI: researching the {targets.Length} update(s) this scan found..."
+                : $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
             verdicts = await _aiVerifier.VerifyAsync(requests, unattendedRun: false, aiSearchCancellation.Token).ConfigureAwait(true);
             stopwatch.Stop();
         }
@@ -2462,7 +2558,7 @@ public partial class MainViewModel : ObservableObject
         if (!IsActionableAiDiscoveryLead(row, url))
         {
             _logger.LogInformation(
-                "AI latest-driver search returned advisory-only result for {Device}: latest={Latest}, url={Url}. No vendor check was created because the URL/device is not an actionable driver update lead. {Summary}",
+                "AI latest-driver search returned advisory-only result for {Device}: latest={Latest}, url={Url}. No vendor check was created: the page is not one this device's vendor publishes on, or the device is not an actionable driver update lead. {Summary}",
                 row.DeviceName,
                 verdict.LatestKnownVersion ?? candidateVersion.ToString(),
                 url,
@@ -2633,6 +2729,14 @@ public partial class MainViewModel : ObservableObject
     private static bool IsActionableAiDiscoveryLead(DriverRowViewModel row, Uri url)
     {
         if (!url.IsAbsoluteUri)
+        {
+            return false;
+        }
+
+        // Asked for the official download page, the model has answered with third-party
+        // download portals. A driver updater must not fetch a binary from those, so a page
+        // the vendor does not publish on never becomes a lead in the first place.
+        if (!AiDiscoverySourceTrust.IsPublishedByTheVendor(row.Driver, url))
         {
             return false;
         }

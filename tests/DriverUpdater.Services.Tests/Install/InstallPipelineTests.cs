@@ -991,7 +991,7 @@ public class InstallPipelineTests
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         result.Status.Should().Be(UpdateStatus.Skipped);
-        result.ErrorMessage.Should().Contain("not approved");
+        result.ErrorMessage.Should().Contain("does not identify a packaging tool");
         vendorInstaller.Invocations.Should().BeEmpty();
     }
 
@@ -1065,7 +1065,7 @@ public class InstallPipelineTests
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         result.Status.Should().Be(UpdateStatus.Skipped);
-        result.ErrorMessage.Should().Contain("not approved");
+        result.ErrorMessage.Should().Contain("does not identify a packaging tool");
         result.ErrorMessage.Should().Contain("no driver INF files");
         pnputil.Arguments.Should().BeEmpty();
     }
@@ -1088,7 +1088,7 @@ public class InstallPipelineTests
             new InstallOptions(CreateRestorePoint: false, BackupCurrentDriver: false));
 
         result.Status.Should().Be(UpdateStatus.Skipped);
-        result.ErrorMessage.Should().Contain("not approved");
+        result.ErrorMessage.Should().Contain("does not identify a packaging tool");
         result.ErrorMessage.Should().Contain("not an archive");
     }
 
@@ -1785,6 +1785,70 @@ public class InstallPipelineTests
         fileName.Should().Be(installerPath);
         arguments.Should().Be(expectedArgs);
         skipReason.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TryBuildVendorInstallerCommand_drives_an_ai_found_installer_by_what_the_file_is()
+    {
+        // The AI hands back "ai-latest:" ids, which match none of the vendor prefixes. Before
+        // the file itself was inspected, an ordinary NSIS package off the vendor CDN was
+        // refused as "not approved for unattended install" and nothing ever got installed.
+        using var temp = new TempDir();
+        var installerPath = System.IO.Path.Combine(temp.Path, "amd-adrenalin.exe");
+        File.WriteAllBytes(installerPath, Marked("Nullsoft Install System v3.08"));
+
+        var candidate = NewAiCandidate();
+
+        var ok = InstallPipeline.TryBuildVendorInstallerCommand(
+            candidate,
+            installerPath,
+            out var fileName,
+            out var arguments,
+            out var skipReason);
+
+        ok.Should().BeTrue();
+        fileName.Should().Be(installerPath);
+        arguments.Should().Be("/S");
+        skipReason.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TryBuildVendorInstallerCommand_says_what_it_could_not_identify()
+    {
+        using var temp = new TempDir();
+        var installerPath = System.IO.Path.Combine(temp.Path, "mystery.exe");
+        File.WriteAllBytes(installerPath, Marked("no packaging tool in here"));
+
+        var ok = InstallPipeline.TryBuildVendorInstallerCommand(
+            NewAiCandidate(),
+            installerPath,
+            out _,
+            out _,
+            out var skipReason);
+
+        ok.Should().BeFalse();
+        skipReason.Should().Contain("does not identify a packaging tool");
+    }
+
+    private static UpdateCandidate NewAiCandidate() => new(
+        ForHardwareId: "PCI\\VEN_1002&DEV_747E",
+        Source: UpdateSource.Oem,
+        NewVersion: new Version(26, 7, 1),
+        NewDate: new DateOnly(2026, 7, 28),
+        DownloadUrl: new Uri("https://drivers.amd.com/drivers/installer.exe"),
+        SizeBytes: 0,
+        KbArticle: null,
+        IsSuperseded: false,
+        SourceUpdateId: "ai-latest:PCI\\VEN_1002&DEV_747E",
+        SupersededIds: Array.Empty<string>(),
+        InstallKind: UpdateInstallKind.VendorInstaller);
+
+    private static byte[] Marked(string marker)
+    {
+        var bytes = new List<byte>(new byte[256]);
+        bytes.AddRange(System.Text.Encoding.ASCII.GetBytes(marker));
+        bytes.AddRange(new byte[256]);
+        return bytes.ToArray();
     }
 
     [Fact]

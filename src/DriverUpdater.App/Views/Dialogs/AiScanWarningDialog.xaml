@@ -18,7 +18,8 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
-            <TextBlock FontSize="21"
+            <TextBlock x:Name="HeadingText"
+                       FontSize="21"
                        FontWeight="SemiBold"
                        Text="{DynamicResource AiScanWarning.Heading}" />
             <TextBlock x:Name="UsageSummaryText"
@@ -74,11 +75,13 @@
                     HorizontalAlignment="Right"
                     Orientation="Horizontal"
                     FlowDirection="LeftToRight">
-            <Button MinWidth="96"
+            <Button x:Name="CancelButton"
+                    MinWidth="96"
                     Padding="14,7"
                     Content="{DynamicResource AiScanWarning.Cancel}"
                     IsCancel="True" />
-            <Button Margin="8,0,0,0"
+            <Button x:Name="StartButton"
+                    Margin="8,0,0,0"
                     MinWidth="124"
                     Padding="14,7"
                     Content="{DynamicResource AiScanWarning.Start}"

@@ -12,6 +12,7 @@
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAi">Update with AI</sys:String>
+    <sys:String x:Key="Toolbar.CancelUpdateWithAi">Cancel AI update</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAiTooltip">After a scan, let the AI research the updates it found and install only the ones it recommends for this hardware</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve updates in app</sys:String>
@@ -36,6 +37,12 @@
     <sys:String x:Key="AiScanWarning.DailyLimitHint">Enter the total RPD across configured projects. Count keys from the same project only once. Leave empty if unknown.</sys:String>
     <sys:String x:Key="AiScanWarning.OpenLimits">Open AI Studio</sys:String>
     <sys:String x:Key="AiScanWarning.DoNotShowAgain">Do not show this warning again</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Title">Update with AI</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Heading">Gemini request usage</sys:String>
+    <sys:String x:Key="AiUpdateWarning.UsageKnown">Researching the updates this scan found plans {0} Gemini request(s). No new scan is started. DriverUpdater has sent {1} request(s) today for {4}. Projected local usage afterwards: {2} of {3} daily requests.</sys:String>
+    <sys:String x:Key="AiUpdateWarning.UsageUnknown">Researching the updates this scan found plans {0} Gemini request(s). No new scan is started. DriverUpdater has sent {1} request(s) today for {2}. Enter the daily RPD limit shown in Google AI Studio to see usage out of your quota.</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Cancel">Cancel</sys:String>
+    <sys:String x:Key="AiUpdateWarning.Start">Research the updates</sys:String>
     <sys:String x:Key="AiScanWarning.Cancel">Use regular scan</sys:String>
     <sys:String x:Key="AiScanWarning.Start">Start AI scan</sys:String>
 

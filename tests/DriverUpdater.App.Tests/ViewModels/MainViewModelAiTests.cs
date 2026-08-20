@@ -365,7 +365,7 @@ public class MainViewModelAiTests
             "Intel lists a newer package for this hardware.",
             "2.0.0.0",
             new DateOnly(2026, 2, 3),
-            "https://example.com/intel-driver");
+            "https://downloadmirror.intel.com/intel-driver");
 
         await vm.AskAiCommand.ExecuteAsync(vm.Drivers[0]);
 
@@ -377,7 +377,7 @@ public class MainViewModelAiTests
         vm.Drivers[0].AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorPage);
         vm.Drivers[0].AvailableUpdate!.Confidence.Should().Be(UpdateConfidence.Advisory);
         vm.Drivers[0].AvailableUpdate!.NewVersion.Should().Be(new Version(2, 0, 0, 0));
-        vm.Drivers[0].AvailableUpdate!.DownloadUrl.Should().Be(new Uri("https://example.com/intel-driver"));
+        vm.Drivers[0].AvailableUpdate!.DownloadUrl.Should().Be(new Uri("https://downloadmirror.intel.com/intel-driver"));
         vm.Drivers[0].AiRecommendationText.Should().Be("Recommended");
         vm.VendorChecksCount.Should().Be(1);
         vm.StatusText.Should().Contain("AI found a newer driver");
@@ -461,7 +461,7 @@ public class MainViewModelAiTests
                     "Intel lists a newer package for this hardware.",
                     "2.0.0.0",
                     new DateOnly(2026, 2, 3),
-                    "https://example.com/intel-driver")
+                    "https://downloadmirror.intel.com/intel-driver")
             }
         };
         var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
@@ -502,7 +502,7 @@ public class MainViewModelAiTests
             {
                 ["ai-latest:PCI\\VEN_8086&DEV_CPU"] = new AiVerdict(
                     true, AiRiskLevel.Safe, "found", "An older OEM package exists.",
-                    "2018.7.17.0", new DateOnly(2018, 7, 17), "https://example.com/intel-cpu-2018")
+                    "2018.7.17.0", new DateOnly(2018, 7, 17), "https://downloadmirror.intel.com/intel-cpu-2018")
             }
         };
         var vm = NewVm(new[] { driver }, Array.Empty<UpdateCandidate>(), verifier);
@@ -575,7 +575,7 @@ public class MainViewModelAiTests
                     "Intel lists a newer package for this hardware.",
                     "2.0.0.0",
                     new DateOnly(2026, 2, 3),
-                    "https://example.com/intel-driver",
+                    "https://downloadmirror.intel.com/intel-driver",
                     AdvisorNote: "Download the 2.0.0.0 package from the Intel support page.")
             }
         };
@@ -611,7 +611,7 @@ public class MainViewModelAiTests
                     "Intel lists a newer package for this hardware.",
                     "2.0.0.0",
                     new DateOnly(2026, 2, 3),
-                    "https://example.com/intel-driver")
+                    "https://downloadmirror.intel.com/intel-driver")
             }
         };
         var vm = NewVm(
@@ -619,13 +619,13 @@ public class MainViewModelAiTests
             Array.Empty<UpdateCandidate>(),
             verifier,
             vendorPageResolver: new ResolvingVendorPageResolver(
-                new Uri("https://example.com/intel-driver.msi")));
+                new Uri("https://downloadmirror.intel.com/intel-driver.msi")));
 
         await vm.ScanWithAiCommand.ExecuteAsync(null);
 
         var row = vm.Drivers[0];
         row.AvailableUpdate!.InstallKind.Should().Be(UpdateInstallKind.VendorInstaller);
-        row.AvailableUpdate.DownloadUrl.Should().Be(new Uri("https://example.com/intel-driver.msi"));
+        row.AvailableUpdate.DownloadUrl.Should().Be(new Uri("https://downloadmirror.intel.com/intel-driver.msi"));
         row.AvailableUpdate.Confidence.Should().Be(
             UpdateConfidence.Advisory,
             "an AI lead never proved the page belongs to this device, even when a package came off it");
