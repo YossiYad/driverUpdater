@@ -2558,7 +2558,7 @@ public partial class MainViewModel : ObservableObject
         if (!IsActionableAiDiscoveryLead(row, url))
         {
             _logger.LogInformation(
-                "AI latest-driver search returned advisory-only result for {Device}: latest={Latest}, url={Url}. No vendor check was created because the URL/device is not an actionable driver update lead. {Summary}",
+                "AI latest-driver search returned advisory-only result for {Device}: latest={Latest}, url={Url}. No vendor check was created: the page is not one this device's vendor publishes on, or the device is not an actionable driver update lead. {Summary}",
                 row.DeviceName,
                 verdict.LatestKnownVersion ?? candidateVersion.ToString(),
                 url,
@@ -2729,6 +2729,14 @@ public partial class MainViewModel : ObservableObject
     private static bool IsActionableAiDiscoveryLead(DriverRowViewModel row, Uri url)
     {
         if (!url.IsAbsoluteUri)
+        {
+            return false;
+        }
+
+        // Asked for the official download page, the model has answered with third-party
+        // download portals. A driver updater must not fetch a binary from those, so a page
+        // the vendor does not publish on never becomes a lead in the first place.
+        if (!AiDiscoverySourceTrust.IsPublishedByTheVendor(row.Driver, url))
         {
             return false;
         }

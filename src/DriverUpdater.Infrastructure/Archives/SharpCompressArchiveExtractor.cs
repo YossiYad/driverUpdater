@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DriverUpdater.Core.Abstractions;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Archives;
@@ -16,6 +17,10 @@ public sealed class SharpCompressArchiveExtractor : IArchiveExtractor
     // Zip local file header ("PK\x03\x04"), searched the same way for zip-based SFX stubs.
     private static readonly byte[] ZipSignature = [0x50, 0x4B, 0x03, 0x04];
 
+    // Cabinet header ("MSCF"). Realtek, Intel and several motherboard vendors ship their
+    // driver payload as a cabinet behind a PE stub, which SharpCompress cannot open at all.
+    private static readonly byte[] CabSignature = [0x4D, 0x53, 0x43, 0x46];
+
     private readonly ILogger<SharpCompressArchiveExtractor> _logger;
 
     public SharpCompressArchiveExtractor(ILogger<SharpCompressArchiveExtractor> logger)
@@ -32,15 +37,27 @@ public sealed class SharpCompressArchiveExtractor : IArchiveExtractor
         try
         {
             Directory.CreateDirectory(destinationDirectory);
-            using var stream = File.OpenRead(archivePath);
-            using var archive = OpenArchive(archivePath, stream);
-            if (archive is null)
+            using (var stream = File.OpenRead(archivePath))
             {
-                errorMessage = $"'{Path.GetFileName(archivePath)}' is not a supported archive (zip, 7z, or a self-extracting installer containing one).";
-                return false;
+                using var archive = OpenArchive(archivePath, stream);
+                if (archive is not null)
+                {
+                    return ExtractEntries(archive, destinationDirectory, out errorMessage);
+                }
             }
 
-            return ExtractEntries(archive, destinationDirectory, out errorMessage);
+            // Nothing SharpCompress reads. A cabinet payload still can be, through the
+            // expand.exe that ships with Windows.
+            if (TryExtractCabinet(archivePath, destinationDirectory, out errorMessage))
+            {
+                return true;
+            }
+
+            if (errorMessage.Length == 0)
+            {
+                errorMessage = $"'{Path.GetFileName(archivePath)}' is not a supported archive (zip, 7z, cabinet, or a self-extracting installer containing one).";
+            }
+            return false;
         }
         catch (Exception ex)
         {
@@ -84,6 +101,108 @@ public sealed class SharpCompressArchiveExtractor : IArchiveExtractor
         }
 
         return null;
+    }
+
+    // Windows ships expand.exe for cabinets, so no extra dependency is needed. A self-extracting
+    // installer keeps its cabinet behind a PE stub, so the cabinet is carved out to its own file
+    // first - expand.exe only accepts a real cabinet.
+    private bool TryExtractCabinet(string archivePath, string destinationDirectory, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        long offset;
+        using (var stream = File.OpenRead(archivePath))
+        {
+            offset = Path.GetExtension(archivePath).Equals(".cab", StringComparison.OrdinalIgnoreCase)
+                ? 0
+                : FindSignatureOffset(stream, CabSignature);
+        }
+
+        if (offset < 0)
+        {
+            return false;
+        }
+
+        var carvedCab = Path.Combine(
+            Path.GetTempPath(),
+            "DriverUpdater",
+            Path.GetFileNameWithoutExtension(archivePath) + "-" + Guid.NewGuid().ToString("N") + ".cab");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(carvedCab)!);
+            if (offset == 0)
+            {
+                carvedCab = archivePath;
+            }
+            else
+            {
+                using var source = File.OpenRead(archivePath);
+                source.Position = offset;
+                using var target = File.Create(carvedCab);
+                source.CopyTo(target);
+            }
+
+            var expand = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "expand.exe");
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = expand,
+                Arguments = $"-F:* \"{carvedCab}\" \"{destinationDirectory}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            if (process is null)
+            {
+                errorMessage = "Could not start expand.exe to unpack the cabinet.";
+                return false;
+            }
+
+            process.WaitForExit(TimeSpan.FromMinutes(5));
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                errorMessage = "expand.exe did not finish unpacking the cabinet in time.";
+                return false;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                errorMessage = $"expand.exe could not unpack the cabinet (exit {process.ExitCode}).";
+                _logger.LogWarning(
+                    "expand.exe failed for {Path}: exit {Exit}, {Error}",
+                    archivePath, process.ExitCode, process.StandardError.ReadToEnd());
+                return false;
+            }
+
+            var extracted = Directory.EnumerateFiles(destinationDirectory, "*", SearchOption.AllDirectories).Any();
+            if (!extracted)
+            {
+                errorMessage = "The cabinet did not contain any files.";
+                return false;
+            }
+
+            _logger.LogInformation("Unpacked the cabinet inside {Path} with expand.exe", Path.GetFileName(archivePath));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cabinet extraction failed for {Path}", archivePath);
+            errorMessage = $"Could not unpack the cabinet inside '{Path.GetFileName(archivePath)}': {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            if (!string.Equals(carvedCab, archivePath, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    File.Delete(carvedCab);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
     }
 
     private bool ExtractEntries(IArchive archive, string destinationDirectory, out string errorMessage)
