@@ -31,6 +31,7 @@ public class MainViewModelUpdateWithAiTests
         var pipeline = new RecordingInstallPipeline();
 
         var vm = NewVm(new[] { safeDriver, riskyDriver }, new[] { safeCandidate, riskyCandidate }, verifier, pipeline);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         pipeline.InstalledDevices.Should().Equal("Intel Wi-Fi");
@@ -53,6 +54,7 @@ public class MainViewModelUpdateWithAiTests
             verifier,
             pipeline,
             AiAutoUpdateRiskTolerance.SafeAndCaution);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         pipeline.InstalledDevices.Should().Equal("Realtek Audio");
@@ -66,6 +68,7 @@ public class MainViewModelUpdateWithAiTests
         var pipeline = new RecordingInstallPipeline();
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, new StubAiVerifier(), pipeline);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         pipeline.InstalledDevices.Should().BeEmpty();
@@ -73,7 +76,7 @@ public class MainViewModelUpdateWithAiTests
     }
 
     [WpfFact]
-    public async Task Does_not_scan_when_no_ai_provider_is_configured()
+    public async Task Does_nothing_when_no_ai_provider_is_configured()
     {
         var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(1, 0, 0, 0));
         var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "audio-update");
@@ -81,12 +84,52 @@ public class MainViewModelUpdateWithAiTests
         var pipeline = new RecordingInstallPipeline();
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, pipeline);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         verifier.WasCalled.Should().BeFalse();
-        vm.Drivers.Should().BeEmpty();
         pipeline.InstalledDevices.Should().BeEmpty();
         vm.StatusText.Should().Contain("Configure an AI provider");
+    }
+
+    [WpfFact]
+    public async Task Stays_disabled_until_a_scan_of_this_session_found_something_to_update()
+    {
+        var driver = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts = { ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0") }
+        };
+
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, new RecordingInstallPipeline());
+
+        vm.UpdateWithAiCommand.CanExecute(null).Should().BeFalse("nothing has been scanned yet");
+
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.UpdateWithAiCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [WpfFact]
+    public async Task Reuses_the_verdicts_a_scan_with_ai_already_produced()
+    {
+        var driver = NewDriver("Intel Wi-Fi", "PCI\\VEN_8086&DEV_2723", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate(driver.HardwareId, new Version(2, 0, 0, 0), "wifi-update");
+        var verifier = new StubAiVerifier
+        {
+            Verdicts = { ["wifi-update"] = new AiVerdict(true, AiRiskLevel.Safe, "Routine update", "No reports", "2.0.0.0") }
+        };
+        var pipeline = new RecordingInstallPipeline();
+
+        var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, pipeline);
+        await vm.ScanWithAiCommand.ExecuteAsync(null);
+        var callsAfterScan = verifier.CallCount;
+
+        await vm.UpdateWithAiCommand.ExecuteAsync(null);
+
+        verifier.CallCount.Should().Be(callsAfterScan, "the rows already carry a verdict from the AI scan");
+        pipeline.InstalledDevices.Should().Equal("Intel Wi-Fi");
     }
 
     [WpfFact]
@@ -113,6 +156,7 @@ public class MainViewModelUpdateWithAiTests
             verifier,
             pipeline,
             planConfirmation: confirmation);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         confirmation.LastPlan.Should().NotBeNull();
@@ -138,6 +182,7 @@ public class MainViewModelUpdateWithAiTests
         var confirmation = new StubPlanConfirmation { Approved = null };
 
         var vm = NewVm(new[] { driver }, new[] { candidate }, verifier, pipeline, planConfirmation: confirmation);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         pipeline.InstalledDevices.Should().BeEmpty();
@@ -174,6 +219,7 @@ public class MainViewModelUpdateWithAiTests
             verifier,
             pipeline,
             planConfirmation: confirmation);
+        await vm.ScanCommand.ExecuteAsync(null);
         await vm.UpdateWithAiCommand.ExecuteAsync(null);
 
         pipeline.InstalledDevices.Should().Equal("Realtek Audio");
@@ -232,7 +278,8 @@ public class MainViewModelUpdateWithAiTests
         public AiProvider Provider => AiProvider.Gemini;
         public bool IsConfigured { get; init; } = true;
         public bool IsTemporarilyUnavailable => false;
-        public bool WasCalled { get; private set; }
+        public bool WasCalled => CallCount > 0;
+        public int CallCount { get; private set; }
         public Dictionary<string, AiVerdict> Verdicts { get; } = new();
 
         public Task<IReadOnlyDictionary<string, AiVerdict>> VerifyAsync(
@@ -240,7 +287,7 @@ public class MainViewModelUpdateWithAiTests
             bool unattendedRun = false,
             CancellationToken cancellationToken = default)
         {
-            WasCalled = true;
+            CallCount++;
             return Task.FromResult((IReadOnlyDictionary<string, AiVerdict>)Verdicts);
         }
     }

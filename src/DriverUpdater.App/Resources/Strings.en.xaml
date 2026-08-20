@@ -12,7 +12,7 @@
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAi">Update with AI</sys:String>
-    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">Scan with AI, then install only the updates the AI recommends for this hardware</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">After a scan, let the AI research the updates it found and install only the ones it recommends for this hardware</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve updates in app</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>
@@ -58,7 +58,7 @@
 
     <sys:String x:Key="AiPlan.Title">Updates the AI chose</sys:String>
     <sys:String x:Key="AiPlan.Heading">These are the updates the AI picked for this computer</sys:String>
-    <sys:String x:Key="AiPlan.Subheading">Each one is listed with the reason the AI gave after checking your hardware and what the vendor published. Untick anything you do not want installed.</sys:String>
+    <sys:String x:Key="AiPlan.Subheading">Each one is listed with the reason the AI gave after researching your hardware and what the vendor published. Untick anything you do not want installed.</sys:String>
     <sys:String x:Key="AiPlan.DoNotShowAgain">Do not show this window again; install what the AI picks</sys:String>
     <sys:String x:Key="AiPlan.Sources">Checked before recommending:</sys:String>
     <sys:String x:Key="AiPlan.CancelButton">Cancel</sys:String>

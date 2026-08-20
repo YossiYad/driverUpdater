@@ -27,7 +27,7 @@
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAi">עדכן עם AI</sys:String>
-    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">סריקה עם AI, ואז התקנה של העדכונים שה-AI ממליץ עליהם לחומרה הזאת בלבד</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">אחרי סריקה, ה-AI חוקר את העדכונים שנמצאו ומתקין רק את אלה שהוא ממליץ עליהם לחומרה הזאת</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">בצע עדכונים באפליקציה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
@@ -59,7 +59,7 @@
 
     <sys:String x:Key="AiPlan.Title">העדכונים שה-AI בחר</sys:String>
     <sys:String x:Key="AiPlan.Heading">אלה העדכונים שה-AI בחר עבור המחשב הזה</sys:String>
-    <sys:String x:Key="AiPlan.Subheading">לכל אחד מופיעה הסיבה שה-AI נתן אחרי שבדק את החומרה שלכם ואת מה שהיצרן פרסם. אפשר להסיר סימון מכל מה שאתם לא רוצים להתקין.</sys:String>
+    <sys:String x:Key="AiPlan.Subheading">לכל אחד מופיעה הסיבה שה-AI נתן אחרי שחקר את החומרה שלכם ואת מה שהיצרן פרסם. אפשר להסיר סימון מכל מה שאתם לא רוצים להתקין.</sys:String>
     <sys:String x:Key="AiPlan.DoNotShowAgain">אל תציג את החלון הזה שוב; התקן את מה שה-AI בוחר</sys:String>
     <sys:String x:Key="AiPlan.Sources">נבדק לפני ההמלצה:</sys:String>
     <sys:String x:Key="AiPlan.CancelButton">ביטול</sys:String>

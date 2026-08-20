@@ -135,6 +135,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
     private int _updatesFoundCount;
 
     [ObservableProperty]
@@ -144,12 +145,14 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
     private int _confirmedUpdatesCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     [NotifyCanExecuteChangedFor(nameof(OpenVendorChecksCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
     private int _vendorChecksCount;
 
     [ObservableProperty]
@@ -1160,10 +1163,9 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void ScanCancel() => _scanCancellation?.Cancel();
 
-    // One click for the whole loop: scan, let the AI research the hardware on the web, then
-    // install exactly what it endorsed. Nothing is asked of the user between the click and the
-    // install confirmation, so an update the AI could not rate is left alone rather than
-    // guessed at.
+    // Picks up where a scan left off: the user decides how to scan, and this takes the updates
+    // that scan found, has the AI research them against this machine, shows what it picked, and
+    // installs it. An update the AI could not rate is left alone rather than guessed at.
     [RelayCommand(CanExecute = nameof(CanUpdateWithAi))]
     private async Task UpdateWithAiAsync(CancellationToken cancellationToken)
     {
@@ -1181,9 +1183,8 @@ public partial class MainViewModel : ObservableObject
                 "Update with AI started: provider={Provider}, risk tolerance={Tolerance}",
                 _aiVerifier.Provider, tolerance);
 
-            if (!await RunScanAsync(includeAi: true).ConfigureAwait(true))
+            if (!await ResearchUpdatesWithAiAsync(cancellationToken).ConfigureAwait(true))
             {
-                StatusText = "Update with AI stopped: the AI scan did not finish, so nothing was installed.";
                 return;
             }
 
@@ -1229,7 +1230,53 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool CanUpdateWithAi() => !IsScanning && !IsUpdatingWithAi;
+    // Only after a scan of this session: the AI reviews what that scan found, so there is
+    // nothing to research before one has run, and a cached list from the last session has not
+    // been checked against the machine yet.
+    private bool CanUpdateWithAi() =>
+        !IsScanning && !IsUpdatingWithAi && Drivers.Any(r => r.IsScannedThisRun && r.CanUpdate);
+
+    // A row already carrying a verdict was reviewed by "Scan with AI" moments ago. Sending the
+    // whole set again would spend another provider request to be told the same thing.
+    private bool NeedsAiResearch() =>
+        Drivers.Any(r => r.IsScannedThisRun && r.CanUpdate && !r.HasAiVerdict);
+
+    // Returns false when the run must stop without installing anything.
+    private async Task<bool> ResearchUpdatesWithAiAsync(CancellationToken cancellationToken)
+    {
+        if (!NeedsAiResearch())
+        {
+            _logger.LogInformation(
+                "Update with AI: every update found already carries an AI verdict from this scan; reusing it");
+            return true;
+        }
+
+        var approved = _aiVerifier!.Provider != AiProvider.Gemini
+            || _aiScanConfirmation is null
+            || await _aiScanConfirmation
+                .ConfirmAsync(BuildAiScanUsageEstimate(), cancellationToken)
+                .ConfigureAwait(true);
+        if (!approved)
+        {
+            _logger.LogInformation("Update with AI stopped at the usage warning; nothing was installed");
+            StatusText = "Update with AI was not approved. Nothing was installed.";
+            return false;
+        }
+
+        StatusText = "Update with AI: asking the AI to research the updates this scan found...";
+        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+
+        if (_aiVerifier.IsTemporarilyUnavailable)
+        {
+            _logger.LogInformation("Update with AI stopped: the AI provider is temporarily unavailable");
+            StatusText = "Update with AI stopped: the AI provider is unavailable right now. Nothing was installed.";
+            return false;
+        }
+
+        RefreshUpdateCounts();
+        DriversView.Refresh();
+        return true;
+    }
 
     // Every row the AI actually vouched for, plus the ones it turned down and the reason why,
     // so the review window can show both sides. A row without a verdict is never endorsed:
@@ -1296,7 +1343,7 @@ public partial class MainViewModel : ObservableObject
         return string.IsNullOrEmpty(summary) ? reason + "." : $"{reason}: {summary}";
     }
 
-    private async Task<bool> RunScanAsync(bool includeAi)
+    private async Task RunScanAsync(bool includeAi)
     {
         using var scanCancellation = new CancellationTokenSource();
         _scanCancellation = scanCancellation;
@@ -1323,7 +1370,7 @@ public partial class MainViewModel : ObservableObject
 
             if (DiscardScanIfCacheWasCleared())
             {
-                return false;
+                return;
             }
 
             var elapsed = stopwatch.Elapsed;
@@ -1337,11 +1384,11 @@ public partial class MainViewModel : ObservableObject
 
             if (!await QueryUpdateSourcesAsync(cancellationToken))
             {
-                return false;
+                return;
             }
             if (DiscardScanIfCacheWasCleared())
             {
-                return false;
+                return;
             }
             RestorePendingUpdates(previousRows);
 
@@ -1367,13 +1414,13 @@ public partial class MainViewModel : ObservableObject
 
             if (DiscardScanIfCacheWasCleared())
             {
-                return false;
+                return;
             }
 
             await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
             if (DiscardScanIfCacheWasCleared())
             {
-                return false;
+                return;
             }
 
             FinalizeScanStatuses();
@@ -1385,10 +1432,10 @@ public partial class MainViewModel : ObservableObject
                   + $"({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely).";
             if (DiscardScanIfCacheWasCleared())
             {
-                return false;
+                return;
             }
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
-            return !DiscardScanIfCacheWasCleared();
+            DiscardScanIfCacheWasCleared();
         }
         catch (OperationCanceledException)
         {
@@ -1412,8 +1459,6 @@ public partial class MainViewModel : ObservableObject
             }
             IsScanning = false;
         }
-
-        return false;
     }
 
     private AiScanUsageEstimate BuildAiScanUsageEstimate()
