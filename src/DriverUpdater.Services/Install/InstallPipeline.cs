@@ -1802,6 +1802,26 @@ public sealed partial class InstallPipeline : IInstallPipeline
             return true;
         }
 
+        // Nothing in the id told us how to drive this one. Ask the file. A candidate the AI
+        // found carries an "ai-latest:" id, so without this every such installer - including
+        // ordinary NSIS and Inno packages straight off the vendor's own CDN - was refused.
+        if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var family = InstallerFamilyDetector.Detect(installerPath);
+            if (InstallerFamilyDetector.TryGetSilentArguments(family, installerPath, out arguments))
+            {
+                fileName = installerPath;
+                skipReason = string.Empty;
+                return true;
+            }
+
+            fileName = string.Empty;
+            arguments = string.Empty;
+            skipReason = "The downloaded installer does not identify a packaging tool with a documented silent switch, "
+                + "so running it would have opened a window and waited for a click.";
+            return false;
+        }
+
         fileName = string.Empty;
         arguments = string.Empty;
         skipReason = $"Vendor installer type '{extension}' is not approved for unattended install.";

@@ -1284,8 +1284,7 @@ public partial class MainViewModel : ObservableObject
             return false;
         }
 
-        StatusText = "Update with AI: asking the AI to research the updates this scan found...";
-        await VerifyCandidatesWithAiAsync(cancellationToken).ConfigureAwait(true);
+        await VerifyCandidatesWithAiAsync(cancellationToken, isUpdateRun: true).ConfigureAwait(true);
 
         if (_aiVerifier.IsTemporarilyUnavailable)
         {
@@ -1971,7 +1970,8 @@ public partial class MainViewModel : ObservableObject
     // newer than what is installed and (2) annotate the rest with a risk assessment.
     // Any failure leaves the scan results exactly as they were.
     private async Task<IReadOnlySet<DriverRowViewModel>> VerifyCandidatesWithAiAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool isUpdateRun = false)
     {
         if (_aiVerifier is null)
         {
@@ -2020,7 +2020,9 @@ public partial class MainViewModel : ObservableObject
         IReadOnlyDictionary<string, AiVerdict> verdicts;
         try
         {
-            StatusText = $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
+            StatusText = isUpdateRun
+                ? $"Update with AI: researching the {targets.Length} update(s) this scan found..."
+                : $"Verifying existing updates with AI... 1-{targets.Length} of {Drivers.Count}";
             verdicts = await _aiVerifier.VerifyAsync(requests, unattendedRun: false, aiSearchCancellation.Token).ConfigureAwait(true);
             stopwatch.Stop();
         }
