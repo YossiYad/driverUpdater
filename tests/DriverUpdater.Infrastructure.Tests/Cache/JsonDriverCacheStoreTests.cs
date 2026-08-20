@@ -1,7 +1,9 @@
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using DriverUpdater.Infrastructure.Cache;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Infrastructure.Tests.Cache;
 
@@ -170,8 +172,141 @@ public class JsonDriverCacheStoreTests : IDisposable
             JsonDriverCacheStore.BuildMachineCacheFileName(Environment.MachineName));
     }
 
+    [Fact]
+    public async Task LoadAsync_returns_a_snapshot_that_is_still_inside_the_retention_window()
+    {
+        var store = NewStore(new ScanCacheSettings { ExpirationEnabled = true, RetentionHours = 24 });
+        await store.SaveAsync(NewSnapshot(DateTimeOffset.UtcNow.AddHours(-23)));
+
+        var snapshot = await store.LoadAsync();
+
+        snapshot.Should().NotBeNull();
+        File.Exists(_path).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task LoadAsync_deletes_and_ignores_a_snapshot_older_than_the_retention_window()
+    {
+        var store = NewStore(new ScanCacheSettings { ExpirationEnabled = true, RetentionHours = 24 });
+        await store.SaveAsync(NewSnapshot(DateTimeOffset.UtcNow.AddHours(-25)));
+
+        var snapshot = await store.LoadAsync();
+
+        snapshot.Should().BeNull();
+        File.Exists(_path).Should().BeFalse();
+    }
+
+    // Expiry is not a user-requested clear: a scan running at that moment would throw away the
+    // results it just produced if the Cleared handler fired.
+    [Fact]
+    public async Task LoadAsync_does_not_raise_Cleared_when_a_snapshot_expires()
+    {
+        var store = NewStore(new ScanCacheSettings { ExpirationEnabled = true, RetentionHours = 1 });
+        await store.SaveAsync(NewSnapshot(DateTimeOffset.UtcNow.AddHours(-5)));
+        var cleared = 0;
+        store.Cleared += (_, _) => cleared++;
+
+        await store.LoadAsync();
+
+        cleared.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task LoadAsync_keeps_an_old_snapshot_when_expiration_is_turned_off()
+    {
+        var store = NewStore(new ScanCacheSettings { ExpirationEnabled = false, RetentionHours = 1 });
+        await store.SaveAsync(NewSnapshot(DateTimeOffset.UtcNow.AddDays(-90)));
+
+        var snapshot = await store.LoadAsync();
+
+        snapshot.Should().NotBeNull();
+        File.Exists(_path).Should().BeTrue();
+    }
+
+    // Without settings (the default constructor used by tests and older call sites) nothing
+    // expires, so behaviour matches the app before retention existed.
+    [Fact]
+    public async Task LoadAsync_keeps_an_old_snapshot_when_no_retention_settings_are_supplied()
+    {
+        var store = NewStore();
+        await store.SaveAsync(NewSnapshot(DateTimeOffset.UtcNow.AddDays(-90)));
+
+        var snapshot = await store.LoadAsync();
+
+        snapshot.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ClearAsync_still_counts_the_updates_in_an_expired_snapshot()
+    {
+        var store = NewStore(new ScanCacheSettings { ExpirationEnabled = true, RetentionHours = 1 });
+        var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", DriverCategory.Audio);
+        var candidate = NewCandidate(driver);
+        await store.SaveAsync(new DriverCacheSnapshot(
+            DateTimeOffset.UtcNow.AddDays(-3),
+            new[] { new CachedDriverEntry(driver, DriverStatus.Outdated, candidate) }));
+
+        var removed = await store.ClearAsync();
+
+        removed.Should().Be(1);
+        File.Exists(_path).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(24, 24)]
+    [InlineData(99999, 8760)]
+    public void ResolveRetentionWindow_clamps_the_configured_hours(int configured, int expectedHours)
+    {
+        var window = JsonDriverCacheStore.ResolveRetentionWindow(
+            new ScanCacheSettings { ExpirationEnabled = true, RetentionHours = configured });
+
+        window.Should().Be(TimeSpan.FromHours(expectedHours));
+    }
+
+    [Fact]
+    public void ResolveRetentionWindow_is_null_when_expiration_is_disabled()
+    {
+        JsonDriverCacheStore.ResolveRetentionWindow(
+            new ScanCacheSettings { ExpirationEnabled = false }).Should().BeNull();
+        JsonDriverCacheStore.ResolveRetentionWindow(null).Should().BeNull();
+    }
+
     private JsonDriverCacheStore NewStore() =>
         new(NullLogger<JsonDriverCacheStore>.Instance, _path);
+
+    private JsonDriverCacheStore NewStore(ScanCacheSettings settings) =>
+        new(NullLogger<JsonDriverCacheStore>.Instance, _path, new ConstantOptionsMonitor<ScanCacheSettings>(settings));
+
+    private DriverCacheSnapshot NewSnapshot(DateTimeOffset capturedAt) => new(
+        capturedAt,
+        new[]
+        {
+            new CachedDriverEntry(
+                NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", DriverCategory.Audio),
+                DriverStatus.UpToDate,
+                null)
+        });
+
+    private static UpdateCandidate NewCandidate(DriverInfo driver) => new(
+        ForHardwareId: driver.HardwareId,
+        Source: UpdateSource.Oem,
+        NewVersion: new Version(2, 0, 0, 0),
+        NewDate: new DateOnly(2026, 5, 14),
+        DownloadUrl: new Uri("https://example.test/driver.exe"),
+        SizeBytes: 1024,
+        KbArticle: null,
+        IsSuperseded: false,
+        SourceUpdateId: "test:candidate",
+        SupersededIds: Array.Empty<string>());
+
+    private sealed class ConstantOptionsMonitor<T> : IOptionsMonitor<T>
+    {
+        public ConstantOptionsMonitor(T value) { CurrentValue = value; }
+        public T CurrentValue { get; }
+        public T Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<T, string> listener) => null;
+    }
 
     private static DriverInfo NewDriver(string name, string hardwareId, DriverCategory category) => new(
         DeviceId: $"{hardwareId}\\3&abc&0",

@@ -47,7 +47,10 @@ public static class InfrastructureServiceCollectionExtensions
             new JsonDriverVersionHistoryStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverVersionHistoryStore>>()));
         services.AddSingleton<IDriverStoreBrowser, PowerShellDriverStoreBrowser>();
         services.AddSingleton<IDriverCacheStore>(sp =>
-            new JsonDriverCacheStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>()));
+            new JsonDriverCacheStore(
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonDriverCacheStore>>(),
+                overridePath: null,
+                sp.GetRequiredService<IOptionsMonitor<ScanCacheSettings>>()));
         services.AddSingleton<IIneffectiveUpdateStore>(sp =>
             new JsonIneffectiveUpdateStore(sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonIneffectiveUpdateStore>>()));
         services.AddSingleton<IPendingUpdateVerificationStore>(sp =>

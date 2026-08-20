@@ -85,6 +85,9 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _enableAutomaticLogCleanup = true;
     [ObservableProperty] private int _logRetentionDays = LogCleanupSettings.DefaultRetentionDays;
 
+    [ObservableProperty] private bool _expireSavedScans = true;
+    [ObservableProperty] private int _savedScanRetentionHours = ScanCacheSettings.DefaultRetentionHours;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsGeminiSelected))]
     [NotifyPropertyChangedFor(nameof(IsOllamaSelected))]
@@ -723,6 +726,14 @@ public partial class SettingsViewModel : ObservableObject
                 LogCleanupSettings.MinimumRetentionDays,
                 LogCleanupSettings.MaximumRetentionDays)
         },
+        ScanCache = new ScanCacheSettings
+        {
+            ExpirationEnabled = ExpireSavedScans,
+            RetentionHours = Math.Clamp(
+                SavedScanRetentionHours,
+                ScanCacheSettings.MinimumRetentionHours,
+                ScanCacheSettings.MaximumRetentionHours)
+        },
         Onboarding = new OnboardingSettings
         {
             LastShownVersion = _loadedOnboarding.LastShownVersion,
@@ -777,6 +788,12 @@ public partial class SettingsViewModel : ObservableObject
             settings.LogCleanup.RetentionDays,
             LogCleanupSettings.MinimumRetentionDays,
             LogCleanupSettings.MaximumRetentionDays);
+        var scanCache = settings.ScanCache ?? new ScanCacheSettings();
+        ExpireSavedScans = scanCache.ExpirationEnabled;
+        SavedScanRetentionHours = Math.Clamp(
+            scanCache.RetentionHours,
+            ScanCacheSettings.MinimumRetentionHours,
+            ScanCacheSettings.MaximumRetentionHours);
     }
 
     private AiSettings BuildAiSettings()

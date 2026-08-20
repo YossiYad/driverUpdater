@@ -10,6 +10,7 @@
     <sys:String x:Key="Toolbar.Scan">Scan now</sys:String>
     <sys:String x:Key="Toolbar.ScanWithAi">Scan with AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Toolbar.LoadSavedScan">Load saved scan</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
     <sys:String x:Key="Toolbar.UpdateWithAi">Update with AI</sys:String>
     <sys:String x:Key="Toolbar.CancelUpdateWithAi">Cancel AI update</sys:String>

@@ -338,6 +338,61 @@ public class SettingsViewModelTests
     }
 
     [WpfFact]
+    public async Task LoadAsync_reads_saved_scan_retention_settings()
+    {
+        var store = new FakeStore(new AppSettings
+        {
+            ScanCache = new ScanCacheSettings
+            {
+                ExpirationEnabled = false,
+                RetentionHours = 72
+            }
+        });
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.ExpireSavedScans.Should().BeFalse();
+        vm.SavedScanRetentionHours.Should().Be(72);
+    }
+
+    [WpfFact]
+    public async Task LoadAsync_defaults_the_saved_scan_to_24_hours()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+
+        await vm.LoadAsync();
+
+        vm.ExpireSavedScans.Should().BeTrue();
+        vm.SavedScanRetentionHours.Should().Be(24);
+    }
+
+    [WpfFact]
+    public async Task SaveAsync_persists_saved_scan_retention_and_clamps_it()
+    {
+        var store = new FakeStore(new AppSettings());
+        var vm = new SettingsViewModel(
+            store,
+            new FakeScheduler(),
+            NullLogger<SettingsViewModel>.Instance);
+        await vm.LoadAsync();
+        vm.ExpireSavedScans = true;
+        vm.SavedScanRetentionHours = 0;
+
+        await vm.SaveAsync();
+
+        store.Saved!.ScanCache.ExpirationEnabled.Should().BeTrue();
+        store.Saved.ScanCache.RetentionHours.Should().Be(ScanCacheSettings.MinimumRetentionHours);
+    }
+
+    [WpfFact]
     public async Task SaveAsync_writes_to_store_and_calls_scheduler()
     {
         var store = new FakeStore(new AppSettings());

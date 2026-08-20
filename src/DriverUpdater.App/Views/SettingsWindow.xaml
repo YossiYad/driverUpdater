@@ -154,6 +154,23 @@
                                FontSize="12"
                                TextWrapping="Wrap"
                                Text="Every scan checks all drivers again. When no new result is found, the previous cached result is shown as a fallback. Clear the cache to remove all saved driver rows and update results so the next scan starts from scratch." />
+                    <CheckBox IsChecked="{Binding ExpireSavedScans}"
+                              Content="Delete the saved scan once it gets old" />
+                    <StackPanel Margin="22,10,0,14"
+                                IsEnabled="{Binding ExpireSavedScans}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center" Text="Keep the saved scan for" />
+                            <TextBox Width="60"
+                                     Margin="8,0"
+                                     Text="{Binding SavedScanRetentionHours}" />
+                            <TextBlock VerticalAlignment="Center" Text="hours" />
+                        </StackPanel>
+                        <TextBlock Margin="0,6,0,0"
+                                   Opacity="0.7"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Text="Default: 24 hours. You can choose between 1 hour and 8760 hours (a year). An older saved scan is deleted the next time the app reads it, so it is never shown or reused. Turn this off to keep the saved scan until you clear it yourself." />
+                    </StackPanel>
                     <Button Padding="14,7"
                             HorizontalAlignment="Left"
                             Content="Clear cached driver results"

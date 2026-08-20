@@ -74,6 +74,7 @@ public partial class App : Application
                 services.Configure<ScraperSettings>(context.Configuration.GetSection(ScraperSettings.SectionName));
                 services.Configure<AiSettings>(context.Configuration.GetSection(AiSettings.SectionName));
                 services.Configure<LogCleanupSettings>(context.Configuration.GetSection(LogCleanupSettings.SectionName));
+                services.Configure<ScanCacheSettings>(context.Configuration.GetSection(ScanCacheSettings.SectionName));
                 services.AddDriverUpdaterApp(inMemoryLogSink);
             })
             .Build();

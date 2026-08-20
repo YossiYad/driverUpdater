@@ -116,6 +116,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ScanWithAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(ScanCancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
+    [NotifyCanExecuteChangedFor(nameof(LoadSavedScanCommand))]
     private bool _isScanning;
 
     [ObservableProperty]
@@ -133,6 +134,16 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
     private bool _isShowingCachedDrivers;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSavedScan))]
+    [NotifyPropertyChangedFor(nameof(SavedScanText))]
+    [NotifyCanExecuteChangedFor(nameof(LoadSavedScanCommand))]
+    private DateTimeOffset? _savedScanCapturedAt;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LoadSavedScanCommand))]
+    private bool _isSavedScanDisplayed;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
@@ -187,6 +198,12 @@ public partial class MainViewModel : ObservableObject
     private OemInfo? _detectedOem;
 
     public bool HasOem => DetectedOem is not null;
+
+    public bool HasSavedScan => SavedScanCapturedAt is not null;
+
+    public string SavedScanText => SavedScanCapturedAt is { } capturedAt
+        ? $"Saved scan from {capturedAt.LocalDateTime:yyyy-MM-dd HH:mm}"
+        : string.Empty;
 
     private string ExcludedUpdatesProgressSuffix => ExcludedUpdatesFoundCount switch
     {
@@ -882,7 +899,10 @@ public partial class MainViewModel : ObservableObject
             _logger.LogWarning(ex, "OEM detection failed");
         }
 
-        await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+        if (Drivers.Count == 0)
+        {
+            await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+        }
 
         if (_postUpdateSummaryCoordinator is not null)
         {
@@ -978,11 +998,55 @@ public partial class MainViewModel : ObservableObject
 
     private bool CanUpdateApp() => IsAppUpdateAvailable && !IsAppUpdating && _appUpdater is not null;
 
-    private async Task LoadDriverCacheAsync(CancellationToken cancellationToken)
+    private bool CanLoadSavedScan() =>
+        _driverCacheStore is not null
+        && SavedScanCapturedAt is not null
+        && !IsSavedScanDisplayed
+        && !IsScanning;
+
+    // The saved scan stays on disk while the grid moves on - a cancelled or failed scan leaves
+    // partial rows behind. This puts the last complete snapshot back on screen without paying
+    // for another full scan.
+    [RelayCommand(CanExecute = nameof(CanLoadSavedScan))]
+    private async Task LoadSavedScanAsync(CancellationToken cancellationToken)
     {
-        if (_driverCacheStore is null || Drivers.Count > 0)
+        if (_driverCacheStore is null)
         {
             return;
+        }
+
+        _logger.LogInformation("User requested loading the saved scan from {CapturedAt}", SavedScanCapturedAt);
+        ClearDriverRows();
+        ScannedCount = 0;
+        IsShowingCachedDrivers = false;
+        UpdatesFoundCount = 0;
+        ExcludedUpdatesFoundCount = 0;
+        ConfirmedUpdatesCount = 0;
+        VendorChecksCount = 0;
+
+        var outcome = await LoadDriverCacheAsync(cancellationToken).ConfigureAwait(true);
+        if (outcome == SavedScanLoadOutcome.NotAvailable)
+        {
+            // Expired or cleared between the button appearing and the click.
+            SavedScanCapturedAt = null;
+            IsSavedScanDisplayed = false;
+            StatusText = "No saved scan is available any more. Click Scan to search from scratch.";
+            _logger.LogInformation("The saved scan was gone by the time the user asked to load it");
+        }
+    }
+
+    private enum SavedScanLoadOutcome
+    {
+        Loaded,
+        NotAvailable,
+        Failed
+    }
+
+    private async Task<SavedScanLoadOutcome> LoadDriverCacheAsync(CancellationToken cancellationToken)
+    {
+        if (_driverCacheStore is null)
+        {
+            return SavedScanLoadOutcome.NotAvailable;
         }
 
         try
@@ -990,12 +1054,12 @@ public partial class MainViewModel : ObservableObject
             var snapshot = await _driverCacheStore.LoadAsync(cancellationToken).ConfigureAwait(true);
             if (snapshot is null || snapshot.Entries.Count == 0)
             {
-                return;
+                return SavedScanLoadOutcome.NotAvailable;
             }
 
             if (!await LoadExcludedDriversAsync(cancellationToken).ConfigureAwait(true))
             {
-                return;
+                return SavedScanLoadOutcome.Failed;
             }
 
             var staleDropped = 0;
@@ -1040,6 +1104,8 @@ public partial class MainViewModel : ObservableObject
 
             ScannedCount = Drivers.Count;
             IsShowingCachedDrivers = true;
+            SavedScanCapturedAt = snapshot.CapturedAt;
+            IsSavedScanDisplayed = true;
             RefreshUpdateCounts();
             StatusText =
                 $"Loaded {Drivers.Count} drivers from last scan on {snapshot.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm}. " +
@@ -1047,6 +1113,7 @@ public partial class MainViewModel : ObservableObject
             _logger.LogInformation(
                 "Loaded {Count} drivers from cache captured at {CapturedAt}",
                 Drivers.Count, snapshot.CapturedAt);
+            return SavedScanLoadOutcome.Loaded;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1055,6 +1122,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load the driver cache");
+            return SavedScanLoadOutcome.Failed;
         }
     }
 
@@ -1079,6 +1147,9 @@ public partial class MainViewModel : ObservableObject
                 await _driverCacheStore.ClearAsync(cancellationToken).ConfigureAwait(true);
                 return;
             }
+
+            SavedScanCapturedAt = snapshot.CapturedAt;
+            IsSavedScanDisplayed = true;
             _logger.LogInformation(
                 "Main scan cache save completed: {DriverCount} drivers, {FreshCount} fresh update result(s), {FallbackCount} cached fallback result(s)",
                 entries.Length,
@@ -1122,6 +1193,8 @@ public partial class MainViewModel : ObservableObject
         ClearDriverRows();
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
+        SavedScanCapturedAt = null;
+        IsSavedScanDisplayed = false;
         UpdatesFoundCount = 0;
         ExcludedUpdatesFoundCount = 0;
         ConfirmedUpdatesCount = 0;
@@ -1373,6 +1446,7 @@ public partial class MainViewModel : ObservableObject
         ClearDriverRows();
         ScannedCount = 0;
         IsShowingCachedDrivers = false;
+        IsSavedScanDisplayed = false;
         UpdatesFoundCount = 0;
         ExcludedUpdatesFoundCount = 0;
         ConfirmedUpdatesCount = 0;
