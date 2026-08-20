@@ -12,5 +12,6 @@ public sealed class AppSettings
     public ScraperSettings Scraper { get; set; } = new();
     public AiSettings Ai { get; set; } = new();
     public LogCleanupSettings LogCleanup { get; set; } = new();
+    public ScanCacheSettings ScanCache { get; set; } = new();
     public OnboardingSettings Onboarding { get; set; } = new();
 }

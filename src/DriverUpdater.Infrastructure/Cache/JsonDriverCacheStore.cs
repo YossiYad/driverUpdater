@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DriverUpdater.Core.Abstractions;
 using DriverUpdater.Core.Models;
+using DriverUpdater.Core.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DriverUpdater.Infrastructure.Cache;
 
@@ -11,6 +13,7 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
     public const string CacheFileName = "driver-cache.json";
 
     private readonly ILogger<JsonDriverCacheStore> _logger;
+    private readonly IOptionsMonitor<ScanCacheSettings>? _scanCacheSettings;
     private readonly string? _legacyCachePath;
     private static readonly TimeSpan WriteLockRetryDelay = TimeSpan.FromMilliseconds(50);
     private readonly JsonSerializerOptions _serializerOptions = new()
@@ -19,10 +22,14 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
         PropertyNamingPolicy = null
     };
 
-    public JsonDriverCacheStore(ILogger<JsonDriverCacheStore> logger, string? overridePath = null)
+    public JsonDriverCacheStore(
+        ILogger<JsonDriverCacheStore> logger,
+        string? overridePath = null,
+        IOptionsMonitor<ScanCacheSettings>? scanCacheSettings = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
+        _scanCacheSettings = scanCacheSettings;
         if (overridePath is not null)
         {
             CachePath = overridePath;
@@ -52,7 +59,24 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
         return $"driver-cache.{safe}.json";
     }
 
-    public async Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default)
+    internal static TimeSpan? ResolveRetentionWindow(ScanCacheSettings? settings)
+    {
+        if (settings is null || !settings.ExpirationEnabled)
+        {
+            return null;
+        }
+
+        var hours = Math.Clamp(
+            settings.RetentionHours,
+            ScanCacheSettings.MinimumRetentionHours,
+            ScanCacheSettings.MaximumRetentionHours);
+        return TimeSpan.FromHours(hours);
+    }
+
+    public Task<DriverCacheSnapshot?> LoadAsync(CancellationToken cancellationToken = default) =>
+        LoadCoreAsync(applyRetention: true, cancellationToken);
+
+    private async Task<DriverCacheSnapshot?> LoadCoreAsync(bool applyRetention, CancellationToken cancellationToken)
     {
         var path = CachePath;
         if (!File.Exists(path))
@@ -84,7 +108,7 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
             _logger.LogInformation(
                 "Loaded driver cache from {Path}: {Count} entries, captured at {CapturedAt}",
                 path, snapshot?.Entries.Count ?? 0, snapshot?.CapturedAt);
-            return snapshot;
+            return !applyRetention || snapshot is null ? snapshot : DiscardIfExpired(snapshot);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -95,6 +119,40 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
             _logger.LogWarning(ex, "Could not parse {Path}; ignoring the driver cache", path);
             return null;
         }
+    }
+
+    // A saved scan is only worth showing while it still describes the machine. Expiry is applied
+    // on read and deletes the file there and then, so a stale snapshot cannot surface even after
+    // the app was closed for weeks. Cleared is deliberately not raised: expiry is not a
+    // user-requested clear, and a scan running at that moment must keep its own results.
+    private DriverCacheSnapshot? DiscardIfExpired(DriverCacheSnapshot snapshot)
+    {
+        if (ResolveRetentionWindow(_scanCacheSettings?.CurrentValue) is not { } window)
+        {
+            return snapshot;
+        }
+
+        var age = DateTimeOffset.UtcNow - snapshot.CapturedAt;
+        if (age <= window)
+        {
+            return snapshot;
+        }
+
+        _logger.LogInformation(
+            "Saved scan captured at {CapturedAt} is {AgeHours:F1}h old, past the {RetentionHours:F0}h retention window; deleting it",
+            snapshot.CapturedAt,
+            age.TotalHours,
+            window.TotalHours);
+        try
+        {
+            DeleteCacheFiles();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete the expired driver cache; ignoring it for this session");
+        }
+
+        return null;
     }
 
     public async Task SaveAsync(DriverCacheSnapshot snapshot, CancellationToken cancellationToken = default)
@@ -136,10 +194,22 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
     {
         _logger.LogInformation("Driver cache clear requested for {Path}", CachePath);
         await using var writeLock = await AcquireWriteLockAsync(cancellationToken).ConfigureAwait(false);
-        var snapshot = await LoadAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await LoadCoreAsync(applyRetention: false, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var cachedUpdateCount = snapshot?.Entries.Count(entry => entry.AvailableUpdate is not null) ?? 0;
+        var deletedFileCount = DeleteCacheFiles();
+
+        _logger.LogInformation(
+            "Driver cache clear completed: {UpdateCount} cached update result(s), {FileCount} file(s) deleted",
+            cachedUpdateCount,
+            deletedFileCount);
+        Cleared?.Invoke(this, EventArgs.Empty);
+        return cachedUpdateCount;
+    }
+
+    private int DeleteCacheFiles()
+    {
         var deletedFileCount = 0;
         var paths = new[]
         {
@@ -163,12 +233,7 @@ public sealed class JsonDriverCacheStore : IDriverCacheStore
             _logger.LogInformation("Deleted driver cache file {Path}", path);
         }
 
-        _logger.LogInformation(
-            "Driver cache clear completed: {UpdateCount} cached update result(s), {FileCount} file(s) deleted",
-            cachedUpdateCount,
-            deletedFileCount);
-        Cleared?.Invoke(this, EventArgs.Empty);
-        return cachedUpdateCount;
+        return deletedFileCount;
     }
 
     private async ValueTask<FileStream> AcquireWriteLockAsync(CancellationToken cancellationToken)

@@ -865,6 +865,105 @@ public class MainViewModelUpdateSourceTests
     }
 
     [WpfFact]
+    public async Task InitializeAsync_offers_no_reload_while_the_saved_scan_is_the_one_on_screen()
+    {
+        var driver = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var capturedAt = new DateTimeOffset(2026, 8, 19, 21, 0, 0, TimeSpan.Zero);
+        var cache = new StubDriverCacheStore(new DriverCacheSnapshot(
+            capturedAt,
+            new[] { new CachedDriverEntry(driver, DriverStatus.UpToDate, null) }));
+        var vm = NewSavedScanViewModel(cache, Array.Empty<DriverInfo>());
+
+        await vm.InitializeAsync();
+
+        vm.HasSavedScan.Should().BeTrue();
+        vm.SavedScanCapturedAt.Should().Be(capturedAt);
+        vm.IsSavedScanDisplayed.Should().BeTrue();
+        vm.LoadSavedScanCommand.CanExecute(null).Should().BeFalse(
+            "the saved scan is already what the grid shows");
+    }
+
+    [WpfFact]
+    public async Task InitializeAsync_reports_no_saved_scan_when_the_store_has_nothing_to_offer()
+    {
+        var vm = NewSavedScanViewModel(new StubDriverCacheStore(null), Array.Empty<DriverInfo>());
+
+        await vm.InitializeAsync();
+
+        vm.HasSavedScan.Should().BeFalse();
+        vm.LoadSavedScanCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // A scan that never reaches the save step - cancelled, failed, or unable to write the file -
+    // leaves the grid holding results the saved scan does not contain. That is exactly when the
+    // user wants the previous complete scan back without paying for another one.
+    [WpfFact]
+    public async Task LoadSavedScanCommand_puts_the_saved_scan_back_after_a_scan_that_was_never_saved()
+    {
+        var cached = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var candidate = NewCandidate("PCI\\VEN_1002&DEV_747E", new Version(2, 0, 0, 0));
+        var capturedAt = new DateTimeOffset(2026, 8, 19, 21, 0, 0, TimeSpan.Zero);
+        var cache = new StubDriverCacheStore(
+            new DriverCacheSnapshot(capturedAt, new[] { new CachedDriverEntry(cached, DriverStatus.Outdated, candidate) }),
+            failSaves: true);
+        var scanned = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var vm = NewSavedScanViewModel(cache, new[] { scanned });
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle(row => row.DeviceName == "Realtek Audio");
+        vm.IsSavedScanDisplayed.Should().BeFalse();
+        vm.LoadSavedScanCommand.CanExecute(null).Should().BeTrue();
+
+        await vm.LoadSavedScanCommand.ExecuteAsync(null);
+
+        vm.Drivers.Should().ContainSingle(row => row.DeviceName == "AMD Display");
+        vm.IsShowingCachedDrivers.Should().BeTrue();
+        vm.IsSavedScanDisplayed.Should().BeTrue();
+        vm.SavedScanCapturedAt.Should().Be(capturedAt);
+        vm.LoadSavedScanCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [WpfFact]
+    public async Task LoadSavedScanCommand_says_so_when_the_saved_scan_expired_before_the_click()
+    {
+        var cached = NewDriver("AMD Display", "PCI\\VEN_1002&DEV_747E", new Version(1, 0, 0, 0));
+        var cache = new StubDriverCacheStore(
+            new DriverCacheSnapshot(
+                DateTimeOffset.UtcNow,
+                new[] { new CachedDriverEntry(cached, DriverStatus.UpToDate, null) }),
+            failSaves: true);
+        var scanned = NewDriver("Realtek Audio", "PCI\\VEN_10EC&DEV_8168", new Version(2, 0, 0, 0));
+        var vm = NewSavedScanViewModel(cache, new[] { scanned });
+
+        await vm.InitializeAsync();
+        await vm.ScanCommand.ExecuteAsync(null);
+        await cache.ClearAsync();
+
+        await vm.LoadSavedScanCommand.ExecuteAsync(null);
+
+        vm.HasSavedScan.Should().BeFalse();
+        vm.LoadSavedScanCommand.CanExecute(null).Should().BeFalse();
+        vm.StatusText.Should().Contain("No saved scan is available");
+    }
+
+    private static MainViewModel NewSavedScanViewModel(
+        IDriverCacheStore cacheStore,
+        IReadOnlyList<DriverInfo> scannedDrivers) =>
+        new(
+            new FakeScanService(scannedDrivers.ToArray()),
+            new[] { (IUpdateSource)new CountingUpdateSource() },
+            new NullOemDetectionService(),
+            new NullInstallPipeline(),
+            new NullInstallConfirmation(),
+            new NullHistoryWindowOpener(),
+            new NullSettingsWindowOpener(),
+            new NullLogsWindowOpener(),
+            NullLogger<MainViewModel>.Instance,
+            driverCacheStore: cacheStore);
+
+    [WpfFact]
     public async Task InitializeAsync_with_empty_cache_leaves_grid_empty()
     {
         var cache = new StubDriverCacheStore(null);
@@ -1332,13 +1431,15 @@ public class MainViewModelUpdateSourceTests
 
     private sealed class StubDriverCacheStore : IDriverCacheStore
     {
+        private readonly bool _failSaves;
         private DriverCacheSnapshot? _snapshot;
 
         public event EventHandler? Cleared;
 
-        public StubDriverCacheStore(DriverCacheSnapshot? snapshot)
+        public StubDriverCacheStore(DriverCacheSnapshot? snapshot, bool failSaves = false)
         {
             _snapshot = snapshot;
+            _failSaves = failSaves;
         }
 
         public List<DriverCacheSnapshot> Saved { get; } = new();
@@ -1348,6 +1449,11 @@ public class MainViewModelUpdateSourceTests
 
         public Task SaveAsync(DriverCacheSnapshot snapshot, CancellationToken cancellationToken = default)
         {
+            if (_failSaves)
+            {
+                throw new System.IO.IOException("cache is locked");
+            }
+
             Saved.Add(snapshot);
             _snapshot = snapshot;
             return Task.CompletedTask;
