@@ -32,6 +32,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IVendorInstallerRunner, VendorInstallerRunner>();
         services.AddSingleton<IFileSignatureVerifier, AuthenticodeFileSignatureVerifier>();
         services.AddSingleton<IArchiveExtractor, Archives.SharpCompressArchiveExtractor>();
+        services.AddSingleton<IForceDriverBinder, PnPUtil.SetupApiForceDriverBinder>();
         services.AddSingleton<IInstalledSoftwareVersionProvider, WindowsInstalledSoftwareVersionProvider>();
         services.AddSingleton<IHistoryRepository, SqliteHistoryRepository>();
         services.AddSingleton<ISchedulerService, WindowsTaskSchedulerService>();

@@ -35,6 +35,7 @@ public sealed partial class InstallPipeline : IInstallPipeline
     private readonly IVendorPageInstallerResolver? _vendorPageResolver;
     private readonly IInstalledDriverProbe? _installedDriverProbe;
     private readonly IArchiveExtractor? _archiveExtractor;
+    private readonly IForceDriverBinder? _forceDriverBinder;
     private readonly IInstallExecutionGate? _executionGate;
     private readonly ILogger<InstallPipeline> _logger;
     private readonly TimeProvider _clock;
@@ -54,6 +55,7 @@ public sealed partial class InstallPipeline : IInstallPipeline
         IInstalledDriverProbe? installedDriverProbe = null,
         IFileSignatureVerifier? fileSignatureVerifier = null,
         IArchiveExtractor? archiveExtractor = null,
+        IForceDriverBinder? forceDriverBinder = null,
         IInstallExecutionGate? executionGate = null)
     {
         ArgumentNullException.ThrowIfNull(restorePointService);
@@ -72,6 +74,7 @@ public sealed partial class InstallPipeline : IInstallPipeline
         _vendorPageResolver = vendorPageResolver;
         _installedDriverProbe = installedDriverProbe;
         _archiveExtractor = archiveExtractor;
+        _forceDriverBinder = forceDriverBinder;
         _executionGate = executionGate;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
@@ -404,6 +407,16 @@ public sealed partial class InstallPipeline : IInstallPipeline
             return operation;
         }
 
+        // The package reached the driver store but Windows ranked the bound driver higher, so
+        // "/install" left the device where it was. SetupAPI can complete the switch, and only
+        // ever forward: the binder refuses anything that is not strictly newer than what is
+        // bound, so this cannot push an older driver onto the device.
+        var forced = await TryForceBindStagedDriverAsync(operation, progress, cancellationToken).ConfigureAwait(false);
+        if (forced is not null)
+        {
+            return forced;
+        }
+
         // Nothing changed: the package was staged but Windows kept the existing driver.
         var installedText = before.CurrentVersion?.ToString() ?? before.CurrentDate?.ToString() ?? "unknown";
         _logger.LogWarning(
@@ -419,6 +432,93 @@ public sealed partial class InstallPipeline : IInstallPipeline
             ErrorMessage =
                 $"Installed to the driver store, but Windows kept the existing driver (version unchanged: {installedText}). " +
                 "This usually means the current driver is ranked higher (e.g. a protected Windows inbox driver) or a reboot is pending.",
+            CompletedAt = _clock.GetUtcNow()
+        };
+        progress?.Report(operation);
+        return operation;
+    }
+
+    // Returns the finished operation when the forced bind actually moved the device, and null
+    // when there was nothing staged to bind, no binder configured, or Windows refused.
+    private async Task<UpdateOperation?> TryForceBindStagedDriverAsync(
+        UpdateOperation operation,
+        IProgress<UpdateOperation>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_forceDriverBinder is null || _installedDriverProbe is null)
+        {
+            return null;
+        }
+
+        var before = operation.TargetSnapshot;
+        var deviceName = DeviceLabel(before);
+        ForceBindResult result;
+        try
+        {
+            result = await _forceDriverBinder
+                .TryBindStagedDriverAsync(before, operation.Candidate.NewVersion, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Force bind of the staged driver for {Device} could not be attempted", deviceName);
+            return null;
+        }
+
+        if (!result.Attempted)
+        {
+            _logger.LogInformation(
+                "No forced bind for {Device}: {Reason}", deviceName, result.Message ?? "nothing newer is staged");
+            return null;
+        }
+
+        if (!result.Succeeded)
+        {
+            _logger.LogWarning(
+                "Forced bind of {Inf} for {Device} did not take: {Reason}",
+                result.InfName, deviceName, result.Message ?? "unknown failure");
+            return null;
+        }
+
+        if (result.RebootRequired)
+        {
+            _logger.LogInformation(
+                "Forced bind of {Inf} for {Device} needs a restart before the new driver runs", result.InfName, deviceName);
+            operation = operation with
+            {
+                Status = UpdateStatus.Succeeded,
+                ErrorMessage = $"Installed {result.InfName} from the driver store. A restart is required before it takes effect.",
+                CompletedAt = _clock.GetUtcNow()
+            };
+            progress?.Report(operation);
+            return operation;
+        }
+
+        var current = await _installedDriverProbe.GetCurrentAsync(before.DeviceId, cancellationToken).ConfigureAwait(false);
+        if (current is null || !InstalledDriverChangeClassifier.IsUpgrade(before, current))
+        {
+            _logger.LogWarning(
+                "Forced bind of {Inf} for {Device} reported success but the active driver is unchanged",
+                result.InfName, deviceName);
+            return null;
+        }
+
+        _logger.LogInformation(
+            "Forced bind verified for {Device}: active driver changed from {OldVersion} to {NewVersion} using {Inf}",
+            deviceName,
+            before.CurrentVersion?.ToString() ?? "?",
+            current.Version?.ToString() ?? "?",
+            result.InfName);
+
+        operation = operation with
+        {
+            Status = UpdateStatus.Succeeded,
+            ErrorMessage = null,
+            VerifiedState = current,
             CompletedAt = _clock.GetUtcNow()
         };
         progress?.Report(operation);
@@ -1802,9 +1902,21 @@ public sealed partial class InstallPipeline : IInstallPipeline
             return true;
         }
 
-        // Nothing in the id told us how to drive this one. Ask the file. A candidate the AI
-        // found carries an "ai-latest:" id, so without this every such installer - including
-        // ordinary NSIS and Inno packages straight off the vendor's own CDN - was refused.
+        // Nothing in the id told us how to drive this one. Ask the URL first: the vendor page
+        // resolver already recognises the vendor packages by their file name, and their
+        // documented switches beat anything sniffed out of the binary.
+        if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            && VendorPageInstallerResolver.TryClassifyExe(candidate.DownloadUrl, out var vendorKind)
+            && TryGetKnownExeSilentArguments($"vendor-installer:{vendorKind}:", installerPath, out arguments))
+        {
+            fileName = installerPath;
+            skipReason = string.Empty;
+            return true;
+        }
+
+        // Otherwise ask the file. A candidate the AI found carries an "ai-latest:" id, so
+        // without this every such installer - including ordinary NSIS and Inno packages
+        // straight off the vendor's own CDN - was refused.
         if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
         {
             var family = InstallerFamilyDetector.Detect(installerPath);
