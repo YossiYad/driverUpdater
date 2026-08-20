@@ -293,6 +293,10 @@ public partial class DriverRowViewModel : ObservableObject
             {
                 parts.Add($"Latest known version: {verdict.LatestKnownVersion}");
             }
+            if (verdict.Sources is { Count: > 0 } sources)
+            {
+                parts.Add("Checked: " + string.Join(Environment.NewLine, sources));
+            }
             return parts.Count == 0 ? null : string.Join(Environment.NewLine + Environment.NewLine, parts);
         }
     }

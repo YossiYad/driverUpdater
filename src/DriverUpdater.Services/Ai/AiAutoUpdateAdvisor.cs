@@ -88,7 +88,7 @@ public sealed class AiAutoUpdateAdvisor : IAiAutoUpdateAdvisor
                 Verdict: verdict);
         }
 
-        if (!IsWithinTolerance(verdict.Risk, riskTolerance))
+        if (!AiUpdateRiskPolicy.IsWithinTolerance(verdict.Risk, riskTolerance))
         {
             return new AiUpdateDecision(
                 id,
@@ -105,13 +105,6 @@ public sealed class AiAutoUpdateAdvisor : IAiAutoUpdateAdvisor
             Reason: Describe($"risk rated {verdict.Risk}", verdict),
             Verdict: verdict);
     }
-
-    private static bool IsWithinTolerance(AiRiskLevel risk, AiAutoUpdateRiskTolerance tolerance) => risk switch
-    {
-        AiRiskLevel.Safe => true,
-        AiRiskLevel.Caution => tolerance == AiAutoUpdateRiskTolerance.SafeAndCaution,
-        _ => false
-    };
 
     private static string Describe(string reason, AiVerdict verdict)
     {

@@ -33,7 +33,9 @@ DriverUpdater ships with an optional AI layer that turns the raw scan into decis
 
 - **Driver chat in the main window.** Ask anything about the scan in plain language: what is worth updating, what is risky, why a driver is flagged. The assistant answers grounded in your actual driver list and can offer a one-click install for the drivers it recommends.
 - **Live update awareness.** The chat reads the session logs, so during an update run you can ask "why is this taking so long?" or "did anything fail?" and get an answer based on what is actually happening, step by step and timestamp by timestamp.
+- **Researched, not remembered.** Before the AI recommends or installs a version it reads the vendor and OEM pages for that exact hardware, the release notes of the version it is about to recommend, and what owners of the same hardware report about it. Vendors often pin a hardware generation or model to a particular driver branch, and that beats a higher version number. The pages it used are listed with the recommendation.
 - **Update verification.** After installs, the AI reviews what really changed and flags updates that did not stick.
+- **Update with AI.** One button in the toolbar: the app scans, the AI researches the current drivers for your exact hardware on the web, and only the updates it endorses at your configured risk tolerance are installed. A review window shows exactly what it picked and why (and what it left out) before anything is installed, with a "do not show this again" tick for later runs. Anything it cannot rate is left alone.
 - **AI-decided scheduled updates.** In scheduled mode the AI reviews every found update with the configured provider and installs only what it recommends, up to the risk level you allow.
 - **Settings by conversation.** The assistant can propose app settings changes; nothing is applied without your confirmation.
 

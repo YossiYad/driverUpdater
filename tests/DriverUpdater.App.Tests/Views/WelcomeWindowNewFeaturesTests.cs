@@ -64,6 +64,7 @@ public class WelcomeWindowNewFeaturesTests
         var expectedHeadings = panelName == "EnglishPanel"
             ? new[]
             {
+                "Update with AI, in one click: ",
                 "Every version a driver has had, and a way back: ",
                 "The AI looks things up on the web before answering: ",
                 "The AI can read what is happening right now: ",
@@ -79,6 +80,7 @@ public class WelcomeWindowNewFeaturesTests
             }
             : new[]
             {
+                "עדכון עם AI בלחיצה אחת: ",
                 "כל גרסה שהייתה למנהל התקן, ודרך לחזור אליה: ",
                 "ה־AI מחפש ברשת לפני שהוא עונה: ",
                 "ה־AI רואה מה קורה ברגע זה: ",

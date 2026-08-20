@@ -45,6 +45,7 @@ internal static class AiVerificationProtocol
         }
 
         AppendMachineSection(sb, machine, webSearchEnabled);
+        AppendResearchSection(sb, webSearchEnabled);
 
         if (unattendedRun)
         {
@@ -61,6 +62,8 @@ internal static class AiVerificationProtocol
         sb.AppendLine("- Be stricter for display, storage, firmware, chipset, network, and security drivers because a bad update can break boot, graphics, connectivity, or device trust.");
         sb.AppendLine("- Treat vendor-page/advisory results as less certain than direct Windows Update, Microsoft Catalog package, or a known signed vendor installer.");
         sb.AppendLine("- Do not assume the newest driver is always the best fit. Prefer the newest stable, officially supported version for this exact PC/hardware/Windows generation; if an OEM-customized or older stable branch is safer, say so.");
+        sb.AppendLine("- Vendors often publish a specific driver branch or version for a hardware generation, model, or product line. When the vendor names one for this hardware, that is the version to recommend even if a higher-numbered driver exists for other hardware, and moving off it counts against the candidate.");
+        sb.AppendLine("- Weigh what owners of this exact hardware report about a version. Repeated first-hand reports of crashes, black screens, timeouts, stutter, failed installs, or rollbacks raise the risk and can make an older stable version the recommendation; a single complaint is not evidence.");
         sb.AppendLine();
         sb.AppendLine("Also fill: summary (one short recommendation sentence for a UI badge, e.g. 'Recommended', 'Use caution', 'Avoid for now', or 'Not enough evidence'), rationale (1-3 sentences explaining version evidence, hardware/source match, and reported issues), latestKnownVersion (the version you believe is actually the latest for this device, or null if unsure), latestKnownDate (release date as yyyy-MM-dd, or null), latestKnownUrl (official vendor/Microsoft support or download page URL, or null).");
         sb.AppendLine("Driver-advisor feedback fields:");
@@ -68,6 +71,9 @@ internal static class AiVerificationProtocol
         sb.AppendLine("- candidateSuitability: one sentence about whether the candidate/latest driver appears suitable for this PC/hardware/Windows setup, including OEM-vs-generic concerns when relevant.");
         sb.AppendLine("- recommendedVersion: the version you would actually recommend for this PC, which may be the installed version, the latest version, or another stable/OEM version; null if unsure.");
         sb.AppendLine("- advisorNote: short practical advice for the user, such as install, keep current, use OEM tool, wait, or only update if fixing a specific issue.");
+        sb.AppendLine(webSearchEnabled
+            ? "- sources: the URLs you actually opened for this driver, official vendor and OEM pages first, then release notes, then user reports. Leave the array empty only when you found nothing usable."
+            : "- sources: leave this as an empty array; you had no web access for this request.");
         sb.AppendLine("When findLatestWhenNoCandidate=true, there may be no candidate package yet. In that case, use official vendor, OEM support, Microsoft Catalog, or Microsoft Download Center sources whenever possible and provide latestKnownUrl so the app can offer a vendor-check action. Do not use documentation, learn.microsoft.com articles, issue trackers, search-result pages, or general background pages as latestKnownUrl unless no install/support page exists; if only documentation exists, set isGenuinelyNewer=false or explain that this is advisory-only.");
         sb.AppendLine();
         sb.AppendLine("Candidates:");
@@ -92,7 +98,7 @@ internal static class AiVerificationProtocol
         }
         sb.AppendLine();
         sb.AppendLine("Respond with ONLY a JSON object, no markdown, in exactly this shape:");
-        sb.AppendLine("{\"verdicts\":[{\"id\":\"<id>\",\"isGenuinelyNewer\":true,\"risk\":\"Safe\",\"summary\":\"...\",\"rationale\":\"...\",\"latestKnownVersion\":\"...\",\"latestKnownDate\":\"2026-01-31\",\"latestKnownUrl\":\"https://...\",\"installedSuitability\":\"...\",\"candidateSuitability\":\"...\",\"recommendedVersion\":\"...\",\"advisorNote\":\"...\"}]}");
+        sb.AppendLine("{\"verdicts\":[{\"id\":\"<id>\",\"isGenuinelyNewer\":true,\"risk\":\"Safe\",\"summary\":\"...\",\"rationale\":\"...\",\"latestKnownVersion\":\"...\",\"latestKnownDate\":\"2026-01-31\",\"latestKnownUrl\":\"https://...\",\"installedSuitability\":\"...\",\"candidateSuitability\":\"...\",\"recommendedVersion\":\"...\",\"advisorNote\":\"...\",\"sources\":[\"https://...\"]}]}");
         return sb.ToString();
     }
 
@@ -117,6 +123,36 @@ internal static class AiVerificationProtocol
             sb.AppendLine("When you search, put these details in the query: the system model, the motherboard, the CPU, the");
             sb.AppendLine("GPU, and the Windows build, alongside the device name and the version numbers involved.");
         }
+        sb.AppendLine();
+    }
+
+    // A driver recommendation is only as good as what it was checked against. Without this the
+    // model answers from memory and its "latest is best" instinct, which is wrong whenever a
+    // vendor pins a hardware generation to a particular driver branch, or whenever a version is
+    // fine everywhere except on this hardware.
+    private static void AppendResearchSection(StringBuilder sb, bool webSearchEnabled)
+    {
+        if (!webSearchEnabled)
+        {
+            return;
+        }
+
+        sb.AppendLine("RESEARCH BEFORE YOU ANSWER. Never recommend, endorse, or rate a version from memory alone. Every");
+        sb.AppendLine("recommendation must rest on pages you actually opened for this request:");
+        sb.AppendLine("1. The vendor's own download and support pages for this exact device, model, or product family,");
+        sb.AppendLine("   including any statement that ties a driver branch or version to a hardware generation, product");
+        sb.AppendLine("   line, or OEM model. If the vendor names one for this hardware, that is what you recommend, even");
+        sb.AppendLine("   when a higher-numbered driver exists for other hardware.");
+        sb.AppendLine("2. The release notes and known-issues list of the version you are about to recommend.");
+        sb.AppendLine("3. What owners of this exact hardware report about that version: the vendor's own community forum,");
+        sb.AppendLine("   Reddit, and comparable discussion sites. Recurring first-hand reports of crashes, black screens,");
+        sb.AppendLine("   driver timeouts, stutter, failed installs, or rollbacks raise the risk and can make an older");
+        sb.AppendLine("   stable version the right recommendation.");
+        sb.AppendLine("Weigh official vendor and OEM statements highest, then release notes, then repeated user reports for");
+        sb.AppendLine("this hardware. A single complaint is not evidence that a driver is bad.");
+        sb.AppendLine("Keep recommendedVersion consistent with what those pages say, and list the URLs you used in sources.");
+        sb.AppendLine("If nothing usable turns up for this exact hardware, say so in the rationale and answer Unknown rather");
+        sb.AppendLine("than guessing.");
         sb.AppendLine();
     }
 
@@ -164,7 +200,8 @@ internal static class AiVerificationProtocol
                     InstalledSuitability: NullIfWhiteSpace(v.InstalledSuitability),
                     CandidateSuitability: NullIfWhiteSpace(v.CandidateSuitability),
                     RecommendedVersion: NullIfWhiteSpace(v.RecommendedVersion),
-                    AdvisorNote: NullIfWhiteSpace(v.AdvisorNote));
+                    AdvisorNote: NullIfWhiteSpace(v.AdvisorNote),
+                    Sources: NormalizeSources(v.Sources));
             }
 
             if (result.Count > 0)
@@ -252,6 +289,22 @@ internal static class AiVerificationProtocol
     private static string? NullIfWhiteSpace(string? raw) =>
         string.IsNullOrWhiteSpace(raw) ? null : raw;
 
+    private static IReadOnlyList<string>? NormalizeSources(List<string>? raw)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+
+        var sources = raw
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select(url => url.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToArray();
+        return sources.Length == 0 ? null : sources;
+    }
+
     private sealed record VerdictsEnvelope(List<VerdictDto>? Verdicts);
 
     private sealed record VerdictDto(
@@ -266,5 +319,6 @@ internal static class AiVerificationProtocol
         string? InstalledSuitability,
         string? CandidateSuitability,
         string? RecommendedVersion,
-        string? AdvisorNote);
+        string? AdvisorNote,
+        List<string>? Sources);
 }

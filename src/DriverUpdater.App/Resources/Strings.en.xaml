@@ -11,6 +11,8 @@
     <sys:String x:Key="Toolbar.ScanWithAi">Scan with AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAi">Update with AI</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">Scan with AI, then install only the updates the AI recommends for this hardware</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve updates in app</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>
@@ -54,6 +56,13 @@
     <sys:String x:Key="Grid.Provider">Provider</sys:String>
     <sys:String x:Key="Grid.DriverVersion">Driver version</sys:String>
 
+    <sys:String x:Key="AiPlan.Title">Updates the AI chose</sys:String>
+    <sys:String x:Key="AiPlan.Heading">These are the updates the AI picked for this computer</sys:String>
+    <sys:String x:Key="AiPlan.Subheading">Each one is listed with the reason the AI gave after checking your hardware and what the vendor published. Untick anything you do not want installed.</sys:String>
+    <sys:String x:Key="AiPlan.DoNotShowAgain">Do not show this window again; install what the AI picks</sys:String>
+    <sys:String x:Key="AiPlan.Sources">Checked before recommending:</sys:String>
+    <sys:String x:Key="AiPlan.CancelButton">Cancel</sys:String>
+    <sys:String x:Key="AiPlan.InstallButton">Install these updates</sys:String>
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>
     <sys:String x:Key="Confirm.Current">Current</sys:String>
     <sys:String x:Key="Confirm.Available">Available</sys:String>
@@ -104,6 +113,7 @@
     <sys:String x:Key="Settings.Ai.DailyRequestLimit">Daily RPD limit</sys:String>
     <sys:String x:Key="Settings.Ai.DailyRequestLimitHint">Enter the total RPD available across the configured projects. Count a shared project only once. Use 0 when unknown.</sys:String>
     <sys:String x:Key="Settings.Ai.ShowScanWarning">Show the Gemini request usage warning before AI scans</sys:String>
+    <sys:String x:Key="Settings.Ai.ShowUpdatePlan">Show what the AI picked before Update with AI installs it</sys:String>
     <sys:String x:Key="Settings.Ai.WebSearch">Use live web search to check for the latest version and reported issues</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaUrl">Base URL</sys:String>
     <sys:String x:Key="Settings.Ai.KeyWarning">Gemini API keys are stored in plain text in settings.json on this computer. Only enable this on a machine you trust.</sys:String>

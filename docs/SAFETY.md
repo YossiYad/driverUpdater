@@ -67,6 +67,19 @@ Settings > Schedule offers one list of schedule types, and the installing ones r
 
 Every one of these gates fails closed. An unreadable selection file, a missing AI provider, an unreachable AI provider, or a failed AI review all mean "install nothing this run" - never "install everything". Restore point and per-device backup still run for each unattended install.
 
+## Layer 7: One-click "Update with AI"
+
+The toolbar button runs an AI scan and then installs only the updates the AI endorsed, without asking the user to judge each one. It uses the same rules as the AI schedule and the same risk tolerance from Settings > Schedule, so the two never disagree about the same verdict:
+
+- Before anything is installed, a review window lists every update the AI picked with the reason it gave, the pages it checked, and the ones it left out with their reason. Each pick can be unticked, and Cancel installs nothing at all.
+- The window can be turned off from inside it ("do not show this window again") or from Settings > AI. With it off, the endorsed updates install straight away; the rules below still apply.
+- An update without a verdict is never installed. "No answer" is not an endorsement.
+- An update the AI does not consider a genuine upgrade is never installed.
+- An update rated above the configured tolerance is never installed.
+- Excluded devices stay excluded, and the confirmation dialog, restore point, and per-device backup all still run for the batch.
+
+If the scan is cancelled or fails, nothing is installed at all.
+
 ## What the app explicitly will not do
 
 - It will not install unsigned INFs without an explicit per-install override.

@@ -46,6 +46,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IAiTextCompleter? _driverChatCompleter;
     private readonly IMachineProfileProvider? _machineProfileProvider;
     private readonly IOptionsMonitor<AiSettings>? _aiSettings;
+    private readonly IOptionsMonitor<ScheduleSettings>? _scheduleSettings;
+    private readonly IAiUpdatePlanConfirmation? _aiUpdatePlanConfirmation;
     private readonly IAiScanConfirmation? _aiScanConfirmation;
     private readonly IPostUpdateSummaryCoordinator? _postUpdateSummaryCoordinator;
     private readonly ISupportWindowOpener? _supportWindowOpener;
@@ -112,7 +114,15 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(ScanWithAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(ScanCancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
     private bool _isScanning;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ScanWithAiCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateWithAiCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateAllCommand))]
+    private bool _isUpdatingWithAi;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProgressText))]
@@ -222,7 +232,9 @@ public partial class MainViewModel : ObservableObject
         IDriverDowngradeService? downgradeService = null,
         IDriverVersionHistoryWindowOpener? versionHistoryWindowOpener = null,
         IRestorePointService? restorePointService = null,
-        IMachineProfileProvider? machineProfileProvider = null)
+        IMachineProfileProvider? machineProfileProvider = null,
+        IOptionsMonitor<ScheduleSettings>? scheduleSettings = null,
+        IAiUpdatePlanConfirmation? aiUpdatePlanConfirmation = null)
     {
         ArgumentNullException.ThrowIfNull(scanService);
         ArgumentNullException.ThrowIfNull(updateSources);
@@ -252,6 +264,8 @@ public partial class MainViewModel : ObservableObject
         _ineffectiveUpdateStore = ineffectiveUpdateStore;
         _driverChatCompleter = driverChatCompleter;
         _aiSettings = aiSettings;
+        _scheduleSettings = scheduleSettings;
+        _aiUpdatePlanConfirmation = aiUpdatePlanConfirmation;
         _aiScanConfirmation = aiScanConfirmation;
         _postUpdateSummaryCoordinator = postUpdateSummaryCoordinator;
         _supportWindowOpener = supportWindowOpener;
@@ -1146,7 +1160,143 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void ScanCancel() => _scanCancellation?.Cancel();
 
-    private async Task RunScanAsync(bool includeAi)
+    // One click for the whole loop: scan, let the AI research the hardware on the web, then
+    // install exactly what it endorsed. Nothing is asked of the user between the click and the
+    // install confirmation, so an update the AI could not rate is left alone rather than
+    // guessed at.
+    [RelayCommand(CanExecute = nameof(CanUpdateWithAi))]
+    private async Task UpdateWithAiAsync(CancellationToken cancellationToken)
+    {
+        if (_aiVerifier?.IsConfigured != true)
+        {
+            StatusText = "Configure an AI provider in Settings before using Update with AI.";
+            return;
+        }
+
+        IsUpdatingWithAi = true;
+        try
+        {
+            var tolerance = _scheduleSettings?.CurrentValue.AiRiskTolerance ?? AiAutoUpdateRiskTolerance.SafeOnly;
+            _logger.LogInformation(
+                "Update with AI started: provider={Provider}, risk tolerance={Tolerance}",
+                _aiVerifier.Provider, tolerance);
+
+            if (!await RunScanAsync(includeAi: true).ConfigureAwait(true))
+            {
+                StatusText = "Update with AI stopped: the AI scan did not finish, so nothing was installed.";
+                return;
+            }
+
+            var plan = BuildAiUpdatePlan(tolerance);
+            if (plan.Endorsed.Count == 0)
+            {
+                StatusText = UpdatesFoundCount == 0
+                    ? "Update with AI: the AI found nothing to update."
+                    : $"Update with AI: the AI did not endorse any of the {UpdatesFoundCount} available update(s) "
+                      + $"at the {AiUpdateRiskPolicy.Describe(tolerance)} risk tolerance. Nothing was installed.";
+                return;
+            }
+
+            // The user sees what the AI picked and why before a single install starts. Once they
+            // tick "do not show this again" the confirmation returns the full list unchanged.
+            var approved = _aiUpdatePlanConfirmation is null
+                ? plan.Endorsed.Select(entry => entry.Row).ToArray()
+                : await _aiUpdatePlanConfirmation.ConfirmAsync(plan, cancellationToken).ConfigureAwait(true);
+            if (approved is null)
+            {
+                StatusText = "Update with AI cancelled. Nothing was installed.";
+                _logger.LogInformation("Update with AI cancelled at the plan review; nothing was installed");
+                return;
+            }
+            if (approved.Count == 0)
+            {
+                StatusText = "Update with AI: no update was left ticked, so nothing was installed.";
+                return;
+            }
+
+            StatusText = $"Update with AI: installing {approved.Count} update(s) the AI endorsed...";
+            await RunUpdatesAsync(approved, dryRun: false, includeVendorPages: true, cancellationToken)
+                .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Update with AI cancelled.";
+            _logger.LogInformation("Update with AI cancelled");
+        }
+        finally
+        {
+            IsUpdatingWithAi = false;
+        }
+    }
+
+    private bool CanUpdateWithAi() => !IsScanning && !IsUpdatingWithAi;
+
+    // Every row the AI actually vouched for, plus the ones it turned down and the reason why,
+    // so the review window can show both sides. A row without a verdict is never endorsed:
+    // "no answer" is not an endorsement.
+    private AiUpdatePlan BuildAiUpdatePlan(AiAutoUpdateRiskTolerance tolerance)
+    {
+        var endorsed = new List<AiUpdatePlanEntry>();
+        var skipped = new List<AiUpdatePlanEntry>();
+        foreach (var row in Drivers)
+        {
+            if (!row.CanUpdate)
+            {
+                continue;
+            }
+
+            var verdict = row.AvailableUpdate?.AiVerification;
+            if (verdict is null)
+            {
+                Skip(row, AiRiskLevel.Unknown, "The AI returned no verdict for this update.");
+                continue;
+            }
+
+            if (!verdict.IsGenuinelyNewer)
+            {
+                Skip(row, verdict.Risk, DescribeAiDecision("The AI does not consider this a genuine upgrade", verdict));
+                continue;
+            }
+
+            if (!AiUpdateRiskPolicy.IsWithinTolerance(verdict.Risk, tolerance))
+            {
+                Skip(
+                    row,
+                    verdict.Risk,
+                    DescribeAiDecision(
+                        $"Risk rated {verdict.Risk}, above the {AiUpdateRiskPolicy.Describe(tolerance)} tolerance",
+                        verdict));
+                continue;
+            }
+
+            var reason = DescribeAiDecision($"Risk rated {verdict.Risk}", verdict);
+            _logger.LogInformation(
+                "Update with AI: endorsing {Device} - risk rated {Risk}, target {Version}. {Summary}",
+                DriverDisplayName(row), verdict.Risk, row.AvailableUpdate!.DisplayVersion, verdict.Summary);
+            endorsed.Add(new AiUpdatePlanEntry(row, reason, verdict.Risk, IsEndorsed: true));
+        }
+
+        _logger.LogInformation(
+            "Update with AI selection: {Selected} of {Available} available update(s) endorsed at tolerance {Tolerance}",
+            endorsed.Count, UpdatesFoundCount, tolerance);
+        return new AiUpdatePlan(endorsed, skipped, tolerance);
+
+        void Skip(DriverRowViewModel row, AiRiskLevel risk, string reason)
+        {
+            _logger.LogInformation(
+                "Update with AI: skipping {Device} - {Reason}",
+                DriverDisplayName(row), reason);
+            skipped.Add(new AiUpdatePlanEntry(row, reason, risk, IsEndorsed: false));
+        }
+    }
+
+    private static string DescribeAiDecision(string reason, AiVerdict verdict)
+    {
+        var summary = verdict.Summary?.Trim();
+        return string.IsNullOrEmpty(summary) ? reason + "." : $"{reason}: {summary}";
+    }
+
+    private async Task<bool> RunScanAsync(bool includeAi)
     {
         using var scanCancellation = new CancellationTokenSource();
         _scanCancellation = scanCancellation;
@@ -1173,7 +1323,7 @@ public partial class MainViewModel : ObservableObject
 
             if (DiscardScanIfCacheWasCleared())
             {
-                return;
+                return false;
             }
 
             var elapsed = stopwatch.Elapsed;
@@ -1187,11 +1337,11 @@ public partial class MainViewModel : ObservableObject
 
             if (!await QueryUpdateSourcesAsync(cancellationToken))
             {
-                return;
+                return false;
             }
             if (DiscardScanIfCacheWasCleared())
             {
-                return;
+                return false;
             }
             RestorePendingUpdates(previousRows);
 
@@ -1217,13 +1367,13 @@ public partial class MainViewModel : ObservableObject
 
             if (DiscardScanIfCacheWasCleared())
             {
-                return;
+                return false;
             }
 
             await ResolveVendorPageCandidatesAsync(cancellationToken).ConfigureAwait(true);
             if (DiscardScanIfCacheWasCleared())
             {
-                return;
+                return false;
             }
 
             FinalizeScanStatuses();
@@ -1235,10 +1385,10 @@ public partial class MainViewModel : ObservableObject
                   + $"({ConfirmedUpdatesCount} confirmed, {VendorChecksCount} likely).";
             if (DiscardScanIfCacheWasCleared())
             {
-                return;
+                return false;
             }
             await SaveDriverCacheAsync(cancellationToken).ConfigureAwait(true);
-            DiscardScanIfCacheWasCleared();
+            return !DiscardScanIfCacheWasCleared();
         }
         catch (OperationCanceledException)
         {
@@ -1262,6 +1412,8 @@ public partial class MainViewModel : ObservableObject
             }
             IsScanning = false;
         }
+
+        return false;
     }
 
     private AiScanUsageEstimate BuildAiScanUsageEstimate()
@@ -2753,7 +2905,7 @@ public partial class MainViewModel : ObservableObject
     private static bool ShouldAcceptCandidate(DriverRowViewModel row, UpdateCandidate candidate) =>
         DriverUpdateMatcher.ShouldReplace(row.AvailableUpdate, candidate);
 
-    private bool CanScan() => !IsScanning;
+    private bool CanScan() => !IsScanning && !IsUpdatingWithAi;
 
     private bool CanCancelScan() => IsScanning && _scanCancellation is not null;
 
@@ -2841,7 +2993,7 @@ public partial class MainViewModel : ObservableObject
         await RunUpdatesAsync(pageTargets, dryRun: false, includeVendorPages: true, cancellationToken).ConfigureAwait(true);
     }
 
-    private bool CanUpdateAll() => Drivers.Any(r => r.CanUpdate);
+    private bool CanUpdateAll() => !IsUpdatingWithAi && Drivers.Any(r => r.CanUpdate);
 
     private bool CanOpenVendorChecks() => VendorChecksCount > 0;
 

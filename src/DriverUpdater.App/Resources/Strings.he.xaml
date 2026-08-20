@@ -26,6 +26,8 @@
     <sys:String x:Key="Toolbar.ScanWithAi">סריקה עם AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAi">עדכן עם AI</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">סריקה עם AI, ואז התקנה של העדכונים שה-AI ממליץ עליהם לחומרה הזאת בלבד</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">בצע עדכונים באפליקציה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
@@ -55,6 +57,13 @@
     <sys:String x:Key="Grid.Provider">ספק</sys:String>
     <sys:String x:Key="Grid.DriverVersion">גרסת דרייבר</sys:String>
 
+    <sys:String x:Key="AiPlan.Title">העדכונים שה-AI בחר</sys:String>
+    <sys:String x:Key="AiPlan.Heading">אלה העדכונים שה-AI בחר עבור המחשב הזה</sys:String>
+    <sys:String x:Key="AiPlan.Subheading">לכל אחד מופיעה הסיבה שה-AI נתן אחרי שבדק את החומרה שלכם ואת מה שהיצרן פרסם. אפשר להסיר סימון מכל מה שאתם לא רוצים להתקין.</sys:String>
+    <sys:String x:Key="AiPlan.DoNotShowAgain">אל תציג את החלון הזה שוב; התקן את מה שה-AI בוחר</sys:String>
+    <sys:String x:Key="AiPlan.Sources">נבדק לפני ההמלצה:</sys:String>
+    <sys:String x:Key="AiPlan.CancelButton">ביטול</sys:String>
+    <sys:String x:Key="AiPlan.InstallButton">התקן את העדכונים האלה</sys:String>
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
     <sys:String x:Key="Confirm.Current">נוכחי</sys:String>
     <sys:String x:Key="Confirm.Available">זמין</sys:String>
@@ -105,6 +114,7 @@
     <sys:String x:Key="Settings.Ai.DailyRequestLimit">מגבלת RPD יומית</sys:String>
     <sys:String x:Key="Settings.Ai.DailyRequestLimitHint">יש להזין את סך ה-RPD הזמין בכל הפרויקטים המוגדרים. פרויקט משותף נספר פעם אחת בלבד. יש להשתמש ב-0 כשהמגבלה אינה ידועה.</sys:String>
     <sys:String x:Key="Settings.Ai.ShowScanWarning">הצג אזהרת שימוש בבקשות Gemini לפני סריקות AI</sys:String>
+    <sys:String x:Key="Settings.Ai.ShowUpdatePlan">הצג מה ה-AI בחר לפני שהעדכון עם AI מתקין</sys:String>
     <sys:String x:Key="Settings.Ai.WebSearch">השתמש בחיפוש אינטרנט חי כדי לבדוק את הגרסה האחרונה ובעיות מדווחות</sys:String>
     <sys:String x:Key="Settings.Ai.OllamaUrl">כתובת בסיס</sys:String>
     <sys:String x:Key="Settings.Ai.KeyWarning">מפתחות ה-API של Gemini נשמרים כטקסט גלוי בקובץ settings.json במחשב הזה. הפעל זאת רק במחשב שאתה סומך עליו.</sys:String>

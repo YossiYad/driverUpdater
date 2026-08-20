@@ -611,6 +611,9 @@
                                           IsChecked="{Binding ShowAiScanUsageWarning}"
                                           Content="{DynamicResource Settings.Ai.ShowScanWarning}" />
                                 <CheckBox Margin="0,12,0,0"
+                                          IsChecked="{Binding ShowAiUpdatePlanReview}"
+                                          Content="{DynamicResource Settings.Ai.ShowUpdatePlan}" />
+                                <CheckBox Margin="0,12,0,0"
                                           IsChecked="{Binding EnableAiWebSearch}"
                                           Content="{DynamicResource Settings.Ai.WebSearch}" />
 

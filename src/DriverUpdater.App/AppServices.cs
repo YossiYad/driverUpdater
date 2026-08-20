@@ -20,6 +20,7 @@ public static class AppServices
         services.AddDriverUpdaterServices();
         services.AddSingleton<IInstallConfirmation, DialogInstallConfirmation>();
         services.AddSingleton<IAiScanConfirmation, DialogAiScanConfirmation>();
+        services.AddSingleton<IAiUpdatePlanConfirmation, DialogAiUpdatePlanConfirmation>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<IExternalLinkOpener, ExternalLinkOpener>();
         services.AddSingleton<ISupportWindowOpener, SupportWindowOpener>();

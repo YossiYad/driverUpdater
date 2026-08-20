@@ -11,4 +11,5 @@ public sealed record AiVerdict(
     string? InstalledSuitability = null,
     string? CandidateSuitability = null,
     string? RecommendedVersion = null,
-    string? AdvisorNote = null);
+    string? AdvisorNote = null,
+    IReadOnlyList<string>? Sources = null);
