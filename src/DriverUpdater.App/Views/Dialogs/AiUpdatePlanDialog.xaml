@@ -100,6 +100,15 @@
                                                        FontSize="12"
                                                        TextWrapping="Wrap"
                                                        Text="{Binding Reason}" />
+                                            <TextBlock Margin="0,6,0,0"
+                                                       FontSize="11"
+                                                       Opacity="0.7"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{Binding HasSources, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <Run Text="{DynamicResource AiPlan.Sources}" />
+                                                <LineBreak />
+                                                <Run Text="{Binding SourcesText, Mode=OneWay}" />
+                                            </TextBlock>
                                         </StackPanel>
                                     </Grid>
                                 </Border>

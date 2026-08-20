@@ -66,6 +66,34 @@ public class AiVerificationProtocolTests
     }
 
     [Fact]
+    public void BuildPrompt_requires_vendor_and_user_report_research_before_recommending()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "AMD Radeon RX 7700 XT", "1.0.0.0", "2.0.0.0") },
+            machine: Machine(),
+            webSearchEnabled: true);
+
+        prompt.Should().Contain("RESEARCH BEFORE YOU ANSWER");
+        prompt.Should().Contain("download and support pages for this exact device");
+        prompt.Should().Contain("ties a driver branch or version to a hardware generation");
+        prompt.Should().Contain("community forum");
+        prompt.Should().Contain("release notes and known-issues list");
+        prompt.Should().Contain("sources");
+    }
+
+    [Fact]
+    public void BuildPrompt_does_not_ask_for_research_it_cannot_do()
+    {
+        var prompt = AiVerificationProtocol.BuildPrompt(
+            new[] { NewRequest("corr-1", "Realtek Audio", "1.0", "2.0") },
+            machine: Machine(),
+            webSearchEnabled: false);
+
+        prompt.Should().NotContain("RESEARCH BEFORE YOU ANSWER");
+        prompt.Should().Contain("leave this as an empty array");
+    }
+
+    [Fact]
     public void BuildPrompt_forbids_invented_lookups_when_there_is_no_web_access()
     {
         // Ollama has no search tool. Telling it to "search the web" only invites a made-up
@@ -221,6 +249,40 @@ public class AiVerificationProtocolTests
         verdicts["corr-1"].CandidateSuitability.Should().Be("The candidate is suitable for this adapter and Windows generation.");
         verdicts["corr-1"].RecommendedVersion.Should().Be("2.0.0.0");
         verdicts["corr-1"].AdvisorNote.Should().Contain("Install");
+    }
+
+    [Fact]
+    public void ParseVerdicts_reads_the_pages_the_model_says_it_checked()
+    {
+        const string raw = """
+            {"verdicts":[{
+              "id":"corr-1",
+              "isGenuinelyNewer":true,
+              "risk":"Caution",
+              "summary":"Use caution",
+              "rationale":"The vendor pins this hardware generation to an older branch.",
+              "latestKnownVersion":"2.0.0.0",
+              "sources":["https://vendor.example/support/driver","  ","https://VENDOR.example/support/driver","https://forum.example/thread/1"]
+            }]}
+            """;
+
+        var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
+
+        verdicts["corr-1"].Sources.Should().Equal(
+            "https://vendor.example/support/driver",
+            "https://forum.example/thread/1");
+    }
+
+    [Fact]
+    public void ParseVerdicts_leaves_sources_null_when_the_model_listed_none()
+    {
+        const string raw = """
+            {"verdicts":[{"id":"corr-1","isGenuinelyNewer":true,"risk":"Safe","summary":"ok","rationale":"ok","sources":[]}]}
+            """;
+
+        var verdicts = AiVerificationProtocol.ParseVerdicts(raw);
+
+        verdicts["corr-1"].Sources.Should().BeNull();
     }
 
     [Theory]

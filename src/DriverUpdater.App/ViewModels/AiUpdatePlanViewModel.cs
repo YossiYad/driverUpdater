@@ -109,6 +109,13 @@ public partial class AiUpdatePlanItemViewModel : ObservableObject
 
     public string SourceText => Entry.Row.SourceText ?? "Unknown source";
 
+    public IReadOnlyList<string> Sources =>
+        Entry.Row.AvailableUpdate?.AiVerification?.Sources ?? Array.Empty<string>();
+
+    public bool HasSources => Sources.Count > 0;
+
+    public string SourcesText => string.Join(Environment.NewLine, Sources);
+
     public string RiskText => Entry.Risk switch
     {
         AiRiskLevel.Safe => "Safe",

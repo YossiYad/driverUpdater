@@ -60,6 +60,7 @@
     <sys:String x:Key="AiPlan.Heading">These are the updates the AI picked for this computer</sys:String>
     <sys:String x:Key="AiPlan.Subheading">Each one is listed with the reason the AI gave after checking your hardware and what the vendor published. Untick anything you do not want installed.</sys:String>
     <sys:String x:Key="AiPlan.DoNotShowAgain">Do not show this window again; install what the AI picks</sys:String>
+    <sys:String x:Key="AiPlan.Sources">Checked before recommending:</sys:String>
     <sys:String x:Key="AiPlan.CancelButton">Cancel</sys:String>
     <sys:String x:Key="AiPlan.InstallButton">Install these updates</sys:String>
     <sys:String x:Key="Confirm.Title">Confirm driver update</sys:String>

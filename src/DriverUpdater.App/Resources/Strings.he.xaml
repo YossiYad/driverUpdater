@@ -61,6 +61,7 @@
     <sys:String x:Key="AiPlan.Heading">אלה העדכונים שה-AI בחר עבור המחשב הזה</sys:String>
     <sys:String x:Key="AiPlan.Subheading">לכל אחד מופיעה הסיבה שה-AI נתן אחרי שבדק את החומרה שלכם ואת מה שהיצרן פרסם. אפשר להסיר סימון מכל מה שאתם לא רוצים להתקין.</sys:String>
     <sys:String x:Key="AiPlan.DoNotShowAgain">אל תציג את החלון הזה שוב; התקן את מה שה-AI בוחר</sys:String>
+    <sys:String x:Key="AiPlan.Sources">נבדק לפני ההמלצה:</sys:String>
     <sys:String x:Key="AiPlan.CancelButton">ביטול</sys:String>
     <sys:String x:Key="AiPlan.InstallButton">התקן את העדכונים האלה</sys:String>
     <sys:String x:Key="Confirm.Title">אישור עדכון דרייבר</sys:String>
