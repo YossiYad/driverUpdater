@@ -11,6 +11,8 @@
     <sys:String x:Key="Toolbar.ScanWithAi">Scan with AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">Cancel</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">Update all</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAi">Update with AI</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">Scan with AI, then install only the updates the AI recommends for this hardware</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">Update selected</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">Resolve updates in app</sys:String>
     <sys:String x:Key="Toolbar.History">History</sys:String>

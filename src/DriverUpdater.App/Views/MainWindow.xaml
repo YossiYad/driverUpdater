@@ -364,6 +364,12 @@
                             Content="{DynamicResource Toolbar.UpdateAll}"
                             Command="{Binding UpdateAllCommand}"
                             Style="{DynamicResource AccentButtonStyle}" />
+                    <Button Margin="8,0,0,0"
+                            MinWidth="132"
+                            Padding="14,6"
+                            Content="{DynamicResource Toolbar.UpdateWithAi}"
+                            Command="{Binding UpdateWithAiCommand}"
+                            ToolTip="{DynamicResource Toolbar.UpdateWithAiTooltip}" />
                     <Button x:Name="UpdateSelectedButton"
                             Margin="8,0,0,0"
                             MinWidth="132"

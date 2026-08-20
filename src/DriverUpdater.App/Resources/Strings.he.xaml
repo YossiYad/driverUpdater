@@ -26,6 +26,8 @@
     <sys:String x:Key="Toolbar.ScanWithAi">סריקה עם AI</sys:String>
     <sys:String x:Key="Toolbar.Cancel">ביטול</sys:String>
     <sys:String x:Key="Toolbar.UpdateAll">עדכן הכל</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAi">עדכן עם AI</sys:String>
+    <sys:String x:Key="Toolbar.UpdateWithAiTooltip">סריקה עם AI, ואז התקנה של העדכונים שה-AI ממליץ עליהם לחומרה הזאת בלבד</sys:String>
     <sys:String x:Key="Toolbar.UpdateSelected">עדכן נבחרים</sys:String>
     <sys:String x:Key="Toolbar.OpenVendorChecks">בצע עדכונים באפליקציה</sys:String>
     <sys:String x:Key="Toolbar.History">היסטוריה</sys:String>
